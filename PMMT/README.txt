@@ -1,0 +1,1 @@
+In order to use unicode fonts in console you'll need to install font "merged-unifont-mono.ttf"
