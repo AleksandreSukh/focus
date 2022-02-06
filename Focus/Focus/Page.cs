@@ -25,7 +25,7 @@ namespace Systems.Sanity.Focus
 
         public abstract void Show();
         protected ConsoleInput GetInput(string prompt = "") =>
-            new(ReadLine.Read(prompt));
+            new(ReadLine.Read(prompt).Trim());
 
         protected void Notify(string notification)
         {
