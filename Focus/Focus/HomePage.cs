@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Enumeration;
 using System.Linq;
 
 namespace Systems.Sanity.Focus
@@ -53,6 +54,9 @@ namespace Systems.Sanity.Focus
                     ) +
                     $"Type \"{OptionExit}\" - to exit{Environment.NewLine}");
 
+                if (string.IsNullOrWhiteSpace(input.InputString))
+                    continue;
+
                 switch (input.FirstWord)
                 {
                     case OptionExit:
@@ -96,13 +100,27 @@ namespace Systems.Sanity.Focus
 
         private FileInfo FindFile(string fileIdentifier)
         {
+            
+            var invalidCharacters = Path.GetInvalidFileNameChars();
+
             if (int.TryParse(fileIdentifier, out int fileNumber) &&
-                _filesToChooseFrom.TryGetValue(fileNumber, out FileInfo file)
-                || (file = new FileInfo(Path.Combine(_mapsStorage.UserMindMapsDirectory,
-                    fileIdentifier))).Exists
-                || (file = new FileInfo(Path.Combine(_mapsStorage.UserMindMapsDirectory,
-                    $"{fileIdentifier}.json"))).Exists)
+                _filesToChooseFrom.TryGetValue(fileNumber, out FileInfo file))
+            {
                 return file;
+            }
+            var fileNameIsValid = fileIdentifier.IndexOfAny(Path.GetInvalidFileNameChars()) < 0;
+
+            if (fileNameIsValid)
+            {
+                if ((file = new FileInfo(Path.Combine(_mapsStorage.UserMindMapsDirectory,
+                        fileIdentifier))).Exists
+                    || (file = new FileInfo(Path.Combine(_mapsStorage.UserMindMapsDirectory,
+                        $"{fileIdentifier}.json"))).Exists)
+                {
+                    return file;
+                }
+            }
+
             return null;
         }
 

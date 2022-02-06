@@ -27,9 +27,10 @@ namespace Systems.Sanity.Focus
         protected ConsoleInput GetInput(string prompt = "") =>
             new(ReadLine.Read(prompt));
 
-        protected void Notify(string notificaiton)
+        protected void Notify(string notification)
         {
-            Console.WriteLine($"! {notificaiton}");
+            Console.Clear();
+            Console.WriteLine($"! {notification}");
             Console.WriteLine("Press any key to continue");
             Console.ReadKey();
         }

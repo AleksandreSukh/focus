@@ -24,7 +24,7 @@ namespace Systems.Sanity.Focus
         private void ParseOptions(string input)
         {
             var options = GetCommandOptions().WithLocalizations();
-            if (!options.Contains(input))
+            if (!string.IsNullOrWhiteSpace(input) && !options.Contains(input))
             {
                 Notify("Wrong!  - valid options are:" + string.Join(", ", options));
                 Show();

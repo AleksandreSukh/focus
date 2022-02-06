@@ -2,9 +2,6 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Threading;
-using LibGit2Sharp;
-using LibGit2Sharp.Handlers;
 using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Infrastructure.Git;
 
@@ -50,168 +47,159 @@ namespace Systems.Sanity.Focus
         {
             Console.Title = Path.GetFileName(_filePath) ?? Console.Title;
             var exit = false;
+            Redraw();
+
             while (!exit)
             {
-                Save();
-                Redraw();
-                exit = ProcessCommand();
+                var commandResult = ProcessCommand();
+                exit = commandResult.ShouldExit;
+                if (commandResult.IsSuccess)
+                {
+                    Save();
+                    Redraw();
+                }
+                else
+                {
+                    Redraw(commandResult.ErrorString);
+                }
             }
-            Console.WriteLine("Saving map");
             Save();
         }
 
-        private bool ProcessCommand()
+        private CommandExecutionResult ProcessCommand()
         {
             var input = GetCommand();
+            if (string.IsNullOrWhiteSpace(input.InputString))
+                return CommandExecutionResult.Error("Empty command");
             var command = input.FirstWord.ToCommandLanguage();
             var parameters = input.Parameters;
 
             switch (command)
             {
-                case ExitOption:
-                    return true;
+                case ExitOption: return CommandExecutionResult.ExitCommand;
                 case EditOption:
                     new EditMode(_map, parameters).Show();
-                    break;
+                    return CommandExecutionResult.Success;
                 case AddOption:
                     new AddMode(_map).Show();
-                    break;
+                    return CommandExecutionResult.Success;
                 case AttachOption:
                     new AttachMode(_map, _mapsStorage).Show();
-                    break;
-                case DetachOption:
-                    {
-                        ProcessDetach(parameters);
-                        break;
-                    }
-                case HideOption:
-                    {
-                        ProcessHide(parameters);
-                        break;
-                    }
-                case UnhideOption:
-                    {
-                        ProcessUnhide(parameters);
-                        break;
-                    }
-                case GoToOption:
-                    {
-                        ProcessGoTo(parameters);
-                        break;
-                    }
-                case DelOption:
-                    {
-                        ProcessCommandDel(parameters);
-                        break;
-                    }
-                case RootOption:
-                    ProcessGoToRoot();
-                    break;
-                case UpOption:
-                    ProcessCommandGoUp();
-                    break;
+                    return CommandExecutionResult.Success;
+                case DetachOption: return ProcessDetach(parameters);
+                case HideOption: return ProcessHide(parameters);
+                case UnhideOption: return ProcessUnhide(parameters);
+                case GoToOption: return ProcessGoTo(parameters);
+                case DelOption: return ProcessCommandDel(parameters);
+                case RootOption: return ProcessGoToRoot();
+                case UpOption: return ProcessCommandGoUp();
                 default:
                     {
                         if (ThereAreSubNodes())
-                        {
-                            ProcessCommandGoToChild(command);
-                        }
-                        else
-                        {
-                            new AddMode(_map).ShowWithInitialInput(input.InputString);
-                        }
-                    }
-                    break;
-            }
+                            return ProcessCommandGoToChild(command);
 
-            return false;
+                        new AddMode(_map).ShowWithInitialInput(input.InputString);
+                        return CommandExecutionResult.Success;
+                    }
+            }
         }
 
-        private void ProcessGoToRoot()
+        private CommandExecutionResult ProcessGoToRoot()
         {
             if (_map.GoToRoot())
-                Redraw();
-            else Console.WriteLine("Can't go to root");
-        }
-
-        private void ProcessGoTo(string parameters)
-        {
-            if (parameters == GoToOptionSubOption_Up)
             {
-                ProcessCommandGoUp();
-                return;
+                return CommandExecutionResult.Success;
             }
-
-            ProcessCommandGoToChild(parameters);
+            return CommandExecutionResult.Error("Can't go to root");
         }
 
-        private void ProcessDetach(string parameters)
+        private CommandExecutionResult ProcessGoTo(string parameters)
+        {
+            return parameters == GoToOptionSubOption_Up
+                ? ProcessCommandGoUp()
+                : ProcessCommandGoToChild(parameters);
+        }
+
+        private CommandExecutionResult ProcessDetach(string parameters)
         {
             var nodeIdentifier = parameters;
             var detachedMap = _map.DetachNode(nodeIdentifier);
             if (detachedMap == null)
             {
-                Console.WriteLine($"Can't find \"{nodeIdentifier}\"");
-                return;
+                return CommandExecutionResult.Error($"Can't find \"{nodeIdentifier}\"");
             }
 
             new NewMapPage(_mapsStorage, detachedMap.RootNode.Name, detachedMap).Show();
+            return CommandExecutionResult.Success;
         }
 
-        private void ProcessHide(string parameters)
+        private CommandExecutionResult ProcessHide(string parameters)
         {
             var nodeIdentifier = parameters;
             if (_map.HideNode(nodeIdentifier))
-                Redraw();
-            else Console.WriteLine($"Can't find \"{nodeIdentifier}\"");
+            {
+                return CommandExecutionResult.Success;
+            }
+            return CommandExecutionResult.Error($"Can't find \"{nodeIdentifier}\"");
         }
 
-        private void ProcessUnhide(string parameters)
+        private CommandExecutionResult ProcessUnhide(string parameters)
         {
             var nodeIdentifier = parameters;
             if (_map.UnhideNode(nodeIdentifier))
-                Redraw();
-            else Console.WriteLine($"Can't find \"{nodeIdentifier}\"");
+            {
+                return CommandExecutionResult.Success;
+            }
+            return CommandExecutionResult.Error($"Can't find \"{nodeIdentifier}\"");
         }
 
-        private void ProcessCommandDel(string parameters)
+        private CommandExecutionResult ProcessCommandDel(string parameters)
         {
             var nodeIdentifier = parameters;
-            if (!_map.HasNode(nodeIdentifier))
+            if (_map.HasNode(nodeIdentifier))
             {
-                Console.WriteLine($"Can't find \"{nodeIdentifier}\"");
-                return;
+                if (new Confirmation($"Are you sure to delete \"{nodeIdentifier}\"").Confirmed())
+                {
+                    if (_map.DeleteNode(nodeIdentifier))
+                    {
+                        return CommandExecutionResult.Success;
+                    }
+                }
             }
 
-            if (new Confirmation($"Are you sure to delete \"{nodeIdentifier}\"").Confirmed())
-            {
-                if (_map.DeleteNode(nodeIdentifier))
-                    Redraw();
-            }
+            return CommandExecutionResult.Error($"Can't find \"{nodeIdentifier}\"");
         }
 
-        private void ProcessCommandGoToChild(string parameters)
+        private CommandExecutionResult ProcessCommandGoToChild(string parameters)
         {
             var nodeIdentifier = parameters;
             if (_map.ChangeCurrentNode(nodeIdentifier))
-                Redraw();
-            else Console.WriteLine($"Can't find \"{nodeIdentifier}\"");
+            {
+                return CommandExecutionResult.Success;
+            }
+            return CommandExecutionResult.Error($"Can't find \"{nodeIdentifier}\"");
         }
 
-        private void ProcessCommandGoUp()
+        private CommandExecutionResult ProcessCommandGoUp()
         {
             if (_map.GoUp())
-                Redraw();
-            else Console.WriteLine("Can't go up");
+            {
+                return CommandExecutionResult.Success;
+            }
+            return CommandExecutionResult.Error("Can't go up");
         }
 
         private bool ThereAreSubNodes() => _map.GetChildren().Any();
 
-        private void Redraw()
+        private void Redraw(string message = null)
         {
             Console.Clear();
             Console.WriteLine(_map.GetCurrentNodeString());
-            Console.WriteLine($">:{string.Join("; ", GetCommandOptions())}");
+
+            if (!string.IsNullOrEmpty(message)) 
+                Console.WriteLine($":! {message}{Environment.NewLine}");
+
+            Console.WriteLine($":> {string.Join("; ", GetCommandOptions())}");
         }
 
         private void Save()
@@ -237,5 +225,25 @@ namespace Systems.Sanity.Focus
                     .Union(NodeOptions.SelectMany(opt => childNodes.Keys.Select(k => $"{opt} {k}")))
                     .Union(NodeOptions.SelectMany(opt => childNodes.Values.Select(k => $"{opt} {k}")));
         }
+    }
+
+    public sealed class CommandExecutionResult
+    {
+        public bool ShouldExit { get; private set; }
+        public bool IsSuccess { get; private set; }
+        public string ErrorString { get; private set; }
+
+        private CommandExecutionResult(string errorString)
+        {
+            ErrorString = errorString;
+        }
+
+        private CommandExecutionResult() { }
+
+        public static readonly CommandExecutionResult Success = new() { IsSuccess = true };
+
+        public static readonly CommandExecutionResult ExitCommand = new() { ShouldExit = true };
+
+        public static CommandExecutionResult Error(string errorString) => new(errorString);
     }
 }
