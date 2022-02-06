@@ -14,7 +14,7 @@ namespace Systems.Sanity.Focus
         private const string DetachOption = "detach";
         private const string UpOption = "up";
         private const string GoToOption = "cd";
-        private const string GoToOptionSubOption_Up = "..";
+        private const string GoToOptionSubOptionUp = "..";
         private const string RootOption = "ls";
         private const string DelOption = "del";
         private const string EditOption = "edit";
@@ -22,7 +22,7 @@ namespace Systems.Sanity.Focus
         private const string UnhideOption = "max";
         private const string ExitOption = "exit";
 
-        private readonly string[] NodeOptions = new[] { GoToOption, DelOption, HideOption, UnhideOption, DetachOption };
+        private readonly string[] _nodeOptions = new[] { GoToOption, DelOption, HideOption, UnhideOption, DetachOption };
 
         private readonly string _filePath;
         private MindMap _map;
@@ -115,7 +115,7 @@ namespace Systems.Sanity.Focus
 
         private CommandExecutionResult ProcessGoTo(string parameters)
         {
-            return parameters == GoToOptionSubOption_Up
+            return parameters == GoToOptionSubOptionUp
                 ? ProcessCommandGoUp()
                 : ProcessCommandGoToChild(parameters);
         }
@@ -222,28 +222,8 @@ namespace Systems.Sanity.Focus
 
             return GetCommandOptions()
                     .Union(childNodes.Keys.Select(k => k.ToString()))
-                    .Union(NodeOptions.SelectMany(opt => childNodes.Keys.Select(k => $"{opt} {k}")))
-                    .Union(NodeOptions.SelectMany(opt => childNodes.Values.Select(k => $"{opt} {k}")));
+                    .Union(_nodeOptions.SelectMany(opt => childNodes.Keys.Select(k => $"{opt} {k}")))
+                    .Union(_nodeOptions.SelectMany(opt => childNodes.Values.Select(k => $"{opt} {k}")));
         }
-    }
-
-    public sealed class CommandExecutionResult
-    {
-        public bool ShouldExit { get; private set; }
-        public bool IsSuccess { get; private set; }
-        public string ErrorString { get; private set; }
-
-        private CommandExecutionResult(string errorString)
-        {
-            ErrorString = errorString;
-        }
-
-        private CommandExecutionResult() { }
-
-        public static readonly CommandExecutionResult Success = new() { IsSuccess = true };
-
-        public static readonly CommandExecutionResult ExitCommand = new() { ShouldExit = true };
-
-        public static CommandExecutionResult Error(string errorString) => new(errorString);
     }
 }
