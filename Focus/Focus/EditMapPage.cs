@@ -2,9 +2,9 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using LibGit2Sharp;
 using LibGit2Sharp.Handlers;
-using Microsoft.Alm.Authentication;
 using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Infrastructure.Git;
 
@@ -30,6 +30,7 @@ namespace Systems.Sanity.Focus
         private readonly string _filePath;
         private MindMap _map;
         private readonly MapsStorage _mapsStorage;
+        private readonly GitHelper _gitHelper;
 
         public EditMapPage(
             string filePath,
@@ -38,6 +39,11 @@ namespace Systems.Sanity.Focus
             _filePath = filePath;
             _mapsStorage = mapsStorage;
             _map = MapFile.OpenFile(_filePath);
+            var gitRepositoryName = _mapsStorage.GitRepository;
+            if (!string.IsNullOrWhiteSpace(gitRepositoryName))
+            {
+                _gitHelper = new GitHelper(gitRepositoryName);
+            }
         }
 
         public override void Show()
@@ -211,72 +217,7 @@ namespace Systems.Sanity.Focus
         private void Save()
         {
             _map.SaveTo(_filePath);
-            var gitRepositoryName = _mapsStorage.GitRepository;
-            if (!string.IsNullOrWhiteSpace(gitRepositoryName))
-            {
-                GitHelper.SyncronizeToRemote(gitRepositoryName);
-            }
-        }
-
-        
-
-        //private Credentials CreateCredentials(string url, string user, SupportedCredentialTypes supportedCredentialTypes)
-        //{
-        //    var userInformationService = _appServiceProvider.GetService<IUserInformationService>();
-        //    return new SecureUsernamePasswordCredentials
-        //    {
-        //        Username = userInformationService.ConnectionData.UserName,
-        //        Password = userInformationService.ConnectionData.Password.ToSecureString(),
-        //    };
-        //}
-
-        //private void Push(Repository activeRepository)
-        //{
-        //    var pushOptions = new PushOptions()
-        //    {
-        //        CredentialsProvider = this.CreateCredentials
-        //    };
-
-        //    var remote = activeRepository.Network.Remotes[remoteName];
-        //    if (activeRepository.Head?.Commits != null && activeRepository.Head.Commits.Any())
-        //    {
-        //        activeRepository.Network.Push(remote, "HEAD", @"refs/heads/" + mainBranch, pushOptions);
-        //    }
-        //}
-
-        //private void Fetch(Repository activeRepository)
-        //{
-        //    var fetchOptions = new FetchOptions()
-        //    {
-        //        CredentialsProvider = this.CreateCredentials
-        //    };
-        //    Commands.Fetch(activeRepository, remoteName, new string[0], fetchOptions, null);
-        //}
-
-        CredentialsHandler credentialsHandler_;
-
-        public LibGit2Sharp.Handlers.CredentialsHandler CredentialsHandler
-        {
-            get
-            {
-                if (credentialsHandler_ == null)
-                {
-                    credentialsHandler_ = (_url, _user, _cred) => new DefaultCredentials();
-
-                    //This does not fix the 401 error on Jupiter box
-                    //credentialsHandler_ = (_url, _user, _cred) => new UsernamePasswordCredentials
-                    //{
-                    //  Username = userName,
-                    //  Password = pwd,
-                    //};
-                }
-                return credentialsHandler_;
-            }
-
-            set
-            {
-                credentialsHandler_ = value;
-            }
+            _gitHelper?.SyncronizeToRemote();
         }
 
         private string[] GetCommandOptions() =>
