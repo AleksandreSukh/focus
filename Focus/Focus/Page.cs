@@ -8,14 +8,14 @@ namespace Systems.Sanity.Focus
     {
         public string[] GetSuggestions(string text, int index)
         {
-            return GetSuggestionsInner(text, index)
+            return GetPageSpecificSuggestions(text, index)
                 .Where(i => i.Length > text.Length && i.StartsWith(text))
                 .ToArray();
         }
 
         public char[] Separators { get; set; } = new char[] { ' ' };
 
-        public virtual IEnumerable<string> GetSuggestionsInner(string text, int index)
+        protected virtual IEnumerable<string> GetPageSpecificSuggestions(string text, int index)
             => Array.Empty<string>();
 
         protected Page()

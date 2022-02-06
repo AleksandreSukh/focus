@@ -6,7 +6,7 @@ namespace Systems.Sanity.Focus
 {
     public abstract class PageWithExclusiveOptions : Page
     {
-        public override IEnumerable<string> GetSuggestionsInner(string text, int index)
+        protected override IEnumerable<string> GetPageSpecificSuggestions(string text, int index)
         {
             return GetCommandOptions();
         }

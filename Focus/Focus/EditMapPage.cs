@@ -17,11 +17,11 @@ namespace Systems.Sanity.Focus
         private const string RootOption = "ls";
         private const string DelOption = "del";
         private const string EditOption = "edit";
-        private const string HideOption = "-";
-        private const string UnhideOption = "+";
+        private const string HideOption = "min";
+        private const string UnhideOption = "max";
         private const string ExitOption = "exit";
 
-        private readonly string[] NodeOptions = new[] { GoToOption, DelOption };
+        private readonly string[] NodeOptions = new[] { GoToOption, DelOption, HideOption, UnhideOption, DetachOption };
 
         private readonly string _filePath;
         private MindMap _map;
@@ -69,66 +69,31 @@ namespace Systems.Sanity.Focus
                     break;
                 case DetachOption:
                     {
-                        var nodeIdentifier = parameters;
-                        var detachedMap = _map.DetachNode(nodeIdentifier);
-                        if (detachedMap == null)
-                        {
-                            Console.WriteLine($"Can't find \"{nodeIdentifier}\"");
-                            break;
-                        }
-                        new NewMapPage(_mapsStorage, detachedMap.RootNode.Name, detachedMap).Show();
+                        ProcessDetach(parameters);
                         break;
                     }
                 case HideOption:
-                {
-                    var nodeIdentifier = parameters;
-                    if (_map.HideNode(nodeIdentifier))
-                        Redraw();
-                    else Console.WriteLine($"Can't find \"{nodeIdentifier}\"");
-                    break;
-                }
+                    {
+                        ProcessHide(parameters);
+                        break;
+                    }
                 case UnhideOption:
-                {
-                    var nodeIdentifier = parameters;
-                    if (_map.UnhideNode(nodeIdentifier))
-                        Redraw();
-                    else Console.WriteLine($"Can't find \"{nodeIdentifier}\"");
-                    break;
-                }
+                    {
+                        ProcessUnhide(parameters);
+                        break;
+                    }
                 case GoToOption:
                     {
-                        if (parameters == GoToOptionSubOption_Up)
-                        {
-                            ProcessCommandGoUp();
-                            break;
-                        }
-
-                        var nodeIdentifier = parameters;
-                        if (_map.ChangeCurrentNode(nodeIdentifier))
-                            Redraw();
-                        else Console.WriteLine($"Can't find \"{nodeIdentifier}\"");
+                        ProcessGoTo(parameters);
                         break;
                     }
                 case DelOption:
                     {
-                        var nodeIdentifier = parameters;
-                        if (!_map.HasNode(nodeIdentifier))
-                        {
-                            Console.WriteLine($"Can't find \"{nodeIdentifier}\"");
-                            break;
-                        }
-
-                        if (new Confirmation($"Are you sure to delete \"{nodeIdentifier}\"").Confirmed())
-                        {
-                            if (_map.DeleteNode(nodeIdentifier))
-                                Redraw();
-                        }
+                        ProcessCommandDel(parameters);
                         break;
                     }
                 case RootOption:
-                    if (_map.GoToRoot())
-                        Redraw();
-                    else Console.WriteLine("Can't go to root");
+                    ProcessGoToRoot();
                     break;
                 case UpOption:
                     ProcessCommandGoUp();
@@ -137,10 +102,7 @@ namespace Systems.Sanity.Focus
                     {
                         if (ThereAreSubNodes())
                         {
-                            var nodeIdentifier = command;
-                            if (_map.ChangeCurrentNode(nodeIdentifier))
-                                Redraw();
-                            else Notify($"Can't find \"{nodeIdentifier}\"");
+                            ProcessCommandGoToChild(command);
                         }
                         else
                         {
@@ -151,6 +113,77 @@ namespace Systems.Sanity.Focus
             }
 
             return false;
+        }
+
+        private void ProcessGoToRoot()
+        {
+            if (_map.GoToRoot())
+                Redraw();
+            else Console.WriteLine("Can't go to root");
+        }
+
+        private void ProcessGoTo(string parameters)
+        {
+            if (parameters == GoToOptionSubOption_Up)
+            {
+                ProcessCommandGoUp();
+                return;
+            }
+
+            ProcessCommandGoToChild(parameters);
+        }
+
+        private void ProcessDetach(string parameters)
+        {
+            var nodeIdentifier = parameters;
+            var detachedMap = _map.DetachNode(nodeIdentifier);
+            if (detachedMap == null)
+            {
+                Console.WriteLine($"Can't find \"{nodeIdentifier}\"");
+                return;
+            }
+
+            new NewMapPage(_mapsStorage, detachedMap.RootNode.Name, detachedMap).Show();
+        }
+
+        private void ProcessHide(string parameters)
+        {
+            var nodeIdentifier = parameters;
+            if (_map.HideNode(nodeIdentifier))
+                Redraw();
+            else Console.WriteLine($"Can't find \"{nodeIdentifier}\"");
+        }
+
+        private void ProcessUnhide(string parameters)
+        {
+            var nodeIdentifier = parameters;
+            if (_map.UnhideNode(nodeIdentifier))
+                Redraw();
+            else Console.WriteLine($"Can't find \"{nodeIdentifier}\"");
+        }
+
+        private void ProcessCommandDel(string parameters)
+        {
+            var nodeIdentifier = parameters;
+            if (!_map.HasNode(nodeIdentifier))
+            {
+                Console.WriteLine($"Can't find \"{nodeIdentifier}\"");
+                return;
+            }
+
+            if (new Confirmation($"Are you sure to delete \"{nodeIdentifier}\"").Confirmed())
+            {
+                if (_map.DeleteNode(nodeIdentifier))
+                    Redraw();
+            }
+        }
+
+        private void ProcessCommandGoToChild(string parameters)
+        {
+            var nodeIdentifier = parameters;
+            if (_map.ChangeCurrentNode(nodeIdentifier))
+                Redraw();
+            else Console.WriteLine($"Can't find \"{nodeIdentifier}\"");
         }
 
         private void ProcessCommandGoUp()
@@ -177,7 +210,7 @@ namespace Systems.Sanity.Focus
                 .Union(_map.GetChildren().Keys.Select(k => AccessibleKeyNumbering.GetStringFor(k)))
                 .ToArray();
 
-        public override IEnumerable<string> GetSuggestionsInner(string text, int index)
+        protected override IEnumerable<string> GetPageSpecificSuggestions(string text, int index)
         {
             var childNodes = _map.GetChildren();
             if (!childNodes.Any())

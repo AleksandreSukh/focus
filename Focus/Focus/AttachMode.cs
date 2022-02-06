@@ -73,7 +73,7 @@ namespace Systems.Sanity.Focus
             _map.LoadAtCurrentNode(map);
         }
 
-        public override IEnumerable<string> GetSuggestionsInner(string text, int index)
+        protected override IEnumerable<string> GetPageSpecificSuggestions(string text, int index)
         {
             return _filesToChooseFrom.Keys.Select(k => k.ToString());
         }

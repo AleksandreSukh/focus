@@ -43,7 +43,7 @@ namespace Systems.Sanity.Focus
 
                 var input = GetCommand(
                     Environment.NewLine +
-                    $"Choose file number to open.{Environment.NewLine}" +
+                    (existingMaps.Length > 0 ? $"Choose file number to open.{Environment.NewLine}" : "") +
                     $"Type \"{OptionNew}\" and file name to create new file{Environment.NewLine}" +
                     (_filesToChooseFrom.Any()
                         ? $"Type \"{OptionDel}\" and file number or name to delete{Environment.NewLine}"
@@ -116,7 +116,7 @@ namespace Systems.Sanity.Focus
         }
 
         //TODO
-        public override IEnumerable<string> GetSuggestionsInner(string text, int index) =>
+        protected override IEnumerable<string> GetPageSpecificSuggestions(string text, int index) =>
             (!_filesToChooseFrom.Any()
                 ? GetCommandOptions()
                 : GetCommandOptions()
