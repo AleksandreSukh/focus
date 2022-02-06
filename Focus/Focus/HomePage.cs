@@ -12,13 +12,15 @@ namespace Systems.Sanity.Focus
         public const string OptionExit = "exit";
 
         private readonly MapsStorage _mapsStorage;
+        private readonly UserConfig _userConfig;
 
         private Dictionary<int, FileInfo> _filesToChooseFrom;
         private bool _shouldExit;
 
-        public HomePage(MapsStorage mapsStorage)
+        public HomePage(MapsStorage mapsStorage, UserConfig userConfig)
         {
             _mapsStorage = mapsStorage;
+            _userConfig = userConfig;
         }
 
         public override void Show()

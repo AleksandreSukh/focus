@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 16
 VisualStudioVersion = 16.0.31702.278
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Focus", "Focus\Focus.csproj", "{AD73D136-7C0F-4410-9147-405C083F4726}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Systems.Sanity.Focus", "Focus\Systems.Sanity.Focus.csproj", "{AD73D136-7C0F-4410-9147-405C083F4726}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

@@ -6,13 +6,16 @@ namespace Systems.Sanity.Focus
 {
     public class MapsStorage
     {
-        public MapsStorage(string userMindMapsDirectory)
+        const string MapsFolderName = "FocusMaps"; //TODO
+
+        public MapsStorage(UserConfig userConfig)
         {
-            UserMindMapsDirectory = userMindMapsDirectory;
+            UserMindMapsDirectory = Path.Combine(userConfig.DataFolder, MapsFolderName);
+            GitRepository = userConfig.GitRepository;
         }
 
-        //TODO - naming
         public string UserMindMapsDirectory { get; }
+        public string GitRepository { get; }
 
         public FileInfo[] GetTop(int top)
         {
