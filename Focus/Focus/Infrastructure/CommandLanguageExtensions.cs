@@ -23,6 +23,8 @@ namespace Systems.Sanity.Focus
             }
         }
 
+        public static bool IsOtherLanguage(string input) => GeorgianMappingDict.ContainsKey(input.FirstOrDefault());
+
         public static string ToCommandLanguage(this string maybeOtherLanguage)
         {
             var resultStringBuilder = new StringBuilder(maybeOtherLanguage.Length);

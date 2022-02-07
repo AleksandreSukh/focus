@@ -173,7 +173,8 @@ namespace Systems.Sanity.Focus
         private CommandExecutionResult ProcessCommandGoToChild(string parameters)
         {
             var nodeIdentifier = parameters;
-            if (_map.ChangeCurrentNode(nodeIdentifier))
+
+            if (ProcessCommandInvariant(_map.ChangeCurrentNode, nodeIdentifier))
             {
                 return CommandExecutionResult.Success;
             }
@@ -196,7 +197,7 @@ namespace Systems.Sanity.Focus
             Console.Clear();
             Console.WriteLine(_map.GetCurrentNodeString());
 
-            if (!string.IsNullOrEmpty(message)) 
+            if (!string.IsNullOrEmpty(message))
                 Console.WriteLine($":! {message}{Environment.NewLine}");
 
             Console.WriteLine($":> {string.Join("; ", GetCommandOptions())}");
