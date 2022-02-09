@@ -95,11 +95,11 @@ namespace Systems.Sanity.Focus
             foreach (var word in words)
             {
                 var spaceHasLeft = availableWidthForNodeName - spaceUsedOnCurrentLine;
-                if (word.Length < spaceHasLeft - 1) // 1 char will be used for space
+                if (word.Length + 1 < spaceHasLeft) // 1 char will be used for space
                 {
                     sb.Append(' ');
                     sb.Append(word);
-                    spaceUsedOnCurrentLine += word.Length;
+                    spaceUsedOnCurrentLine += word.Length + 1;
                 }
                 else
                 {
