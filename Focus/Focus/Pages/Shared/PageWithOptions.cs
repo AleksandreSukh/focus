@@ -1,8 +1,8 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
+using Systems.Sanity.Focus.Infrastructure;
 
-namespace Systems.Sanity.Focus
+namespace Systems.Sanity.Focus.Pages.Shared
 {
     public abstract class PageWithExclusiveOptions : Page
     {

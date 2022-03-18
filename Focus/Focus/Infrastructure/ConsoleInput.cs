@@ -1,6 +1,6 @@
 ﻿using System.Linq;
 
-namespace Systems.Sanity.Focus
+namespace Systems.Sanity.Focus.Infrastructure
 {
     public sealed class ConsoleInput
     {

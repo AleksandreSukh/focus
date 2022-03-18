@@ -1,8 +1,11 @@
 ﻿using System;
 using System.IO;
 using System.Text.Json;
+using Systems.Sanity.Focus.Domain;
+using Systems.Sanity.Focus.Pages.Edit;
+using Systems.Sanity.Focus.Pages.Shared;
 
-namespace Systems.Sanity.Focus
+namespace Systems.Sanity.Focus.Pages
 {
     internal class NewMapPage : Page
     {

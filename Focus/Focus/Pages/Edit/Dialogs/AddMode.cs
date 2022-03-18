@@ -1,4 +1,7 @@
-﻿namespace Systems.Sanity.Focus
+﻿using Systems.Sanity.Focus.Domain;
+using Systems.Sanity.Focus.Pages.Shared;
+
+namespace Systems.Sanity.Focus.Pages.Edit.Dialogs
 {
     internal class AddMode : Page
     {

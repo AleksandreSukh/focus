@@ -1,16 +1,20 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using System.IO.Enumeration;
 using System.Linq;
+using Systems.Sanity.Focus.Domain;
+using Systems.Sanity.Focus.Pages.Edit;
+using Systems.Sanity.Focus.Pages.Shared;
+using Systems.Sanity.Focus.Pages.Shared.Dialogs;
 
-namespace Systems.Sanity.Focus
+namespace Systems.Sanity.Focus.Pages
 {
     internal class HomePage : PageWithExclusiveOptions
     {
         public const string OptionNew = "new";
         public const string OptionDel = "del";
         public const string OptionExit = "exit";
+        public const string OptionRefresh = "ls";
 
         private readonly MapsStorage _mapsStorage;
         private readonly UserConfig _userConfig;
@@ -52,6 +56,7 @@ namespace Systems.Sanity.Focus
                         ? $"Type \"{OptionDel}\" and file number or name to delete{Environment.NewLine}"
                         : ""
                     ) +
+                    $"Type \"{OptionRefresh}\" - to refresh{Environment.NewLine}" +
                     $"Type \"{OptionExit}\" - to exit{Environment.NewLine}");
 
                 if (string.IsNullOrWhiteSpace(input.InputString))
@@ -75,7 +80,7 @@ namespace Systems.Sanity.Focus
                             if (file == null)
                                 ShowFileNotFoundError(fileIdentifier);
                             else
-                                new DeleteMapPage(file).Show();
+                                ShowDeleteFileDialog(file);
                             break;
                         }
                     default:
@@ -92,6 +97,12 @@ namespace Systems.Sanity.Focus
             }
         }
 
+        private static void ShowDeleteFileDialog(FileInfo file)
+        {
+            if (new Confirmation($"Are you sure you want to delete: \"{file.Name}\"?").Confirmed())
+                file.Delete();
+        }
+
         private void ShowFileNotFoundError(string input)
         {
             Console.WriteLine($"File {input} wasn't found. try again");
@@ -100,7 +111,7 @@ namespace Systems.Sanity.Focus
 
         private FileInfo FindFile(string fileIdentifier)
         {
-            
+
             var invalidCharacters = Path.GetInvalidFileNameChars();
 
             if (int.TryParse(fileIdentifier, out int fileNumber) &&
@@ -126,8 +137,8 @@ namespace Systems.Sanity.Focus
 
         protected override string[] GetCommandOptions()
         {
-            var optionsWhenFileExists = new[] { OptionNew, OptionDel, OptionExit };
-            var optionsWhenNoFileExists = new[] { OptionNew, OptionExit };
+            var optionsWhenFileExists = new[] { OptionNew, OptionDel, OptionRefresh, OptionExit };
+            var optionsWhenNoFileExists = new[] { OptionNew, OptionRefresh, OptionExit };
             return _filesToChooseFrom.Any()
                 ? _filesToChooseFrom.Keys.Select(k => k.ToString())
                     .Union(optionsWhenFileExists)

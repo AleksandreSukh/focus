@@ -2,10 +2,14 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Infrastructure.Git;
+using Systems.Sanity.Focus.Pages.Edit.Dialogs;
+using Systems.Sanity.Focus.Pages.Shared;
+using Systems.Sanity.Focus.Pages.Shared.Dialogs;
 
-namespace Systems.Sanity.Focus
+namespace Systems.Sanity.Focus.Pages.Edit
 {
     internal class EditMapPage : PageWithSuggestedOptions
     {
@@ -76,7 +80,7 @@ namespace Systems.Sanity.Focus
 
             switch (command)
             {
-                case ExitOption: return CommandExecutionResult.ExitCommand;
+                case ExitOption: return Exit;
                 case EditOption:
                     new EditMode(_map, parameters).Show();
                     return CommandExecutionResult.Success;
@@ -103,6 +107,8 @@ namespace Systems.Sanity.Focus
                     }
             }
         }
+
+        private static CommandExecutionResult Exit => CommandExecutionResult.ExitCommand;
 
         private CommandExecutionResult ProcessGoToRoot()
         {
@@ -156,18 +162,29 @@ namespace Systems.Sanity.Focus
         private CommandExecutionResult ProcessCommandDel(string parameters)
         {
             var nodeIdentifier = parameters;
-            if (_map.HasNode(nodeIdentifier))
+
+            if (!string.IsNullOrWhiteSpace(nodeIdentifier))
             {
-                if (new Confirmation($"Are you sure to delete \"{nodeIdentifier}\"").Confirmed())
-                {
-                    if (_map.DeleteNode(nodeIdentifier))
-                    {
-                        return CommandExecutionResult.Success;
-                    }
-                }
+                if (!_map.HasNode(nodeIdentifier))
+                    return CommandExecutionResult.Error($"Can't find \"{nodeIdentifier}\"");
+
+                if (!new Confirmation($"Are you sure to delete \"{nodeIdentifier}\"").Confirmed())
+                    return CommandExecutionResult.Error("Cancelled!");
+
+                return _map.DeleteNode(nodeIdentifier)
+                    ? CommandExecutionResult.Success
+                    : CommandExecutionResult.Error($"Couldn't remove \"{nodeIdentifier}\"");
             }
 
-            return CommandExecutionResult.Error($"Can't find \"{nodeIdentifier}\"");
+            if (_map.IsAtRootNode()) 
+                return CommandExecutionResult.Error("Can't remove root node");
+
+            if (!new Confirmation("Are you sure to delete current node").Confirmed())
+                return CommandExecutionResult.Error("Cancelled!");
+            
+            return _map.DeleteCurrentNode()
+                ? CommandExecutionResult.Success
+                : CommandExecutionResult.Error("Can't delete current node (report a bug)");
         }
 
         private CommandExecutionResult ProcessCommandGoToChild(string parameters)
@@ -187,7 +204,7 @@ namespace Systems.Sanity.Focus
             {
                 return CommandExecutionResult.Success;
             }
-            return CommandExecutionResult.Error("Can't go up");
+            return Exit;
         }
 
         private bool ThereAreSubNodes() => _map.GetChildren().Any();

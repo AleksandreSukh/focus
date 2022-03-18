@@ -1,10 +1,9 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using Systems.Sanity.Focus.Infrastructure;
 
-namespace Systems.Sanity.Focus
+namespace Systems.Sanity.Focus.Domain
 {
     public class Node
     {

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 
-namespace Systems.Sanity.Focus
+namespace Systems.Sanity.Focus.Infrastructure
 {
     [Obsolete("Needs to be refactored")]
     public static class CommandLanguageExtensions

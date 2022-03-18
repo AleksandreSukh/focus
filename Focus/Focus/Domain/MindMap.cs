@@ -6,7 +6,7 @@ using System.Text;
 using Newtonsoft.Json;
 using Systems.Sanity.Focus.Infrastructure;
 
-namespace Systems.Sanity.Focus
+namespace Systems.Sanity.Focus.Domain
 {
     [Serializable]
     public class MindMap
@@ -121,6 +121,12 @@ namespace Systems.Sanity.Focus
             return removeResult;
         }
 
+        public bool DeleteCurrentNode()
+        {
+            var nodeToDelete = _currentNode.Number.ToString();
+            return GoUp() && DeleteNode(nodeToDelete);
+        }
+
         private void RenumberChildNodes()
         {
             var childNodes = _currentNode.Children.OrderBy(cn => cn.Number).ToArray();
@@ -154,6 +160,11 @@ namespace Systems.Sanity.Focus
             if (node == null) return false;
             node.Collapsed = false;
             return true;
+        }
+
+        public bool IsAtRootNode()
+        {
+            return _currentNode == RootNode;
         }
     }
 }

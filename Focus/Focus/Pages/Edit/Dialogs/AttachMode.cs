@@ -2,9 +2,11 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.Infrastructure;
+using Systems.Sanity.Focus.Pages.Shared;
 
-namespace Systems.Sanity.Focus
+namespace Systems.Sanity.Focus.Pages.Edit.Dialogs
 {
     //TODO: extract file loader functionality from here and HomePage to new infrastructrue class
     internal class AttachMode : PageWithSuggestedOptions
@@ -54,6 +56,7 @@ namespace Systems.Sanity.Focus
                             else
                             {
                                 LoadFile(file);
+                                file.Delete();
                                 SetToExit();
                             }
                             break;

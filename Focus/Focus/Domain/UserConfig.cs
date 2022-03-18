@@ -1,4 +1,4 @@
-﻿namespace Systems.Sanity.Focus
+﻿namespace Systems.Sanity.Focus.Domain
 {
     public class UserConfig
     {

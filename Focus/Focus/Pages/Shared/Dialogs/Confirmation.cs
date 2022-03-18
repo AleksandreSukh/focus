@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Systems.Sanity.Focus
+namespace Systems.Sanity.Focus.Pages.Shared.Dialogs
 {
     internal class Confirmation
     {
