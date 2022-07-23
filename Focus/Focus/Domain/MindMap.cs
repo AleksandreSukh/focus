@@ -96,7 +96,7 @@ namespace Systems.Sanity.Focus.Domain
         public string GetCurrentNodeString()
         {
             var sb = new StringBuilder();
-            _currentNode.Print("* ", false, 0, sb, Console.WindowWidth - 5);
+            _currentNode.Print("* ", false, 0, sb, ConsoleWrapper.WindowWidth - 5);
             return sb.ToString();
         }
 

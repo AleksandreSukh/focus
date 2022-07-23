@@ -28,13 +28,14 @@ namespace Systems.Sanity.Focus.Pages.Edit.Dialogs
         {
             while (!_shouldExit)
             {
+                //TODO: merge duplicate code with HomePage
                 _filesToChooseFrom = new Dictionary<int, FileInfo>();
                 var existingMaps = _mapsStorage.GetTop(10);
                 for (var index = 0; index < existingMaps.Length; index++)
                 {
                     var mapFile = existingMaps[index];
                     _filesToChooseFrom.Add(index + 1, mapFile);
-                    Console.WriteLine($"{index + 1} - {mapFile.Name}");
+                    Console.WriteLine($"{index + 1} - {mapFile.NameWithoutExtension()}");
                 }
 
                 var input = GetCommand(

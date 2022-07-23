@@ -28,7 +28,7 @@ namespace Systems.Sanity.Focus
             var userConfig = ParseUserConfig(configFile);
 
             var mapsStorage = new MapsStorage(userConfig);
-            var startPage = new HomePage(mapsStorage, userConfig);
+            var startPage = new HomePage(mapsStorage);
             startPage.Show();
         }
 

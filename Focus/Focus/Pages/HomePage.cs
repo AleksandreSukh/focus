@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Systems.Sanity.Focus.Domain;
+using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Pages.Edit;
 using Systems.Sanity.Focus.Pages.Shared;
 using Systems.Sanity.Focus.Pages.Shared.Dialogs;
@@ -17,15 +18,13 @@ namespace Systems.Sanity.Focus.Pages
         public const string OptionRefresh = "ls";
 
         private readonly MapsStorage _mapsStorage;
-        private readonly UserConfig _userConfig;
 
         private Dictionary<int, FileInfo> _filesToChooseFrom;
         private bool _shouldExit;
 
-        public HomePage(MapsStorage mapsStorage, UserConfig userConfig)
+        public HomePage(MapsStorage mapsStorage)
         {
             _mapsStorage = mapsStorage;
-            _userConfig = userConfig;
         }
 
         public override void Show()
@@ -35,7 +34,7 @@ namespace Systems.Sanity.Focus.Pages
                 Console.Clear();
                 var title = "Welcome";
                 Console.Title = title;
-                var ribbonLength = (Console.WindowWidth - title.Length) / 2;
+                var ribbonLength = (ConsoleWrapper.WindowWidth - title.Length) / 2;
                 var ribbon = new string('-', ribbonLength);
                 Console.WriteLine("\n{0}{1}{0}\n", ribbon, title);
 
@@ -45,7 +44,7 @@ namespace Systems.Sanity.Focus.Pages
                 {
                     var mapFile = existingMaps[index];
                     _filesToChooseFrom.Add(index + 1, mapFile);
-                    Console.WriteLine($"{index + 1} - {mapFile.Name}");
+                    Console.WriteLine($"{index + 1} - {mapFile.NameWithoutExtension()}");
                 }
 
                 var input = GetCommand(
