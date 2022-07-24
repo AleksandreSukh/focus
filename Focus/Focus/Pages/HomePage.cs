@@ -19,6 +19,8 @@ namespace Systems.Sanity.Focus.Pages
         public const string OptionExit = "exit";
         public const string OptionRefresh = "ls";
 
+        private static readonly string[] _fileOptions = new[] { OptionRen, OptionDel };
+
         private readonly MapsStorage _mapsStorage;
 
         private Dictionary<int, FileInfo> _filesToChooseFrom;
@@ -41,7 +43,7 @@ namespace Systems.Sanity.Focus.Pages
                 Console.WriteLine("\n{0}{1}{0}\n", ribbon, title);
 
                 _filesToChooseFrom = new Dictionary<int, FileInfo>();
-                var existingMaps = _mapsStorage.GetTop(10);
+                var existingMaps = _mapsStorage.GetTop(10); //TODO:
                 for (var index = 0; index < existingMaps.Length; index++)
                 {
                     var mapFile = existingMaps[index];
@@ -123,9 +125,6 @@ namespace Systems.Sanity.Focus.Pages
 
         private FileInfo FindFile(string fileIdentifier)
         {
-
-            var invalidCharacters = Path.GetInvalidFileNameChars();
-
             if (int.TryParse(fileIdentifier, out int fileNumber) &&
                 _filesToChooseFrom.TryGetValue(fileNumber, out FileInfo file))
             {
@@ -160,17 +159,10 @@ namespace Systems.Sanity.Focus.Pages
 
         //TODO
         protected override IEnumerable<string> GetPageSpecificSuggestions(string text, int index) =>
-            (!_filesToChooseFrom.Any()
+            !_filesToChooseFrom.Any()
                 ? GetCommandOptions()
                 : GetCommandOptions()
-                    .Union(_filesToChooseFrom.Keys
-                        .Select(k => $"{OptionDel} {k}"))
-                    .Union(_filesToChooseFrom.Values
-                        .Select(k => $"{OptionDel} {k.Name}"))
-                    .Union(_filesToChooseFrom.Keys
-                        .Select(k => $"{OptionRen} {k}"))
-                    .Union(_filesToChooseFrom.Values
-                        .Select(k => $"{OptionRen} {k.Name}"))
-                    );
+                    .Union(_fileOptions.SelectMany(opt => _filesToChooseFrom.Keys.Select(k => $"{opt} {k}")))
+                    .Union(_fileOptions.SelectMany(opt => _filesToChooseFrom.Values.Select(k => $"{opt} {k}")));
     }
 }
