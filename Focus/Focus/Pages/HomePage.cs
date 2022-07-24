@@ -5,6 +5,7 @@ using System.Linq;
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Pages.Edit;
+using Systems.Sanity.Focus.Pages.Edit.Dialogs;
 using Systems.Sanity.Focus.Pages.Shared;
 using Systems.Sanity.Focus.Pages.Shared.Dialogs;
 
@@ -13,6 +14,7 @@ namespace Systems.Sanity.Focus.Pages
     internal class HomePage : PageWithExclusiveOptions
     {
         public const string OptionNew = "new";
+        public const string OptionRen = "ren";
         public const string OptionDel = "del";
         public const string OptionExit = "exit";
         public const string OptionRefresh = "ls";
@@ -52,7 +54,8 @@ namespace Systems.Sanity.Focus.Pages
                     (existingMaps.Length > 0 ? $"Choose file number to open.{Environment.NewLine}" : "") +
                     $"Type \"{OptionNew}\" and file name to create new file{Environment.NewLine}" +
                     (_filesToChooseFrom.Any()
-                        ? $"Type \"{OptionDel}\" and file number or name to delete{Environment.NewLine}"
+                        ? $"Type \"{OptionDel}\" and file number or name to delete{Environment.NewLine}" +
+                        $"Type \"{OptionRen}\" and file number or name to rename{Environment.NewLine}"
                         : ""
                     ) +
                     $"Type \"{OptionRefresh}\" - to refresh{Environment.NewLine}" +
@@ -70,6 +73,16 @@ namespace Systems.Sanity.Focus.Pages
                         {
                             var mapName = input.Parameters;
                             new NewMapPage(_mapsStorage, mapName, new MindMap(mapName)).Show();
+                        }
+                        break;
+                    case OptionRen:
+                        {
+                            var fileIdentifier = input.Parameters;
+                            var file = FindFile(fileIdentifier);
+                            if (file == null)
+                                ShowFileNotFoundError(fileIdentifier);
+                            else
+                                new RenameFileDialog(file).Show();
                         }
                         break;
                     case OptionDel:
@@ -136,7 +149,7 @@ namespace Systems.Sanity.Focus.Pages
 
         protected override string[] GetCommandOptions()
         {
-            var optionsWhenFileExists = new[] { OptionNew, OptionDel, OptionRefresh, OptionExit };
+            var optionsWhenFileExists = new[] { OptionNew, OptionRen, OptionDel, OptionRefresh, OptionExit };
             var optionsWhenNoFileExists = new[] { OptionNew, OptionRefresh, OptionExit };
             return _filesToChooseFrom.Any()
                 ? _filesToChooseFrom.Keys.Select(k => k.ToString())
@@ -154,6 +167,10 @@ namespace Systems.Sanity.Focus.Pages
                         .Select(k => $"{OptionDel} {k}"))
                     .Union(_filesToChooseFrom.Values
                         .Select(k => $"{OptionDel} {k.Name}"))
+                    .Union(_filesToChooseFrom.Keys
+                        .Select(k => $"{OptionRen} {k}"))
+                    .Union(_filesToChooseFrom.Values
+                        .Select(k => $"{OptionRen} {k.Name}"))
                     );
     }
 }

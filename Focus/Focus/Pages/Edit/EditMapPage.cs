@@ -27,7 +27,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
         private const string UnhideOption = "max";
         private const string ExitOption = "exit";
 
-        private readonly string[] _nodeOptions = new[] { GoToOption, DelOption, HideOption, UnhideOption, DetachOption };
+        private readonly string[] _nodeOptions = new[] { GoToOption, EditOption, DelOption, HideOption, UnhideOption, DetachOption };
 
         private readonly string _filePath;
         private MindMap _map;
@@ -79,37 +79,60 @@ namespace Systems.Sanity.Focus.Pages.Edit
             var command = input.FirstWord.ToCommandLanguage();
             var parameters = input.Parameters;
 
-            switch (command)
+            return command switch
             {
-                case ExitOption: return Exit;
-                case EditOption:
-                    new EditMode(_map, parameters).Show();
-                    return CommandExecutionResult.Success;
-                case AddOption:
-                    new AddMode(_map).Show();
-                    return CommandExecutionResult.Success;
-                case AddIdeaOption:
-                    new AddIdeaMode(_map).Show();
-                    return CommandExecutionResult.Success;
-                case AttachOption:
-                    new AttachMode(_map, _mapsStorage).Show();
-                    return CommandExecutionResult.Success;
-                case DetachOption: return ProcessDetach(parameters);
-                case HideOption: return ProcessHide(parameters);
-                case UnhideOption: return ProcessUnhide(parameters);
-                case GoToOption: return ProcessGoTo(parameters);
-                case DelOption: return ProcessCommandDel(parameters);
-                case RootOption: return ProcessGoToRoot();
-                case UpOption: return ProcessCommandGoUp();
-                default:
-                    {
-                        if (ThereAreSubNodes())
-                            return ProcessCommandGoToChild(command);
+                ExitOption => Exit,
+                EditOption => ProcessEdit(parameters),
+                AddOption => ProcessAdd(),
+                AddIdeaOption => ProcessAddIdea(parameters),
+                AttachOption => ProcessAttach(),
+                DetachOption => ProcessDetach(parameters),
+                HideOption => ProcessHide(parameters),
+                UnhideOption => ProcessUnhide(parameters),
+                GoToOption => ProcessGoTo(parameters),
+                DelOption => ProcessCommandDel(parameters),
+                RootOption => ProcessGoToRoot(),
+                UpOption => ProcessCommandGoUp(),
+                _ => ThereAreSubNodes() ? ProcessCommandGoToChild(command) : ProcessAddCurrentInputString(input)
+            };
+        }
 
-                        new AddMode(_map).ShowWithInitialInput(input.InputString);
-                        return CommandExecutionResult.Success;
-                    }
+        private CommandExecutionResult ProcessAddCurrentInputString(ConsoleInput input)
+        {
+            new AddNoteDialog(_map).ShowWithInitialInput(input.InputString);
+            return CommandExecutionResult.Success;
+        }
+
+        private CommandExecutionResult ProcessEdit(string parameters)
+        {
+            new EditDialog(_map, parameters).Show();
+            return CommandExecutionResult.Success;
+        }
+
+        private CommandExecutionResult ProcessAdd()
+        {
+            new AddNoteDialog(_map).Show();
+            return CommandExecutionResult.Success;
+        }
+
+        private CommandExecutionResult ProcessAttach()
+        {
+            new AttachMode(_map, _mapsStorage).Show();
+            return CommandExecutionResult.Success;
+        }
+
+        private CommandExecutionResult ProcessAddIdea(string parameters)
+        {
+            if (!string.IsNullOrWhiteSpace(parameters))
+            {
+                new AddIdeaDialog(_map).ShowWithInitialInput(parameters);
             }
+            else
+            {
+                new AddIdeaDialog(_map).Show();
+            }
+
+            return CommandExecutionResult.Success;
         }
 
         private static CommandExecutionResult Exit => CommandExecutionResult.ExitCommand;
@@ -180,12 +203,12 @@ namespace Systems.Sanity.Focus.Pages.Edit
                     : CommandExecutionResult.Error($"Couldn't remove \"{nodeIdentifier}\"");
             }
 
-            if (_map.IsAtRootNode()) 
+            if (_map.IsAtRootNode())
                 return CommandExecutionResult.Error("Can't remove root node");
 
             if (!new Confirmation("Are you sure to delete current node").Confirmed())
                 return CommandExecutionResult.Error("Cancelled!");
-            
+
             return _map.DeleteCurrentNode()
                 ? CommandExecutionResult.Success
                 : CommandExecutionResult.Error("Can't delete current node (report a bug)");
@@ -242,6 +265,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
             if (!childNodes.Any())
                 return GetCommandOptions();
 
+            //TODO: Use similar approach in homePage
             return GetCommandOptions()
                     .Union(childNodes.Keys.Select(k => k.ToString()))
                     .Union(_nodeOptions.SelectMany(opt => childNodes.Keys.Select(k => $"{opt} {k}")))

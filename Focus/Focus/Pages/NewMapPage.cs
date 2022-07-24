@@ -1,8 +1,8 @@
-﻿using System;
-using System.IO;
+﻿using System.IO;
 using System.Text.Json;
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.Pages.Edit;
+using Systems.Sanity.Focus.Pages.Edit.Dialogs;
 using Systems.Sanity.Focus.Pages.Shared;
 
 namespace Systems.Sanity.Focus.Pages
@@ -22,37 +22,15 @@ namespace Systems.Sanity.Focus.Pages
 
         public override void Show()
         {
-            var parentDir = new DirectoryInfo(_mapsStorage.UserMindMapsDirectory);
-            if (!parentDir.Exists)
-                parentDir.Create();
-
-            var filePath = GetFullFilePath(_fileName);
-
-            if (File.Exists(filePath))
+            var mindMapsDir = _mapsStorage.UserMindMapsDirectory;
+            string filePathDetermied = null;
+            new RequestRenameUntilFileNameIsAvailableDialog(mindMapsDir, _fileName, filePath =>
             {
-                var fileNameToAlter = Path.GetFileNameWithoutExtension(filePath);
-                var suggestedFileName = $"{fileNameToAlter}_updated";
-
-                var newName = ReadLine.Read($"File: {fileNameToAlter} already exists. Use suggested name {suggestedFileName} by pressing Enter or type new name below{Environment.NewLine}>");
-
-                var newFileName = !string.IsNullOrWhiteSpace(newName)
-                    ? newName
-                    : suggestedFileName;
-
-                filePath = GetFullFilePath(newFileName);
-            }
-
-            File.WriteAllText(filePath, JsonSerializer.Serialize(_mindMap));
-            new EditMapPage(filePath, _mapsStorage).Show();
+                File.WriteAllText(filePath, JsonSerializer.Serialize(_mindMap));
+                filePathDetermied = filePath;
+            }).Show();
+            new EditMapPage(filePathDetermied, _mapsStorage).Show();
         }
 
-        private string GetFullFilePath(string fileName)
-        {
-            if (!fileName.EndsWith(".json")) //TODO
-                fileName += ".json";
-
-            var filePath = Path.Combine(_mapsStorage.UserMindMapsDirectory, fileName);
-            return filePath;
-        }
     }
 }
