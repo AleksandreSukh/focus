@@ -19,7 +19,7 @@ namespace Systems.Sanity.Focus.Domain
             _currentNode = RootNode;
         }
 
-        public MindMap(string name) : this(new Node(name, 1)) { }
+        public MindMap(string name) : this(new Node(name, NodeType.TextItem, 1)) { }
 
         public MindMap(Node node)
         {
@@ -41,6 +41,7 @@ namespace Systems.Sanity.Focus.Domain
         }
 
         public void AddAtCurrentNode(string input) => _currentNode.Add(input);
+        public void AddIdeaAtCurrentNode(string input) => _currentNode.Add(input, NodeType.IdeaBagItem);
 
         public void LoadAtCurrentNode(MindMap anotherMap) => _currentNode.Add(anotherMap.RootNode);
 

@@ -57,4 +57,12 @@ namespace Systems.Sanity.Focus.Infrastructure
             source.Select(option => new[] { option, option.ToLocalLanguage() })
                 .SelectMany(i => i);
     }
+
+    public static class StringExtensions
+    {
+        public static string JoinString<T>(this IEnumerable<T> items, string separator = " ")
+        {
+            return string.Join(separator, items);
+        }
+    }
 }

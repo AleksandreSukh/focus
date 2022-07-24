@@ -14,6 +14,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
     internal class EditMapPage : PageWithSuggestedOptions
     {
         private const string AddOption = "add";
+        private const string AddIdeaOption = "idea";
         private const string AttachOption = "attach";
         private const string DetachOption = "detach";
         private const string UpOption = "up";
@@ -86,6 +87,9 @@ namespace Systems.Sanity.Focus.Pages.Edit
                     return CommandExecutionResult.Success;
                 case AddOption:
                     new AddMode(_map).Show();
+                    return CommandExecutionResult.Success;
+                case AddIdeaOption:
+                    new AddIdeaMode(_map).Show();
                     return CommandExecutionResult.Success;
                 case AttachOption:
                     new AttachMode(_map, _mapsStorage).Show();
@@ -227,7 +231,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
         }
 
         private string[] GetCommandOptions() =>
-            new[] { AddOption, AttachOption, DetachOption, HideOption, UnhideOption, ExitOption, GoToOption, EditOption, DelOption, UpOption, RootOption }
+            new[] { AddOption, AddIdeaOption, AttachOption, DetachOption, HideOption, UnhideOption, ExitOption, GoToOption, EditOption, DelOption, UpOption, RootOption }
                 .Union(_map.GetChildren().Keys.Select(k => k.ToString()))
                 .Union(_map.GetChildren().Keys.Select(k => AccessibleKeyNumbering.GetStringFor(k)))
                 .ToArray();

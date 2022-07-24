@@ -14,11 +14,14 @@ namespace Systems.Sanity.Focus.Domain
             Children = new();
         }
 
-        public Node(string name, int number) : this()
+        public Node(string name, NodeType nodeType, int number) : this()
         {
             Name = name;
+            NodeType = nodeType;
             Number = number;
         }
+
+        public NodeType NodeType { get; set; }
 
         public string Name { get; set; }
         //TODO we could optimize performance by making this a dictionary (see usages)
@@ -33,10 +36,10 @@ namespace Systems.Sanity.Focus.Domain
 
         public Node GetParent() => _parentNode;
 
-        public void Add(string input)
+        public void Add(string input, NodeType nodeType = NodeType.TextItem)
         {
-            var number = Children.Count + 1;
-            AddNode(new Node(input, number));
+            var number = Children.Count(i => i.NodeType == nodeType) + 1;
+            AddNode(new Node(input, nodeType, number));
         }
 
         public void Add(Node childNode)
@@ -58,6 +61,18 @@ namespace Systems.Sanity.Focus.Domain
         //TODO: Refactor - take to infrastructure
         public void Print(string indent, bool last, int level, StringBuilder sb, int maxWidth)
         {
+            //TODO;
+            if(NodeType == NodeType.IdeaBagItem)
+                return;
+
+            var ideaTags = Children.Where(c => c.NodeType == NodeType.IdeaBagItem);
+            if (ideaTags.Any())
+            {
+                var ideaTagsString = ideaTags.Select(i => $"[{i.Name}]")
+                    .JoinString();
+                PrintWithIndentation(ideaTagsString, indent, sb, maxWidth);
+            }
+
             var numberString = level == 1
                 ? $"-> {AccessibleKeyNumbering.GetStringFor(Number)}/{Number}. "
                 : $"{Number}. ";
@@ -70,18 +85,23 @@ namespace Systems.Sanity.Focus.Domain
 
             var contentLine = $"{numberString}{content}";
 
-            if (indent.Length + contentLine.Length <= maxWidth)
-            {
-                sb.Append(indent);
-                sb.AppendLine(contentLine);
-            }
-            else WordWrap(sb, indent, maxWidth, contentLine);
+            PrintWithIndentation(contentLine, indent, sb, maxWidth);
 
             indent += "    ";
 
             if (Collapsed && level > 0) return;
             for (int i = 0; i < Children.Count; i++)
                 Children[i].Print(indent, i == Children.Count - 1, level + 1, sb, maxWidth);
+        }
+
+        private void PrintWithIndentation(string text, string indent, StringBuilder sb, int maxWidth)
+        {
+            if (indent.Length + text.Length <= maxWidth)
+            {
+                sb.Append(indent);
+                sb.AppendLine(text);
+            }
+            else WordWrap(sb, indent, maxWidth, text);
         }
 
         private static void WordWrap(StringBuilder sb, string indent, int maxWidth, string contentLine)
@@ -111,5 +131,11 @@ namespace Systems.Sanity.Focus.Domain
 
             sb.AppendLine();
         }
+    }
+
+    public enum NodeType
+    {
+        TextItem,
+        IdeaBagItem
     }
 }
