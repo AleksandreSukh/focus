@@ -31,6 +31,7 @@ namespace Systems.Sanity.Focus.Infrastructure.Git
 
         private void CommitPullAndPush()
         {
+            Thread.Sleep(5000);
             var consoleOldTitle = Console.Title;
 
             var thereAreUnsavedLocalChanges = _repository.Diff.Compare<TreeChanges>().Count > 0;
