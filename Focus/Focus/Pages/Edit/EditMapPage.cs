@@ -238,8 +238,15 @@ namespace Systems.Sanity.Focus.Pages.Edit
 
         private void Redraw(string message = null)
         {
-            Console.Clear();
-            Console.WriteLine(_map.GetCurrentNodeString());
+            try
+            {
+                Console.Clear();
+            }
+            catch (IOException e)
+            {
+                Console.Beep();
+            }
+            Console.WriteLine(_map.GetCurrentSubtreeString());
 
             if (!string.IsNullOrEmpty(message))
                 Console.WriteLine($":! {message}{Environment.NewLine}");

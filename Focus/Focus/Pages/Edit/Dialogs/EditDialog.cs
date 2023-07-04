@@ -20,7 +20,7 @@ namespace Systems.Sanity.Focus.Pages.Edit.Dialogs
                 _map.EditCurrentNode(_parameters);
             else
             {
-                var input = GetInput("Enter new text here: ").InputString;
+                var input = GetInput("Enter new text here: ", _map.GetCurrentNodeName()).InputString;
                 _map.EditCurrentNode(input);
             }
         }

@@ -95,12 +95,14 @@ namespace Systems.Sanity.Focus.Domain
             return true;
         }
 
-        public string GetCurrentNodeString()
+        public string GetCurrentSubtreeString()
         {
             var sb = new StringBuilder();
             _currentNode.Print("* ", false, 0, sb, ConsoleWrapper.WindowWidth - 5);
             return sb.ToString();
         }
+
+        public string GetCurrentNodeName() => _currentNode.Name;
 
         public Dictionary<int, string> GetChildren()
         {
