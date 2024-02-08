@@ -3,26 +3,21 @@ using Systems.Sanity.Focus.Pages.Shared;
 
 namespace Systems.Sanity.Focus.Pages.Edit.Dialogs
 {
-    internal class EditDialog : Page
-    {
-        private readonly MindMap _map;
-        private readonly string _parameters;
+	internal class EditDialog : Page
+	{
+		private readonly MindMap _map;
+		private readonly string _parameters;
 
-        public EditDialog(MindMap map, string parameters)
-        {
-            _map = map;
-            _parameters = parameters;
-        }
+		public EditDialog(MindMap map, string parameters)
+		{
+			_map = map;
+			_parameters = parameters;
+		}
 
-        public override void Show()
-        {
-            if (!string.IsNullOrWhiteSpace(_parameters))
-                _map.EditCurrentNode(_parameters);
-            else
-            {
-                var input = GetInput("Enter new text here: ", _map.GetCurrentNodeName()).InputString;
-                _map.EditCurrentNode(input);
-            }
-        }
-    }
+		public override void Show()
+		{
+			var input = GetInput("Enter new text here: ", _map.GetCurrentNodeName()).InputString;
+			_map.EditCurrentNode(input);
+		}
+	}
 }

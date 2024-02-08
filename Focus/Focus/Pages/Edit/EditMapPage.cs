@@ -195,7 +195,9 @@ namespace Systems.Sanity.Focus.Pages.Edit
                 if (!_map.HasNode(nodeIdentifier))
                     return CommandExecutionResult.Error($"Can't find \"{nodeIdentifier}\"");
 
-                if (!new Confirmation($"Are you sure to delete \"{nodeIdentifier}\"").Confirmed())
+                var nodeContentPreview = _map.GetNodeContentPeek(nodeIdentifier);
+
+                if (!new Confirmation($"Are you sure to delete \"{nodeIdentifier}\". \"{nodeContentPreview}\"").Confirmed())
                     return CommandExecutionResult.Error("Cancelled!");
 
                 return _map.DeleteNode(nodeIdentifier)

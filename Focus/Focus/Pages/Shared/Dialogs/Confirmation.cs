@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Text;
 
 namespace Systems.Sanity.Focus.Pages.Shared.Dialogs
 {
@@ -13,7 +14,15 @@ namespace Systems.Sanity.Focus.Pages.Shared.Dialogs
 
         public bool Confirmed()
         {
-            return ReadLine.Read($"{_message}{Environment.NewLine}Type {OptionYes} to confirm or return{Environment.NewLine}>")
+            var messageBuilder = new StringBuilder();
+
+            messageBuilder.AppendLine();
+            messageBuilder.AppendLineCentered($"*** {_message} ***");
+            messageBuilder.AppendLine();
+            messageBuilder.AppendLineCentered($"Type \"{OptionYes}\" to confirm or \"Enter\" to cancel");
+            messageBuilder.AppendLine();
+
+            return ReadLine.Read(messageBuilder.ToString())
                 .ToLowerInvariant() == OptionYes;
         }
     }

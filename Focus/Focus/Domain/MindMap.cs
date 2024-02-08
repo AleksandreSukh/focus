@@ -41,7 +41,7 @@ namespace Systems.Sanity.Focus.Domain
         }
 
         public void AddAtCurrentNode(string input) => _currentNode.Add(input);
-        
+
         public void AddIdeaAtCurrentNode(string input) => _currentNode.Add(input, NodeType.IdeaBagItem);
 
         public void LoadAtCurrentNode(MindMap anotherMap) => _currentNode.Add(anotherMap.RootNode);
@@ -78,8 +78,20 @@ namespace Systems.Sanity.Focus.Domain
                 n.Name.StartsWith(parameter, StringComparison.InvariantCultureIgnoreCase));
         }
 
-        //TODO:Refactor double usages of FindNode
+        //TODO:Refactor double usages of FindNode (return the node as read only object)
         public bool HasNode(string identifier) => FindNode(identifier) != null;
+        public string GetNodeContentPeek(string identifier)
+        {
+            const int peekContentLength = 32;
+
+            var node = FindNode(identifier);
+            var nodeLength = node.Name.Length;
+            var formattedNode = nodeLength <= peekContentLength
+                ? node.Name
+                : node.Name.Substring(0, peekContentLength) + "...";
+
+            return formattedNode;
+        }
 
         public bool GoToRoot()
         {
