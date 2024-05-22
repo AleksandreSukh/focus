@@ -1,11 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Runtime.InteropServices;
-using System.Text;
 using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Pages.Edit.Dialogs;
-using Systems.Sanity.Focus.Pages.Shared.Dialogs;
 
 namespace Systems.Sanity.Focus.Pages.Shared
 {
@@ -14,7 +11,6 @@ namespace Systems.Sanity.Focus.Pages.Shared
         public string[] GetSuggestions(string text, int index)
         {
             return GetPageSpecificSuggestions(text, index)
-                .Where(i => i.Length > text.Length && i.StartsWith(text))
                 .ToArray();
         }
 

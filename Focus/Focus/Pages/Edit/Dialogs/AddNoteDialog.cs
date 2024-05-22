@@ -1,4 +1,6 @@
-﻿using Systems.Sanity.Focus.Domain;
+﻿using System.Collections.Generic;
+using Systems.Sanity.Focus.Domain;
+using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Pages.Shared;
 
 namespace Systems.Sanity.Focus.Pages.Edit.Dialogs
@@ -29,5 +31,9 @@ namespace Systems.Sanity.Focus.Pages.Edit.Dialogs
             } 
             while (!string.IsNullOrWhiteSpace(input = GetInput().InputString));
         }
+
+        protected override IEnumerable<string> GetPageSpecificSuggestions(string text, int index) =>
+            ColorfulConsole.ColorCommands; 
+
     }
 }
