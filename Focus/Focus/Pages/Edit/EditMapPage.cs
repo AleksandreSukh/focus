@@ -248,12 +248,12 @@ namespace Systems.Sanity.Focus.Pages.Edit
             {
                 Console.Beep();
             }
-            Console.WriteLine(_map.GetCurrentSubtreeString());
+            ColorfulConsole.WriteLine(_map.GetCurrentSubtreeString());
 
             if (!string.IsNullOrEmpty(message))
-                Console.WriteLine($":! {message}{Environment.NewLine}");
+                ColorfulConsole.WriteLine($":! {message}{Environment.NewLine}");
 
-            Console.WriteLine($":> {string.Join("; ", GetCommandOptions())}");
+            ColorfulConsole.WriteLine($":> {string.Join("; ", GetCommandOptions())}");
         }
 
         private void Save()
