@@ -61,17 +61,11 @@ namespace Systems.Sanity.Focus.Domain
         //TODO: Refactor - take to infrastructure
         public void Print(string indent, bool last, int level, StringBuilder sb, int maxWidth)
         {
-            //TODO;
-            if(NodeType == NodeType.IdeaBagItem)
+            //TODO; we shouldn't have sub levels of idea tags for now
+            if (NodeType == NodeType.IdeaBagItem)
                 return;
 
-            var ideaTags = Children.Where(c => c.NodeType == NodeType.IdeaBagItem);
-            if (ideaTags.Any())
-            {
-                var ideaTagsString = ideaTags.Select(i => $"[{i.Name}]")
-                    .JoinString();
-                PrintWithIndentation(ideaTagsString, indent, sb, maxWidth);
-            }
+
 
             var numberString = level == 1
                 ? $"-> {AccessibleKeyNumbering.GetStringFor(Number)}/{Number}. "
@@ -85,6 +79,8 @@ namespace Systems.Sanity.Focus.Domain
 
             var contentLine = $"{numberString}{content}";
 
+            PrintIdeaTags(indent + new string(' ', numberString.Length), sb, maxWidth);
+
             PrintWithIndentation(contentLine, indent, sb, maxWidth);
 
             indent += "    ";
@@ -92,6 +88,17 @@ namespace Systems.Sanity.Focus.Domain
             if (Collapsed && level > 0) return;
             for (int i = 0; i < Children.Count; i++)
                 Children[i].Print(indent, i == Children.Count - 1, level + 1, sb, maxWidth);
+        }
+
+        private void PrintIdeaTags(string indent, StringBuilder sb, int maxWidth)
+        {
+            var ideaTags = Children.Where(c => c.NodeType == NodeType.IdeaBagItem);
+            if (ideaTags.Any())
+            {
+                var ideaTagsString = ideaTags.Select(i => $"[darkyellow]*({i.Name})*[!]")
+                    .JoinString();
+                PrintWithIndentation(ideaTagsString, indent, sb, maxWidth);
+            }
         }
 
         private void PrintWithIndentation(string text, string indent, StringBuilder sb, int maxWidth)

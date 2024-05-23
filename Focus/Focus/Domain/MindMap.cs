@@ -141,6 +141,32 @@ namespace Systems.Sanity.Focus.Domain
         {
             var nodeToDelete = _currentNode.Number.ToString();
             return GoUp() && DeleteNode(nodeToDelete);
+        }       
+        
+        public bool DeleteNodeIdeaTags(string nodeIdentifier)
+        {
+            var nodeToClear = FindNode(nodeIdentifier);
+
+            return ClearIdeaTagsOfNode(nodeToClear);
+        }
+
+        private bool ClearIdeaTagsOfNode(Node nodeToClear)
+        {
+            var ideaTagsToRemove = nodeToClear.Children.Where(n => n.NodeType == NodeType.IdeaBagItem).ToArray();
+            if (!ideaTagsToRemove.Any()) return false;
+
+            foreach (var ideaTag in ideaTagsToRemove)
+            {
+                nodeToClear.Children.Remove(ideaTag);
+            }
+
+            RenumberChildNodes();
+            return true;
+        }
+
+        public bool DeleteCurrentNodeIdeaTags()
+        {
+            return ClearIdeaTagsOfNode(_currentNode);
         }
 
         private void RenumberChildNodes()

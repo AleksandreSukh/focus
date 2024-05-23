@@ -15,6 +15,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
     {
         private const string AddOption = "add";
         private const string AddIdeaOption = "idea";
+        private const string ClearIdeasOption = "clearideas";
         private const string AttachOption = "attach";
         private const string DetachOption = "detach";
         private const string UpOption = "up";
@@ -85,6 +86,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
                 EditOption => ProcessEdit(parameters),
                 AddOption => ProcessAdd(),
                 AddIdeaOption => ProcessAddIdea(parameters),
+                ClearIdeasOption => ProcessClearIdeas(parameters),
                 AttachOption => ProcessAttach(),
                 DetachOption => ProcessDetach(parameters),
                 HideOption => ProcessHide(parameters),
@@ -133,6 +135,35 @@ namespace Systems.Sanity.Focus.Pages.Edit
             }
 
             return CommandExecutionResult.Success;
+        }
+
+        private CommandExecutionResult ProcessClearIdeas(string parameters)
+        {
+            var nodeIdentifier = parameters;
+
+            if (!string.IsNullOrWhiteSpace(nodeIdentifier))
+            {
+                if (!_map.HasNode(nodeIdentifier))
+                    return CommandExecutionResult.Error($"Can't find \"{nodeIdentifier}\"");
+
+                var nodeContentPreview = _map.GetNodeContentPeek(nodeIdentifier);
+
+                if (!new Confirmation($"Clear idea tags for: \"{nodeIdentifier}\". \"{nodeContentPreview}\"?").Confirmed())
+                    return CommandExecutionResult.Error("Cancelled!");
+
+                return _map.DeleteNodeIdeaTags(nodeIdentifier)
+                    ? CommandExecutionResult.Success
+                    : CommandExecutionResult.Error($"Couldn't remove \"{nodeIdentifier}\"");
+            }
+
+
+            if (!new Confirmation("Clear idea tags for current node?").Confirmed())
+                return CommandExecutionResult.Error("Cancelled!");
+
+            return _map.DeleteCurrentNodeIdeaTags()
+                ? CommandExecutionResult.Success
+                : CommandExecutionResult.Error("Can't delete current node (report a bug)");
+
         }
 
         private static CommandExecutionResult Exit => CommandExecutionResult.ExitCommand;
@@ -263,7 +294,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
         }
 
         private string[] GetCommandOptions() =>
-            new[] { AddOption, AddIdeaOption, AttachOption, DetachOption, HideOption, UnhideOption, ExitOption, GoToOption, EditOption, DelOption, UpOption, RootOption }
+            new[] { AddOption, AddIdeaOption, ClearIdeasOption, AttachOption, DetachOption, HideOption, UnhideOption, ExitOption, GoToOption, EditOption, DelOption, UpOption, RootOption }
                 .Union(_map.GetChildren().Keys.Select(k => k.ToString()))
                 .Union(_map.GetChildren().Keys.Select(k => AccessibleKeyNumbering.GetStringFor(k)))
                 .ToArray();
