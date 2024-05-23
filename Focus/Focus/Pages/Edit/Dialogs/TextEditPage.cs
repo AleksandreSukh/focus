@@ -9,6 +9,7 @@ namespace Systems.Sanity.Focus.Pages.Edit.Dialogs;
 internal abstract class TextEditPage : Page
 {
     private static readonly HashSet<string> ColorCommands = new[] { ColorfulConsole.ColorCommandTerminationTag }
+        .Union(ColorfulConsole.PrimaryColors)
         .Union(ColorfulConsole.Colors)
         .Select(c => $"{ColorfulConsole.CommandStartBracket}{c}{ColorfulConsole.CommandEndBracket}")
         .ToHashSet();

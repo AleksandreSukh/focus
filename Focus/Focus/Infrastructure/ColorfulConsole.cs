@@ -12,6 +12,17 @@ namespace Systems.Sanity.Focus.Infrastructure
             .Select(i => i.ToLower())
             .ToHashSet();
 
+        //Hardcoded priority of colors (before we add better priority suggestion method)
+        public static readonly HashSet<string> PrimaryColors = new []
+        {
+            ConsoleColor.Red, 
+            ConsoleColor.Green,
+            ConsoleColor.Yellow, 
+            ConsoleColor.Blue
+        }
+            .Select(i => i.ToString().ToLower())
+            .ToHashSet();
+
         public const string ColorCommandTerminationTag = "!";
 
         public const char CommandStartBracket = '[';
