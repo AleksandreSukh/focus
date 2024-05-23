@@ -1,11 +1,8 @@
-﻿using System.Collections.Generic;
-using Systems.Sanity.Focus.Domain;
-using Systems.Sanity.Focus.Infrastructure;
-using Systems.Sanity.Focus.Pages.Shared;
+﻿using Systems.Sanity.Focus.Domain;
 
 namespace Systems.Sanity.Focus.Pages.Edit.Dialogs
 {
-    internal class AddNoteDialog : Page
+    internal class AddNoteDialog : TextEditPage
     {
         private readonly MindMap _map;
 
@@ -28,12 +25,8 @@ namespace Systems.Sanity.Focus.Pages.Edit.Dialogs
             do
             {
                 _map.AddAtCurrentNode(input);
-            } 
+            }
             while (!string.IsNullOrWhiteSpace(input = GetInput().InputString));
         }
-
-        protected override IEnumerable<string> GetPageSpecificSuggestions(string text, int index) =>
-            ColorfulConsole.ColorCommands; 
-
     }
 }
