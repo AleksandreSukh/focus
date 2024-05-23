@@ -92,12 +92,21 @@ namespace Systems.Sanity.Focus.Domain
 
         private void PrintIdeaTags(string indent, StringBuilder sb, int maxWidth)
         {
-            var ideaTags = Children.Where(c => c.NodeType == NodeType.IdeaBagItem);
+            var ideaTags = Children.Where(c => c.NodeType == NodeType.IdeaBagItem).ToArray();
             if (ideaTags.Any())
             {
-                var ideaTagsString = ideaTags.Select(i => $"[darkyellow]*({i.Name})*[!]")
-                    .JoinString();
-                PrintWithIndentation(ideaTagsString, indent, sb, maxWidth);
+                var ideaTagsStringBuilder = new StringBuilder();
+                ideaTagsStringBuilder.Append("[yellow]");
+                ideaTagsStringBuilder.Append("{");
+                foreach (var ideatag in ideaTags)
+                {
+                    ideaTagsStringBuilder.Append($" *({ideatag.Name})* ");
+                }
+
+                ideaTagsStringBuilder.Append("}");
+                ideaTagsStringBuilder.Append("[!]");
+
+                PrintWithIndentation(ideaTagsStringBuilder.ToString(), indent, sb, maxWidth);
             }
         }
 
