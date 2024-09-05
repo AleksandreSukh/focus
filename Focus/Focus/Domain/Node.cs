@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using Systems.Sanity.Focus.Infrastructure;
@@ -21,20 +22,11 @@ namespace Systems.Sanity.Focus.Domain
             Number = number;
         }
 
-        public NodeType NodeType { get; set; }
-
-        public string Name { get; set; }
-        //TODO we could optimize performance by making this a dictionary (see usages)
-        public List<Node> Children { get; set; }
-        public int Number { get; set; }
-        public bool Collapsed { get; set; }
-
+        public Node GetParent() => _parentNode;
         public void SetParent(Node parent)
         {
             _parentNode = parent;
         }
-
-        public Node GetParent() => _parentNode;
 
         public void Add(string input, NodeType nodeType = NodeType.TextItem)
         {
@@ -65,29 +57,36 @@ namespace Systems.Sanity.Focus.Domain
             if (NodeType == NodeType.IdeaBagItem)
                 return;
 
-
-
             var numberString = level == 1
                 ? $"-> {AccessibleKeyNumbering.GetStringFor(Number)}/{Number}. "
                 : $"{Number}. ";
 
-            var content = Collapsed
-                ? $"{Name} (+)"
-                : Children.Any()
-                ? $"{Name} (-)"
-                    : Name;
+            var content = new StringBuilder(numberString);
+            content.Append(Name);
 
-            var contentLine = $"{numberString}{content}";
+            if (Collapsed && level > 0)
+            {
+                content.Append($" (+) {new string('#', GetTotalSize())}");
+            }
+            else if (Children.Any())
+            {
+                content.Append(" (-)");
+            }
 
             PrintIdeaTags(indent + new string(' ', numberString.Length), sb, maxWidth);
 
-            PrintWithIndentation(contentLine, indent, sb, maxWidth);
+            PrintWithIndentation(content.ToString(), indent, sb, maxWidth);
 
             indent += "    ";
 
             if (Collapsed && level > 0) return;
             for (int i = 0; i < Children.Count; i++)
                 Children[i].Print(indent, i == Children.Count - 1, level + 1, sb, maxWidth);
+        }
+
+        private int GetTotalSize()
+        {
+            return !Children.Any() ? 1 : Children.Sum(c => c.GetTotalSize());
         }
 
         private void PrintIdeaTags(string indent, StringBuilder sb, int maxWidth)
@@ -147,6 +146,13 @@ namespace Systems.Sanity.Focus.Domain
 
             sb.AppendLine();
         }
+
+        public NodeType NodeType { get; set; }
+        public string Name { get; set; }
+        //TODO we could optimize performance by making this a dictionary (see usages)
+        public List<Node> Children { get; set; }
+        public int Number { get; set; }
+        public bool Collapsed { get; set; }
     }
 
     public enum NodeType
