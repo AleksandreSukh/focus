@@ -8,7 +8,9 @@ namespace Systems.Sanity.Focus.Infrastructure
     {
         public static MindMap OpenFile(string filePath)
         {
-            return JsonConvert.DeserializeObject<MindMap>(File.ReadAllText(filePath));
+            var mindMapParsedFromJson = JsonConvert.DeserializeObject<MindMap>(File.ReadAllText(filePath));
+            mindMapParsedFromJson.LoadLinks(mindMapParsedFromJson.RootNode); //TODO
+            return mindMapParsedFromJson;
         }
     }
 }

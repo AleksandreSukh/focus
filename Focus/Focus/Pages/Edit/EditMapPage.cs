@@ -18,6 +18,8 @@ namespace Systems.Sanity.Focus.Pages.Edit
         private const string ClearIdeasOption = "clearideas";
         private const string AttachOption = "attach";
         private const string DetachOption = "detach";
+        private const string LinkFromOption = "linkfrom";
+        private const string LinkToOption = "linkto";
         private const string UpOption = "up";
         private const string GoToOption = "cd";
         private const string GoToOptionSubOptionUp = "..";
@@ -28,7 +30,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
         private const string UnhideOption = "max";
         private const string ExitOption = "exit";
 
-        private readonly string[] _nodeOptions = new[] { GoToOption, EditOption, DelOption, HideOption, UnhideOption, DetachOption };
+        private readonly string[] _nodeOptions = new[] { GoToOption, EditOption, DelOption, HideOption, UnhideOption, DetachOption, LinkFromOption, LinkToOption };
 
         private readonly string _filePath;
         private MindMap _map;
@@ -89,6 +91,8 @@ namespace Systems.Sanity.Focus.Pages.Edit
                 ClearIdeasOption => ProcessClearIdeas(parameters),
                 AttachOption => ProcessAttach(),
                 DetachOption => ProcessDetach(parameters),
+                LinkFromOption => ProcessLinkFrom(parameters),
+                LinkToOption => ProcessLinkTo(parameters),
                 HideOption => ProcessHide(parameters),
                 UnhideOption => ProcessUnhide(parameters),
                 GoToOption => ProcessGoTo(parameters),
@@ -197,6 +201,32 @@ namespace Systems.Sanity.Focus.Pages.Edit
             return CommandExecutionResult.Success;
         }
 
+        private CommandExecutionResult ProcessLinkTo(string parameters)
+        {
+            var nodeIdentifier = parameters;
+            if (!_map.HasNode(nodeIdentifier))
+                return CommandExecutionResult.Error($"Couldn't find node \"{nodeIdentifier}\"");
+
+            var targetNodePeek = _map.GetNodeContentPeek(nodeIdentifier);
+
+            var nodeToLinkFrom = GlobalLinkDitionary.NodesToBeLinked.Peek();
+            if (!new Confirmation($"Link \"{nodeToLinkFrom.Name}\" to \"{targetNodePeek}\"?").Confirmed())
+                return CommandExecutionResult.Error("Cancelled!");
+
+            var linkResult = _map.LinkToNode(nodeIdentifier, nodeToLinkFrom, "Link Metadata");
+            if (!linkResult)
+                return CommandExecutionResult.Error($"Unexpected result while linking \"{nodeIdentifier}\"");
+
+            return CommandExecutionResult.Success;
+        }
+        private CommandExecutionResult ProcessLinkFrom(string parameters)
+        {
+            var nodeIdentifier = parameters;
+            _map.AddNodeToLinkStack(nodeIdentifier);
+
+            return CommandExecutionResult.Success;
+        }
+
         private CommandExecutionResult ProcessHide(string parameters)
         {
             var nodeIdentifier = parameters;
@@ -285,6 +315,10 @@ namespace Systems.Sanity.Focus.Pages.Edit
                 ColorfulConsole.WriteLine($":! {message}{Environment.NewLine}");
 
             ColorfulConsole.WriteLine($":> {string.Join("; ", GetCommandOptions())}");
+            if (GlobalLinkDitionary.NodesToBeLinked.Any())
+            {
+                ColorfulConsole.WriteLine($":Nodes to be linked> {string.Join("; ", GlobalLinkDitionary.NodesToBeLinked.Select(n => n.Name))}");
+            }
         }
 
         private void Save()
@@ -294,7 +328,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
         }
 
         private string[] GetCommandOptions() =>
-            new[] { AddOption, AddIdeaOption, ClearIdeasOption, AttachOption, DetachOption, HideOption, UnhideOption, ExitOption, GoToOption, EditOption, DelOption, UpOption, RootOption }
+            new[] { AddOption, AddIdeaOption, ClearIdeasOption, AttachOption, DetachOption, LinkFromOption, LinkToOption, HideOption, UnhideOption, ExitOption, GoToOption, EditOption, DelOption, UpOption, RootOption }
                 .Union(_map.GetChildren().Keys.Select(k => k.ToString()))
                 .Union(_map.GetChildren().Keys.Select(k => AccessibleKeyNumbering.GetStringFor(k)))
                 .ToArray();
