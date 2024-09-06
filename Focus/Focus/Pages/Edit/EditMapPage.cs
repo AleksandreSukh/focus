@@ -16,8 +16,9 @@ namespace Systems.Sanity.Focus.Pages.Edit
         private const string AddOption = "add";
         private const string AddIdeaOption = "idea";
         private const string ClearIdeasOption = "clearideas";
-        private const string AttachOption = "attach";
-        private const string DetachOption = "detach";
+        private const string SliceOption = "slice";
+        private const string InOption = "in";
+        private const string OutOption = "out";
         private const string LinkFromOption = "linkfrom";
         private const string LinkToOption = "linkto";
         private const string UpOption = "up";
@@ -30,7 +31,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
         private const string UnhideOption = "max";
         private const string ExitOption = "exit";
 
-        private readonly string[] _nodeOptions = new[] { GoToOption, EditOption, DelOption, HideOption, UnhideOption, DetachOption, LinkFromOption, LinkToOption };
+        private readonly string[] _nodeOptions = new[] { GoToOption, EditOption, DelOption, HideOption, UnhideOption, SliceOption, LinkFromOption, LinkToOption };
 
         private readonly string _filePath;
         private MindMap _map;
@@ -89,8 +90,9 @@ namespace Systems.Sanity.Focus.Pages.Edit
                 AddOption => ProcessAdd(),
                 AddIdeaOption => ProcessAddIdea(parameters),
                 ClearIdeasOption => ProcessClearIdeas(parameters),
-                AttachOption => ProcessAttach(),
-                DetachOption => ProcessDetach(parameters),
+                SliceOption => ProcessSlice(parameters),
+                //AttachOption => ProcessAttach(),
+                //DetachOption => ProcessDetach(parameters),
                 LinkFromOption => ProcessLinkFrom(parameters),
                 LinkToOption => ProcessLinkTo(parameters),
                 HideOption => ProcessHide(parameters),
@@ -119,6 +121,19 @@ namespace Systems.Sanity.Focus.Pages.Edit
         {
             new AddNoteDialog(_map).Show();
             return CommandExecutionResult.Success;
+        }
+
+        private CommandExecutionResult ProcessSlice(string parameters)
+        {
+            var selectionMenu = new SelectionMenu(new List<string>() { InOption, OutOption });
+            selectionMenu.Show();
+            var selectedOption = selectionMenu.GetSelectedOption();
+            return selectedOption switch
+            {
+                1 => ProcessAttach(),
+                2 => ProcessDetach(parameters),
+                _ => CommandExecutionResult.Error("Operation Canceled")
+            };
         }
 
         private CommandExecutionResult ProcessAttach()
@@ -328,7 +343,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
         }
 
         private string[] GetCommandOptions() =>
-            new[] { AddOption, AddIdeaOption, ClearIdeasOption, AttachOption, DetachOption, LinkFromOption, LinkToOption, HideOption, UnhideOption, ExitOption, GoToOption, EditOption, DelOption, UpOption, RootOption }
+            new[] { AddOption, AddIdeaOption, ClearIdeasOption, SliceOption, LinkFromOption, LinkToOption, HideOption, UnhideOption, ExitOption, GoToOption, EditOption, DelOption, UpOption, RootOption }
                 .Union(_map.GetChildren().Keys.Select(k => k.ToString()))
                 .Union(_map.GetChildren().Keys.Select(k => AccessibleKeyNumbering.GetStringFor(k)))
                 .ToArray();

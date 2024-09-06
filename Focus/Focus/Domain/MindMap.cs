@@ -45,9 +45,9 @@ namespace Systems.Sanity.Focus.Domain
         public void AddIdeaAtCurrentNode(string input) => _currentNode.Add(input, NodeType.IdeaBagItem);
 
         public void LoadAtCurrentNode(MindMap anotherMap) => _currentNode.Add(anotherMap.RootNode);
-        
+
         public void LinkToCurrentNode(Node linkedNode, string metadata = null) => _currentNode.AddLink(linkedNode, metadata);
-        
+
         public bool LinkToNode(string nodeIdentifier, Node nodeToLinkFrom, string metadata = null)
         {
             var nodeToLinkTo = FindNode(nodeIdentifier);
@@ -145,14 +145,14 @@ namespace Systems.Sanity.Focus.Domain
             var removeResult = _currentNode.Children.Remove(nodeToDelete);
             RenumberChildNodes();
             return removeResult;
-        }        
-        
+        }
+
         public bool DeleteCurrentNode()
         {
             var nodeToDelete = _currentNode.Number.ToString();
             return GoUp() && DeleteNode(nodeToDelete);
-        }       
-        
+        }
+
         public bool DeleteNodeIdeaTags(string nodeIdentifier)
         {
             var nodeToClear = FindNode(nodeIdentifier);
@@ -195,8 +195,8 @@ namespace Systems.Sanity.Focus.Domain
 
             DeleteNode(nodeIdentifier); //TODO: suboptimal way of deleting subnode
             return new MindMap(nodeToDetach);
-        }        
-        
+        }
+
         public void AddNodeToLinkStack(string nodeIdentifier)
         {
             var nodeToLink = FindNode(nodeIdentifier);
@@ -225,15 +225,6 @@ namespace Systems.Sanity.Focus.Domain
         public bool IsAtRootNode()
         {
             return _currentNode == RootNode;
-        }
-
-        public void LoadLinks(Node node)
-        {
-            GlobalLinkDitionary.Nodes.Add(node.UniqueIdentifier.Value,node);
-            foreach (var childNode in node.Children)
-            {
-                LoadLinks(childNode);
-            }
         }
     }
 }
