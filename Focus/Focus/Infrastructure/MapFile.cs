@@ -16,7 +16,7 @@ namespace Systems.Sanity.Focus.Infrastructure
         public static void LoadLinks(string filePath)
         {
             var mindMapParsedFromJson = JsonConvert.DeserializeObject<MindMap>(File.ReadAllText(filePath));
-            LoadLinks(mindMapParsedFromJson.RootNode); //TODO
+            LoadLinks(mindMapParsedFromJson.RootNode); //TODO: add some kind of caching file which is already read but consider the fact that we need to refresh file after reopening so it should only cache once after LoadLinks
         }
 
         private static void LoadLinks(Node node)

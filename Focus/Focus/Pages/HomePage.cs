@@ -51,17 +51,7 @@ namespace Systems.Sanity.Focus.Pages
                     Console.WriteLine($"{index + 1} - {mapFile.NameWithoutExtension()}");
                 }
 
-                //TODO: loading files just to fill the links (think of more elegant solution)
-                if (!GlobalLinkDitionary.LinksLoaded)
-                {
-                    foreach (var file in _filesToChooseFrom)
-                    {
-                        MapFile.LoadLinks(file.Value.FullName);
-                    }
-                    GlobalLinkDitionary.LinksLoaded = true;
-                }
-
-
+                LoadLinksFromAllFiles();
 
                 var input = GetCommand(
                     Environment.NewLine +
@@ -120,6 +110,19 @@ namespace Systems.Sanity.Focus.Pages
                             break;
                         }
                 }
+            }
+        }
+
+        private void LoadLinksFromAllFiles()
+        {
+            //TODO: loading files just to fill the links (think of more elegant solution)
+            if (!GlobalLinkDitionary.LinksLoaded)
+            {
+                foreach (var file in _filesToChooseFrom)
+                {
+                    MapFile.LoadLinks(file.Value.FullName);
+                }
+                GlobalLinkDitionary.LinksLoaded = true;
             }
         }
 
