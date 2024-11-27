@@ -66,7 +66,7 @@ public class Node
 
         var numberString = level == 1
             ? $"-> {AccessibleKeyNumbering.GetStringFor(Number)}/{Number}. "
-            : $"{Number}. ";
+            : "* ";
 
         var content = new StringBuilder(numberString);
         content.Append(Name);
