@@ -74,43 +74,63 @@ namespace Systems.Sanity.Focus.Pages
                         _shouldExit = true;
                         break;
                     case OptionNew:
-                        {
-                            var mapName = input.Parameters;
-                            new NewMapPage(_mapsStorage, mapName, new MindMap(mapName)).Show();
-                        }
+                    {
+                        HandleCreateFileCommand(input);
+                    }
                         break;
                     case OptionRen:
-                        {
-                            var fileIdentifier = input.Parameters;
-                            var file = FindFile(fileIdentifier);
-                            if (file == null)
-                                ShowFileNotFoundError(fileIdentifier);
-                            else
-                                new RenameFileDialog(file).Show();
-                        }
+                    {
+                        HandleRenameFileCommand(input);
+                    }
                         break;
                     case OptionDel:
-                        {
-                            var fileIdentifier = input.Parameters;
-                            var file = FindFile(fileIdentifier);
-                            if (file == null)
-                                ShowFileNotFoundError(fileIdentifier);
-                            else
-                                ShowDeleteFileDialog(file);
-                            break;
-                        }
+                    {
+                        HandleDeleteFileCommand(input);
+                        break;
+                    }
                     default:
-                        {
-                            var fileIdentifier = input.FirstWord;
-                            var file = FindFile(fileIdentifier);
-                            if (file == null)
-                                ShowFileNotFoundError(fileIdentifier);
-                            else
-                                new EditMapPage(file.FullName, _mapsStorage).Show();
-                            break;
-                        }
+                    {
+                        HandleOpenFileCommand(input);
+                        break;
+                    }
                 }
             }
+        }
+
+        private void HandleCreateFileCommand(ConsoleInput input)
+        {
+            var mapName = input.Parameters;
+            new CreateMapPage(_mapsStorage, mapName, new MindMap(mapName)).Show();
+        }
+
+        private void HandleOpenFileCommand(ConsoleInput input)
+        {
+            var fileIdentifier = input.FirstWord;
+            var file = FindFile(fileIdentifier);
+            if (file == null)
+                ShowFileNotFoundError(fileIdentifier);
+            else
+                new EditMapPage(file.FullName, _mapsStorage).Show();
+        }
+
+        private void HandleDeleteFileCommand(ConsoleInput input)
+        {
+            var fileIdentifier = input.Parameters;
+            var file = FindFile(fileIdentifier);
+            if (file == null)
+                ShowFileNotFoundError(fileIdentifier);
+            else
+                ShowDeleteFileDialog(file);
+        }
+
+        private void HandleRenameFileCommand(ConsoleInput input)
+        {
+            var fileIdentifier = input.Parameters;
+            var file = FindFile(fileIdentifier);
+            if (file == null)
+                ShowFileNotFoundError(fileIdentifier);
+            else
+                new RenameFileDialog(file).Show();
         }
 
         private void LoadLinksFromAllFiles()
@@ -132,9 +152,9 @@ namespace Systems.Sanity.Focus.Pages
                 file.Delete();
         }
 
-        private void ShowFileNotFoundError(string input)
+        private void ShowFileNotFoundError(string fileIdentifier)
         {
-            Console.WriteLine($"File {input} wasn't found. try again");
+            Console.WriteLine($"File \"{fileIdentifier}\" wasn't found. try again");
             Show();
         }
 
