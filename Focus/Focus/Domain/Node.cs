@@ -193,6 +193,15 @@ public class Node
     public Dictionary<Guid, Link> Links { get; }
     public int Number { get; set; }
     public bool Collapsed { get; set; }
+
+    public void RenumberChildNodes()
+    {
+        var childNodes = Children.OrderBy(cn => cn.Number).ToArray();
+        for (int i = 0; i < childNodes.Count(); i++)
+        {
+            childNodes[i].Number = i + 1;
+        }
+    }
 }
 
 public enum NodeType
