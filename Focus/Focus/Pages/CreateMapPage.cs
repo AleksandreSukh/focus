@@ -7,13 +7,13 @@ using Systems.Sanity.Focus.Pages.Shared;
 
 namespace Systems.Sanity.Focus.Pages
 {
-    internal class NewMapPage : Page
+    internal class CreateMapPage : Page
     {
         private readonly MapsStorage _mapsStorage;
         private string _fileName;
         private readonly MindMap _mindMap;
 
-        public NewMapPage(MapsStorage mapsStorage, string fileName, MindMap mindMap)
+        public CreateMapPage(MapsStorage mapsStorage, string fileName, MindMap mindMap)
         {
             _mapsStorage = mapsStorage;
             _fileName = fileName;
@@ -31,6 +31,5 @@ namespace Systems.Sanity.Focus.Pages
             }).Show();
             new EditMapPage(filePathDetermied, _mapsStorage).Show();
         }
-
     }
 }
