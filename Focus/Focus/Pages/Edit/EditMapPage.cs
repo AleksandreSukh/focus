@@ -128,6 +128,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
             var selectionMenu = new SelectionMenu(new List<string>() { InOption, OutOption });
             selectionMenu.Show();
             var selectedOption = selectionMenu.GetSelectedOption();
+
             return selectedOption switch
             {
                 1 => ProcessAttach(),
@@ -165,7 +166,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
                 if (!_map.HasNode(nodeIdentifier))
                     return CommandExecutionResult.Error($"Can't find \"{nodeIdentifier}\"");
 
-                var nodeContentPreview = _map.GetNodeContentPeek(nodeIdentifier);
+                var nodeContentPreview = _map.GetNodeContentPeekByIdentifier(nodeIdentifier);
 
                 if (!new Confirmation($"Clear idea tags for: \"{nodeIdentifier}\". \"{nodeContentPreview}\"?").Confirmed())
                     return CommandExecutionResult.Error("Cancelled!");
@@ -206,13 +207,26 @@ namespace Systems.Sanity.Focus.Pages.Edit
         private CommandExecutionResult ProcessDetach(string parameters)
         {
             var nodeIdentifier = parameters;
-            var detachedMap = _map.DetachNode(nodeIdentifier);
-            if (detachedMap == null)
+            if (string.IsNullOrWhiteSpace(nodeIdentifier))
+            {
+                var nodeContentPreview = _map.GetCurrentNodeContentPeek();
+
+                if (new Confirmation($"Detach current node? {nodeContentPreview}").Confirmed())
+                {
+                    _map.DetachCurrentNode(_mapsStorage);
+                    return CommandExecutionResult.Success;
+                }
+
+                return CommandExecutionResult.Error("Cancelled");
+            }
+
+            if (!_map.HasNode(nodeIdentifier))
             {
                 return CommandExecutionResult.Error($"Can't find \"{nodeIdentifier}\"");
             }
 
-            new NewMapPage(_mapsStorage, detachedMap.RootNode.Name, detachedMap).Show();
+            _map.DetachNode(_mapsStorage, nodeIdentifier);
+
             return CommandExecutionResult.Success;
         }
 
@@ -222,7 +236,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
             if (!_map.HasNode(nodeIdentifier))
                 return CommandExecutionResult.Error($"Couldn't find node \"{nodeIdentifier}\"");
 
-            var targetNodePeek = _map.GetNodeContentPeek(nodeIdentifier);
+            var targetNodePeek = _map.GetNodeContentPeekByIdentifier(nodeIdentifier);
 
             var nodeToLinkFrom = GlobalLinkDitionary.NodesToBeLinked.Peek();
             if (!new Confirmation($"Link \"{nodeToLinkFrom.Name}\" to \"{targetNodePeek}\"?").Confirmed())
@@ -271,23 +285,26 @@ namespace Systems.Sanity.Focus.Pages.Edit
                 if (!_map.HasNode(nodeIdentifier))
                     return CommandExecutionResult.Error($"Can't find \"{nodeIdentifier}\"");
 
-                var nodeContentPreview = _map.GetNodeContentPeek(nodeIdentifier);
+                var nodeContentPreview = _map.GetNodeContentPeekByIdentifier(nodeIdentifier);
 
                 if (!new Confirmation($"Are you sure to delete \"{nodeIdentifier}\". \"{nodeContentPreview}\"").Confirmed())
                     return CommandExecutionResult.Error("Cancelled!");
 
-                return _map.DeleteNode(nodeIdentifier)
+                return _map.DeleteChildNode(nodeIdentifier)
                     ? CommandExecutionResult.Success
                     : CommandExecutionResult.Error($"Couldn't remove \"{nodeIdentifier}\"");
             }
 
-            if (_map.IsAtRootNode())
+            var contentPeek = _map.GetCurrentNodeContentPeek();
+            var nodeToDelete = _map.GetCurrentNodeName();
+
+            if (_map.IsAtRootNode() || !_map.GoUp())
                 return CommandExecutionResult.Error("Can't remove root node");
 
-            if (!new Confirmation("Are you sure to delete current node").Confirmed())
+            if (!new Confirmation($"Are you sure to delete current node:{contentPeek}").Confirmed())
                 return CommandExecutionResult.Error("Cancelled!");
 
-            return _map.DeleteCurrentNode()
+            return _map.DeleteChildNode(nodeToDelete)
                 ? CommandExecutionResult.Success
                 : CommandExecutionResult.Error("Can't delete current node (report a bug)");
         }
@@ -339,7 +356,15 @@ namespace Systems.Sanity.Focus.Pages.Edit
         private void Save()
         {
             _map.SaveTo(_filePath);
-            _gitHelper?.SyncronizeToRemote();
+            try
+            {
+                _gitHelper?.SyncronizeToRemote();
+            }
+            catch (Exception e)
+            {
+                new Notification($"Failed Git auto synchronization.{Environment.NewLine}Consider manually committing changes to the repository.{Environment.NewLine} Error:{Environment.NewLine}{e}")
+                    .Show();
+            }
         }
 
         private string[] GetCommandOptions() =>

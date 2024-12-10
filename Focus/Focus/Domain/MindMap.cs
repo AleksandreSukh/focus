@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using Newtonsoft.Json;
 using Systems.Sanity.Focus.Infrastructure;
+using Systems.Sanity.Focus.Pages;
 
 namespace Systems.Sanity.Focus.Domain
 {
@@ -21,8 +22,9 @@ namespace Systems.Sanity.Focus.Domain
 
         public MindMap(string name) : this(new Node(name, NodeType.TextItem, 1)) { }
 
-        public MindMap(Node node)
+        public MindMap(Node nodeToCopyFrom)
         {
+            var node = JsonConvert.DeserializeObject<Node>(JsonConvert.SerializeObject(nodeToCopyFrom));
             node.Number = 1;
             RootNode = node;
             _currentNode = RootNode;
@@ -66,7 +68,7 @@ namespace Systems.Sanity.Focus.Domain
             return true;
         }
 
-        private Node FindNode(string parameter)
+        private Node FindNode(string parameter) //TODO: create new method for internal use which will find nodes by Id (Guid) for simplicity
         {
             var currentNodes = _currentNode.Children;
 
@@ -90,11 +92,18 @@ namespace Systems.Sanity.Focus.Domain
 
         //TODO:Refactor double usages of FindNode (return the node as read only object)
         public bool HasNode(string identifier) => FindNode(identifier) != null;
-        public string GetNodeContentPeek(string identifier)
+        public string GetNodeContentPeekByIdentifier(string identifier)
+        {
+            var node = FindNode(identifier);
+            return GetNodeContentPeek(node);
+        }        
+        
+        public string GetCurrentNodeContentPeek() => GetNodeContentPeek(_currentNode);
+
+        private static string GetNodeContentPeek(Node node)
         {
             const int peekContentLength = 32;
 
-            var node = FindNode(identifier);
             var nodeLength = node.Name.Length;
             var formattedNode = nodeLength <= peekContentLength
                 ? node.Name
@@ -128,7 +137,7 @@ namespace Systems.Sanity.Focus.Domain
 
         public Dictionary<int, string> GetChildren()
         {
-            RenumberChildNodes(); //TODO: only necessary after deletion. remove unnecessary call after 
+            _currentNode.RenumberChildNodes(); //TODO: only necessary after deletion. remove unnecessary call after 
             return _currentNode.Children.ToDictionary(n => n.Number, n => n.Name);
         }
 
@@ -137,20 +146,19 @@ namespace Systems.Sanity.Focus.Domain
             _currentNode.EditNode(newString);
         }
 
-        public bool DeleteNode(string nodeIdentifier)
+        public bool DeleteChildNode(string nodeIdentifier)
         {
             var nodeToDelete = FindNode(nodeIdentifier);
             if (nodeToDelete == null) return false;
 
-            var removeResult = _currentNode.Children.Remove(nodeToDelete);
-            RenumberChildNodes();
-            return removeResult;
+            return DeleteChildNode(_currentNode, nodeToDelete);
         }
 
-        public bool DeleteCurrentNode()
+        private static bool DeleteChildNode(Node parentNode, Node nodeToDelete)
         {
-            var nodeToDelete = _currentNode.Number.ToString();
-            return GoUp() && DeleteNode(nodeToDelete);
+            var removeResult = parentNode.Children.Remove(nodeToDelete);
+            parentNode.RenumberChildNodes();
+            return removeResult;
         }
 
         public bool DeleteNodeIdeaTags(string nodeIdentifier)
@@ -170,7 +178,7 @@ namespace Systems.Sanity.Focus.Domain
                 nodeToClear.Children.Remove(ideaTag);
             }
 
-            RenumberChildNodes();
+            _currentNode.RenumberChildNodes();
             return true;
         }
 
@@ -179,22 +187,28 @@ namespace Systems.Sanity.Focus.Domain
             return ClearIdeaTagsOfNode(_currentNode);
         }
 
-        private void RenumberChildNodes()
-        {
-            var childNodes = _currentNode.Children.OrderBy(cn => cn.Number).ToArray();
-            for (int i = 0; i < childNodes.Count(); i++)
-            {
-                childNodes[i].Number = i + 1;
-            }
-        }
 
-        public MindMap DetachNode(string nodeIdentifier)
+        public void DetachCurrentNode(MapsStorage mapsStorage)
+        {
+            var nodeToDetach = _currentNode;
+
+            DetachNodeAsNewMap(mapsStorage, nodeToDetach);
+        }        
+        
+        public void DetachNode(MapsStorage mapsStorage, string nodeIdentifier)
         {
             var nodeToDetach = FindNode(nodeIdentifier);
-            if (nodeToDetach == null) return null;
 
-            DeleteNode(nodeIdentifier); //TODO: suboptimal way of deleting subnode
-            return new MindMap(nodeToDetach);
+            DetachNodeAsNewMap(mapsStorage, nodeToDetach);
+        }
+
+        private static void DetachNodeAsNewMap(MapsStorage mapsStorage, Node nodeToDetach)
+        {
+            var nodeToDetachFrom = nodeToDetach.GetParent();
+            var detachedMap = new MindMap(nodeToDetach);
+            new CreateMapPage(mapsStorage, detachedMap.RootNode.Name, detachedMap).Show();
+
+            DeleteChildNode(nodeToDetachFrom, nodeToDetach);
         }
 
         public void AddNodeToLinkStack(string nodeIdentifier)
