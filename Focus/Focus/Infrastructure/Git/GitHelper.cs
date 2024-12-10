@@ -33,6 +33,7 @@ namespace Systems.Sanity.Focus.Infrastructure.Git
         {
             Thread.Sleep(5000);
             var consoleOldTitle = Console.Title;
+            Commands.Stage(_repository, "*");
 
             var thereAreUnsavedLocalChanges = _repository.Diff.Compare<TreeChanges>().Count > 0;
 
@@ -40,8 +41,14 @@ namespace Systems.Sanity.Focus.Infrastructure.Git
             {
                 Console.Title = "Syncing (committing changes)";
 
-                Commands.Stage(_repository, "*");
-                _repository.Commit(SyncCommitMessage, _author, _author, new CommitOptions());
+                try
+                {
+                    _repository.Commit(SyncCommitMessage, _author, _author, new CommitOptions());
+                }
+                catch (EmptyCommitException e)
+                {
+                    //TODO: Log hidden errors into file
+                }
             }
 
             Console.Title = "Syncing (git pull)";
