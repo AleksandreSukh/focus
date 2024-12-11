@@ -6,6 +6,7 @@ using System.Text;
 using Newtonsoft.Json;
 using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Pages;
+using Systems.Sanity.Focus.Pages.Shared.DialogHelpers;
 
 namespace Systems.Sanity.Focus.Domain
 {
@@ -95,22 +96,10 @@ namespace Systems.Sanity.Focus.Domain
         public string GetNodeContentPeekByIdentifier(string identifier)
         {
             var node = FindNode(identifier);
-            return GetNodeContentPeek(node);
+            return node.Name.GetContentPeek();
         }        
         
-        public string GetCurrentNodeContentPeek() => GetNodeContentPeek(_currentNode);
-
-        private static string GetNodeContentPeek(Node node)
-        {
-            const int peekContentLength = 32;
-
-            var nodeLength = node.Name.Length;
-            var formattedNode = nodeLength <= peekContentLength
-                ? node.Name
-                : node.Name.Substring(0, peekContentLength) + "...";
-
-            return formattedNode;
-        }
+        public string GetCurrentNodeContentPeek() => _currentNode.Name.GetContentPeek();
 
         public bool GoToRoot()
         {
