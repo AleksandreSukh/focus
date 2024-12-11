@@ -108,12 +108,17 @@ namespace Systems.Sanity.Focus.Pages.Edit
 
         private CommandExecutionResult ProcessGoToChildOrAddCommandBasedOnTheContent(string command, ConsoleInput input)
         {
-            CommandExecutionResult goToChildCommandResult;
+            if(!ThereAreSubNodes())
+                return ProcessAddCurrentInputString(input);
 
-            if (ThereAreSubNodes() && ((goToChildCommandResult = ProcessCommandGoToChild(command)).IsSuccess || !new Confirmation($"Did you mean to add new record? \"{input.InputString.GetContentPeek()}\"").Confirmed())) 
+            var goToChildCommandResult = ProcessCommandGoToChild(command);
+            
+            if (goToChildCommandResult.IsSuccess) 
                 return goToChildCommandResult;
             
-            return ProcessAddCurrentInputString(input);
+            return new Confirmation($"Did you mean to add new record? \"{input.InputString.GetContentPeek()}\"").Confirmed() 
+                ? ProcessAddCurrentInputString(input) 
+                : goToChildCommandResult;
         }
 
         private CommandExecutionResult ProcessAddCurrentInputString(ConsoleInput input)
