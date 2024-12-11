@@ -7,6 +7,7 @@ using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Infrastructure.Git;
 using Systems.Sanity.Focus.Pages.Edit.Dialogs;
 using Systems.Sanity.Focus.Pages.Shared;
+using Systems.Sanity.Focus.Pages.Shared.DialogHelpers;
 using Systems.Sanity.Focus.Pages.Shared.Dialogs;
 
 namespace Systems.Sanity.Focus.Pages.Edit
@@ -101,8 +102,18 @@ namespace Systems.Sanity.Focus.Pages.Edit
                 DelOption => ProcessCommandDel(parameters),
                 RootOption => ProcessGoToRoot(),
                 UpOption => ProcessCommandGoUp(),
-                _ => ThereAreSubNodes() ? ProcessCommandGoToChild(command) : ProcessAddCurrentInputString(input)
+                _ => ProcessGoToChildOrAddCommandBasedOnTheContent(command, input)
             };
+        }
+
+        private CommandExecutionResult ProcessGoToChildOrAddCommandBasedOnTheContent(string command, ConsoleInput input)
+        {
+            CommandExecutionResult goToChildCommandResult;
+
+            if (ThereAreSubNodes() && ((goToChildCommandResult = ProcessCommandGoToChild(command)).IsSuccess || !new Confirmation($"Did you mean to add new record? \"{input.InputString.GetContentPeek()}\"").Confirmed())) 
+                return goToChildCommandResult;
+            
+            return ProcessAddCurrentInputString(input);
         }
 
         private CommandExecutionResult ProcessAddCurrentInputString(ConsoleInput input)
