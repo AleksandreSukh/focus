@@ -53,11 +53,20 @@ namespace Systems.Sanity.Focus.Infrastructure.Git
 
             Console.Title = "Syncing (git pull)";
 
-            Commands.Pull(_repository, _author, new PullOptions()
+            try
             {
-                FetchOptions = new FetchOptions() { CredentialsProvider = _credentialsHandler },
-                MergeOptions = new MergeOptions()
-            });
+                Commands.Pull(_repository, _author, new PullOptions()
+                {
+                    FetchOptions = new FetchOptions() { CredentialsProvider = _credentialsHandler },
+                    MergeOptions = new MergeOptions()
+                });
+            }
+            catch (CheckoutConflictException e)
+            {
+                Console.Title = $"Syncing failed - {e.Message}";
+                throw;
+            }
+
 
             Console.Title = "Syncing (git push)";
 
