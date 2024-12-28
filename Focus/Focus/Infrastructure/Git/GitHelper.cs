@@ -35,7 +35,7 @@ namespace Systems.Sanity.Focus.Infrastructure.Git
             var consoleOldTitle = Console.Title;
             Commands.Stage(_repository, "*");
 
-            var thereAreUnsavedLocalChanges = _repository.Diff.Compare<TreeChanges>().Count > 0;
+            var thereAreUnsavedLocalChanges = _repository.RetrieveStatus().IsDirty;
 
             if (thereAreUnsavedLocalChanges)
             {
