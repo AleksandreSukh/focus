@@ -16,7 +16,7 @@ namespace Systems.Sanity.Focus.Pages
         public CreateMapPage(MapsStorage mapsStorage, string fileName, MindMap mindMap)
         {
             _mapsStorage = mapsStorage;
-            _fileName = fileName;
+            _fileName = fileName.Trim().Trim('\0');
             _mindMap = mindMap;
         }
 
