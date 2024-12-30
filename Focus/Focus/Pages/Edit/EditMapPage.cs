@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Infrastructure.Git;
@@ -47,7 +48,9 @@ namespace Systems.Sanity.Focus.Pages.Edit
             _mapsStorage = mapsStorage;
             _map = MapFile.OpenFile(_filePath);
             var gitRepositoryName = _mapsStorage.GitRepository;
-            if (!string.IsNullOrWhiteSpace(gitRepositoryName))
+            bool isWindows = RuntimeInformation
+                                               .IsOSPlatform(OSPlatform.Windows);
+            if (isWindows && !string.IsNullOrWhiteSpace(gitRepositoryName))
             {
                 _gitHelper = new GitHelper(gitRepositoryName);
             }
