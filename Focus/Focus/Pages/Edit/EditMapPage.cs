@@ -48,8 +48,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
             _mapsStorage = mapsStorage;
             _map = MapFile.OpenFile(_filePath);
             var gitRepositoryName = _mapsStorage.GitRepository;
-            bool isWindows = RuntimeInformation
-                                               .IsOSPlatform(OSPlatform.Windows);
+            bool isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
             if (isWindows && !string.IsNullOrWhiteSpace(gitRepositoryName))
             {
                 _gitHelper = new GitHelper(gitRepositoryName);
