@@ -66,19 +66,19 @@ public class Node
 
         var numberString = level == 1
             ? $"-> {AccessibleKeyNumbering.GetStringFor(Number)}/{Number}. "
-            : "* ";
+            : level%2 == 0 ? "* ":"• "; //TODO:Extract const chars to separate class
 
         var content = new StringBuilder(numberString);
         content.Append(Name);
 
         if (Collapsed && level > 0)
         {
-            content.Append($" (+) {new string('#', GetTotalSize())}");
+            content.Append($" {new string('/', GetTotalSize())}");
         }
-        else if (Children.Any())
-        {
-            content.Append(" (-)");
-        }
+        // else if (Children.Any())
+        // {
+        //     content.Append(" (-)");
+        // }
 
         PrintLinks(indent + new string(' ', numberString.Length), sb, maxWidth);
         PrintIdeaTags(indent + new string(' ', numberString.Length), sb, maxWidth);

@@ -118,7 +118,8 @@ namespace Systems.Sanity.Focus.Domain
         public string GetCurrentSubtreeString()
         {
             var sb = new StringBuilder();
-            _currentNode.Print("* ", false, 0, sb, ConsoleWrapper.WindowWidth - 5);
+            //TODO:Extract constant chars to constants class
+            _currentNode.Print("| ", false, 0, sb, ConsoleWrapper.WindowWidth - 5);
             return sb.ToString();
         }
 
