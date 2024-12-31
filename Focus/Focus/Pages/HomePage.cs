@@ -43,7 +43,7 @@ namespace Systems.Sanity.Focus.Pages
                 Console.WriteLine("\n{0}{1}{0}\n", ribbon, title);
 
                 _filesToChooseFrom = new Dictionary<int, FileInfo>();
-                var existingMaps = _mapsStorage.GetTop(10); //TODO:
+                var existingMaps = _mapsStorage.GetTop(100); //TODO:
                 for (var index = 0; index < existingMaps.Length; index++)
                 {
                     var mapFile = existingMaps[index];
