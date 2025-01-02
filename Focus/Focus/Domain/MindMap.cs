@@ -196,6 +196,7 @@ namespace Systems.Sanity.Focus.Domain
         {
             var nodeToDetachFrom = nodeToDetach.GetParent();
             var detachedMap = new MindMap(nodeToDetach);
+            //TODO: When detachedMap.RootNode.Name is long string, we may get PathTooLongException
             new CreateMapPage(mapsStorage, detachedMap.RootNode.Name, detachedMap).Show();
 
             DeleteChildNode(nodeToDetachFrom, nodeToDetach);

@@ -30,7 +30,7 @@ namespace Systems.Sanity.Focus.Pages.Edit.Dialogs
             {
                 //TODO: merge duplicate code with HomePage
                 _filesToChooseFrom = new Dictionary<int, FileInfo>();
-                var existingMaps = _mapsStorage.GetTop(10);
+                var existingMaps = _mapsStorage.GetTop(100); //TODO: extract constants
                 for (var index = 0; index < existingMaps.Length; index++)
                 {
                     var mapFile = existingMaps[index];
