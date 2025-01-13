@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 using LibGit2Sharp;
 using LibGit2Sharp.Handlers;
 
-namespace Systems.Sanity.Focus.Infrastructure.Git
+namespace Systems.Sanity.Focus.Infrastructure.FileSynchronization.Git
 {
     public class GitHelper
     {

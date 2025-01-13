@@ -1,7 +1,7 @@
 ﻿using LibGit2Sharp;
 using Microsoft.Alm.Authentication;
 
-namespace Systems.Sanity.Focus.Infrastructure.Git
+namespace Systems.Sanity.Focus.Infrastructure.FileSynchronization.Git
 {
     public static class CredentialStoreHelper
     {

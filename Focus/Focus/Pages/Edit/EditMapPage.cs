@@ -2,10 +2,8 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.Infrastructure;
-using Systems.Sanity.Focus.Infrastructure.Git;
 using Systems.Sanity.Focus.Pages.Edit.Dialogs;
 using Systems.Sanity.Focus.Pages.Shared;
 using Systems.Sanity.Focus.Pages.Shared.DialogHelpers;
@@ -38,7 +36,6 @@ namespace Systems.Sanity.Focus.Pages.Edit
         private readonly string _filePath;
         private MindMap _map;
         private readonly MapsStorage _mapsStorage;
-        private readonly GitHelper _gitHelper;
 
         public EditMapPage(
             string filePath,
@@ -47,12 +44,6 @@ namespace Systems.Sanity.Focus.Pages.Edit
             _filePath = filePath;
             _mapsStorage = mapsStorage;
             _map = MapFile.OpenFile(_filePath);
-            var gitRepositoryName = _mapsStorage.GitRepository;
-            bool isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
-            if (isWindows && !string.IsNullOrWhiteSpace(gitRepositoryName))
-            {
-                _gitHelper = new GitHelper(gitRepositoryName);
-            }
         }
 
         public override void Show()
@@ -94,8 +85,6 @@ namespace Systems.Sanity.Focus.Pages.Edit
                 AddIdeaOption => ProcessAddIdea(parameters),
                 ClearIdeasOption => ProcessClearIdeas(parameters),
                 SliceOption => ProcessSlice(parameters),
-                //AttachOption => ProcessAttach(),
-                //DetachOption => ProcessDetach(parameters),
                 LinkFromOption => ProcessLinkFrom(parameters),
                 LinkToOption => ProcessLinkTo(parameters),
                 HideOption => ProcessHide(parameters),
@@ -110,16 +99,16 @@ namespace Systems.Sanity.Focus.Pages.Edit
 
         private CommandExecutionResult ProcessGoToChildOrAddCommandBasedOnTheContent(string command, ConsoleInput input)
         {
-            if(!ThereAreSubNodes())
+            if (!ThereAreSubNodes())
                 return ProcessAddCurrentInputString(input);
 
             var goToChildCommandResult = ProcessCommandGoToChild(command);
-            
-            if (goToChildCommandResult.IsSuccess) 
+
+            if (goToChildCommandResult.IsSuccess)
                 return goToChildCommandResult;
-            
-            return new Confirmation($"Did you mean to add new record? \"{input.InputString.GetContentPeek()}\"").Confirmed() 
-                ? ProcessAddCurrentInputString(input) 
+
+            return new Confirmation($"Did you mean to add new record? \"{input.InputString.GetContentPeek()}\"").Confirmed()
+                ? ProcessAddCurrentInputString(input)
                 : goToChildCommandResult;
         }
 
@@ -351,15 +340,22 @@ namespace Systems.Sanity.Focus.Pages.Edit
 
         private void Redraw(string message = null)
         {
+            var newConsoleContent = _map.GetCurrentSubtreeString();
+
+            //TODO: Refactor: extract console manipulations to wrapper class and handle ioexception
             try
             {
                 Console.Clear();
+                if (OsInfo.IsWindows())
+                {
+                    Console.Write("\x1b[3J");
+                }
             }
             catch (IOException e)
             {
                 Console.Beep();
             }
-            ColorfulConsole.WriteLine(_map.GetCurrentSubtreeString());
+            ColorfulConsole.WriteLine(newConsoleContent);
 
             if (!string.IsNullOrEmpty(message))
                 ColorfulConsole.WriteLine($":! {message}{Environment.NewLine}");
@@ -374,15 +370,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
         private void Save()
         {
             _map.SaveTo(_filePath);
-            try
-            {
-                _gitHelper?.SyncronizeToRemote();
-            }
-            catch (Exception e)
-            {
-                new Notification($"Failed Git auto synchronization.{Environment.NewLine}Consider manually committing changes to the repository.{Environment.NewLine} Error:{Environment.NewLine}{e}")
-                    .Show();
-            }
+            _mapsStorage.Sync();
         }
 
         private string[] GetCommandOptions() =>
