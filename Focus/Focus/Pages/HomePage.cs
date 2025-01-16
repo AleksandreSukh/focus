@@ -2,12 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Pages.Edit;
 using Systems.Sanity.Focus.Pages.Edit.Dialogs;
 using Systems.Sanity.Focus.Pages.Shared;
 using Systems.Sanity.Focus.Pages.Shared.Dialogs;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace Systems.Sanity.Focus.Pages
 {
@@ -19,11 +21,11 @@ namespace Systems.Sanity.Focus.Pages
         public const string OptionExit = "exit";
         public const string OptionRefresh = "ls";
 
-        private static readonly string[] _fileOptions = new[] { OptionRen, OptionDel };
+        private static readonly string[] FileOptions = { OptionRen, OptionDel };
 
         private readonly MapsStorage _mapsStorage;
 
-        private Dictionary<int, FileInfo> _filesToChooseFrom;
+        private Dictionary<int, FileInfo> _fileSelection;
         private bool _shouldExit;
 
         public HomePage(MapsStorage mapsStorage)
@@ -38,64 +40,109 @@ namespace Systems.Sanity.Focus.Pages
                 Console.Clear();
                 var title = "Welcome";
                 Console.Title = title;
-                var ribbonLength = (ConsoleWrapper.WindowWidth - title.Length) / 2;
-                var ribbon = new string('-', Math.Max(0,ribbonLength));
-                Console.WriteLine("\n{0}{1}{0}\n", ribbon, title);
+                Console.WriteLine(GetHeaderRibbonString(title));
 
-                _filesToChooseFrom = new Dictionary<int, FileInfo>();
-                var existingMaps = _mapsStorage.GetTop(100); //TODO:e
-                for (var index = 0; index < existingMaps.Length; index++)
-                {
-                    var fileNumber = index + 1;
-                    var mapFile = existingMaps[index];
-                    _filesToChooseFrom.Add(index + 1, mapFile);
+                _fileSelection = GetFileSelection();
+                LoadLinksFromAllFiles(_fileSelection);
 
-                    Console.WriteLine($"{fileNumber} ({AccessibleKeyNumbering.GetStringFor(fileNumber)}) - {mapFile.NameWithoutExtension()}");
-                }
+                var homePageText = GetHomePageText(_fileSelection);
 
-                LoadLinksFromAllFiles();
-
-                var input = GetCommand(
-                    Environment.NewLine +
-                    (existingMaps.Length > 0 ? $"Choose file number to open.{Environment.NewLine}" : "") +
-                    $"Type \"{OptionNew}\" and file name to create new file{Environment.NewLine}" +
-                    (_filesToChooseFrom.Any()
-                        ? $"Type \"{OptionDel}\" and file number or name to delete{Environment.NewLine}" +
-                        $"Type \"{OptionRen}\" and file number or name to rename{Environment.NewLine}"
-                        : ""
-                    ) +
-                    $"Type \"{OptionRefresh}\" - to refresh{Environment.NewLine}" +
-                    $"Type \"{OptionExit}\" - to exit{Environment.NewLine}");
+                var input = GetCommand(homePageText);
 
                 if (string.IsNullOrWhiteSpace(input.InputString))
                     continue;
 
-                switch (input.FirstWord)
-                {
-                    case OptionExit:
-                        _shouldExit = true;
+                HandleInput(input);
+            }
+        }
+
+        private static string GetHomePageText(Dictionary<int, FileInfo> files)
+        {
+            var sampleFileNumber = 1;
+            var commandColoring = "green";
+            var filesExist = files.Any();
+            var homePageMenuTextBuilder = new StringBuilder();
+            
+            foreach (var f in files)
+            {
+                homePageMenuTextBuilder.AppendLine($"[{commandColoring}]{AccessibleKeyNumbering.GetStringFor(f.Key)}[!]/[{commandColoring}]{f.Key}[!] - {f.Value.NameWithoutExtension()}.");
+                //homePageMenuTextBuilder.AppendLine($"{f.Key} ({AccessibleKeyNumbering.GetStringFor(f.Key)}) - {f.Value.NameWithoutExtension()}");
+            }
+
+            homePageMenuTextBuilder.AppendLine();
+
+            if (filesExist)
+            {
+                homePageMenuTextBuilder.Append($"Type file identifier like \"[{commandColoring}]{sampleFileNumber}[!]\" or \"[{commandColoring}]{AccessibleKeyNumbering.GetStringFor(sampleFileNumber)}[!]\" to open file.{Environment.NewLine}");
+            }
+
+            homePageMenuTextBuilder.AppendLine(
+                $"\"[{commandColoring}]{OptionNew} and file name[!]\"\t - to create new file");
+
+            if (filesExist)
+            {
+                homePageMenuTextBuilder.AppendLine($"\"[{commandColoring}]{OptionDel} and identifier[!]\"\t - to delete");
+
+                homePageMenuTextBuilder.AppendLine($"\"[{commandColoring}]{OptionRen} and identifier[!]\"\t - to rename");
+            }
+
+            homePageMenuTextBuilder.AppendLine($"\"[{commandColoring}]{OptionRefresh}[!]\" \t\t\t - to refresh list");
+            homePageMenuTextBuilder.AppendLine($"\"[{commandColoring}]{OptionExit}[!]\"\t\t\t - to exit app");
+
+            var homePageText = homePageMenuTextBuilder.ToString();
+            return homePageText;
+        }
+
+
+        private Dictionary<int, FileInfo> GetFileSelection()
+        {
+            var fileSelection = new Dictionary<int, FileInfo>();
+            var existingMaps = _mapsStorage.GetTop(100);
+            for (var index = 0; index < existingMaps.Length; index++)
+            {
+                var fileNumber = index + 1;
+                var mapFile = existingMaps[index];
+                fileSelection.Add(fileNumber, mapFile);
+            }
+
+            return fileSelection;
+        }
+
+        private static string GetHeaderRibbonString(string title)
+        {
+            var ribbonLength = (ConsoleWrapper.WindowWidth - title.Length) / 2;
+            var ribbon = new string('-', Math.Max(0, ribbonLength));
+            var headerRibbonString = string.Format("\n{0}{1}{0}\n", ribbon, title);
+            return headerRibbonString;
+        }
+
+        private void HandleInput(ConsoleInput input)
+        {
+            switch (input.FirstWord)
+            {
+                case OptionExit:
+                    _shouldExit = true;
+                    break;
+                case OptionNew:
+                    {
+                        HandleCreateFileCommand(input);
+                    }
+                    break;
+                case OptionRen:
+                    {
+                        HandleRenameFileCommand(input);
+                    }
+                    break;
+                case OptionDel:
+                    {
+                        HandleDeleteFileCommand(input);
                         break;
-                    case OptionNew:
-                        {
-                            HandleCreateFileCommand(input);
-                        }
+                    }
+                default:
+                    {
+                        HandleOpenFileCommand(input);
                         break;
-                    case OptionRen:
-                        {
-                            HandleRenameFileCommand(input);
-                        }
-                        break;
-                    case OptionDel:
-                        {
-                            HandleDeleteFileCommand(input);
-                            break;
-                        }
-                    default:
-                        {
-                            HandleOpenFileCommand(input);
-                            break;
-                        }
-                }
+                    }
             }
         }
 
@@ -135,12 +182,12 @@ namespace Systems.Sanity.Focus.Pages
                 new RenameFileDialog(file).Show();
         }
 
-        private void LoadLinksFromAllFiles()
+        private void LoadLinksFromAllFiles(Dictionary<int, FileInfo> filesToChooseFrom)
         {
             //TODO: loading files just to fill the links (think of more elegant solution)
             if (!GlobalLinkDitionary.LinksLoaded)
             {
-                foreach (var file in _filesToChooseFrom)
+                foreach (var file in filesToChooseFrom)
                 {
                     MapFile.LoadLinks(file.Value.FullName);
                 }
@@ -163,58 +210,72 @@ namespace Systems.Sanity.Focus.Pages
         private FileInfo FindFile(string fileIdentifier)
         {
             //Option 1: Check if user input is file number
-            if (int.TryParse(fileIdentifier, out int fileNumber) &&
-                _filesToChooseFrom.TryGetValue(fileNumber, out FileInfo file))
-            {
-                return file;
-            }
+            if (FindFileByNumber(fileIdentifier, out var fileByNumber)) return fileByNumber;
 
             //Option 2: Check if user input is file shortcut string
-            if (fileIdentifier.Length <= AccessibleKeyNumbering.MaxShortcutStringLength)
-            {
-                var fileNumberFromShortcut = AccessibleKeyNumbering.GetNumberFor(fileIdentifier);
-                if (fileNumberFromShortcut != 0 && _filesToChooseFrom.TryGetValue(fileNumber, out FileInfo fileFromShortcut))
-                {
-                    return fileFromShortcut;
-                }
-            }
+            if (FindFileByShortcut(fileIdentifier, out var fileByShortcut)) return fileByShortcut;
 
-            //Option 2: Check if user input is file name
+            //Option 3: Check if user input is file name
+            return FindByFileName(fileIdentifier, out var fileByName) ? fileByName : null;
+        }
+
+        private bool FindByFileName(string fileIdentifier, out FileInfo file)
+        {
             var fileNameIsValid = fileIdentifier.IndexOfAny(Path.GetInvalidFileNameChars()) < 0;
-
             if (fileNameIsValid)
             {
-                if ((file = new FileInfo(Path.Combine(_mapsStorage.UserMindMapsDirectory,
-                        fileIdentifier))).Exists
-                    || (file = new FileInfo(Path.Combine(_mapsStorage.UserMindMapsDirectory,
-                        $"{fileIdentifier}.json"))).Exists)
-                {
-                    return file;
-                }
+                return (file = new FileInfo(Path.Combine(_mapsStorage.UserMindMapsDirectory,
+                         fileIdentifier))).Exists
+                     || (file = new FileInfo(Path.Combine(_mapsStorage.UserMindMapsDirectory,
+                         $"{fileIdentifier}.json"))).Exists;
             }
 
-            return null;
+            file = null;
+            return false;
+
+        }
+
+        private bool FindFileByShortcut(string fileIdentifier, out FileInfo file)
+        {
+            var fileNumberFromShortcut = AccessibleKeyNumbering.GetNumberFor(fileIdentifier);
+            if (fileNumberFromShortcut != 0 && _fileSelection.TryGetValue(fileNumberFromShortcut, out file))
+            {
+                return true;
+            }
+
+            file = null;
+            return false;
+        }
+
+        private bool FindFileByNumber(string fileIdentifier, out FileInfo file)
+        {
+            if (int.TryParse(fileIdentifier, out int fileNumber) &&
+                _fileSelection.TryGetValue(fileNumber, out file))
+            {
+                return true;
+            }
+
+            file = null;
+            return false;
         }
 
         protected override string[] GetCommandOptions()
         {
             var optionsWhenFileExists = new[] { OptionNew, OptionRen, OptionDel, OptionRefresh, OptionExit };
             var optionsWhenNoFileExists = new[] { OptionNew, OptionRefresh, OptionExit };
-            return _filesToChooseFrom.Any()
-                ? _filesToChooseFrom.Keys.Select(k => k.ToString())
-                    .Union(_filesToChooseFrom.Keys.Select(k => AccessibleKeyNumbering.GetStringFor(k)))
+            return _fileSelection.Any()
+                ? _fileSelection.Keys.Select(k => k.ToString())
+                    .Union(_fileSelection.Keys.Select(AccessibleKeyNumbering.GetStringFor))
                     .Union(optionsWhenFileExists)
                     .ToArray()
                 : optionsWhenNoFileExists;
         }
 
-        //TODO
         protected override IEnumerable<string> GetPageSpecificSuggestions(string text, int index) =>
-            !_filesToChooseFrom.Any()
+            !_fileSelection.Any()
                 ? GetCommandOptions()
                 : GetCommandOptions()
-                    .Union(_fileOptions.SelectMany(opt => _filesToChooseFrom.Keys.Select(k => $"{opt} {k}")))
-                    .Union(_fileOptions.SelectMany(opt => _filesToChooseFrom.Values.Select(k => $"{opt} {k}")))
-                    .Union(_fileOptions.SelectMany(opt => _filesToChooseFrom.Keys.Select(k => AccessibleKeyNumbering.GetStringFor(k))));
+                    .Union(FileOptions.SelectMany(opt => _fileSelection.Keys.Select(k => $"{opt} {k}")))
+                    .Union(FileOptions.SelectMany(_ => _fileSelection.Keys.Select(AccessibleKeyNumbering.GetStringFor)));
     }
 }

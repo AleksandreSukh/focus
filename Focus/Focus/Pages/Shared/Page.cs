@@ -27,6 +27,8 @@ namespace Systems.Sanity.Focus.Pages.Shared
         public abstract void Show();
         protected ConsoleInput GetInput(string prompt = "", string defaultInput = null)
         {
+            ColorfulConsole.WriteLine(prompt);
+            prompt = string.Empty;
             if (defaultInput != null)
             {
                 return new(ReadLine.Read(prompt, defaultInput).Trim());

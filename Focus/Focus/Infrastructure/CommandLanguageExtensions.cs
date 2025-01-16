@@ -55,5 +55,6 @@ public static class CommandLanguageExtensions
 
     public static IEnumerable<string> WithLocalizations(this IEnumerable<string> source) =>
         source.Select(option => new[] { option, option.ToLocalLanguage() })
-            .SelectMany(i => i);
+            .SelectMany(i => i)
+            .Distinct();
 }

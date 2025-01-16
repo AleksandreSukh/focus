@@ -26,7 +26,7 @@ namespace Systems.Sanity.Focus.Pages.Shared
         //TODO:Merge get options and parse options 
         private void ParseOptions(string input)
         {
-            var options = GetCommandOptions().WithLocalizations();
+            var options = GetCommandOptions().WithLocalizations().ToList();
             if (!string.IsNullOrWhiteSpace(input) && !options.Contains(input))
             {
                 var messageBuilder = BuildInputErrorMessageDialogText(options);
