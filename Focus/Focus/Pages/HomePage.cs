@@ -39,16 +39,18 @@ namespace Systems.Sanity.Focus.Pages
                 var title = "Welcome";
                 Console.Title = title;
                 var ribbonLength = (ConsoleWrapper.WindowWidth - title.Length) / 2;
-                var ribbon = new string('-', ribbonLength);
+                var ribbon = new string('-', Math.Max(0,ribbonLength));
                 Console.WriteLine("\n{0}{1}{0}\n", ribbon, title);
 
                 _filesToChooseFrom = new Dictionary<int, FileInfo>();
                 var existingMaps = _mapsStorage.GetTop(100); //TODO:e
                 for (var index = 0; index < existingMaps.Length; index++)
                 {
+                    var fileNumber = index + 1;
                     var mapFile = existingMaps[index];
                     _filesToChooseFrom.Add(index + 1, mapFile);
-                    Console.WriteLine($"{index + 1} - {mapFile.NameWithoutExtension()}");
+
+                    Console.WriteLine($"{fileNumber} ({AccessibleKeyNumbering.GetStringFor(fileNumber)}) - {mapFile.NameWithoutExtension()}");
                 }
 
                 LoadLinksFromAllFiles();
@@ -74,25 +76,25 @@ namespace Systems.Sanity.Focus.Pages
                         _shouldExit = true;
                         break;
                     case OptionNew:
-                    {
-                        HandleCreateFileCommand(input);
-                    }
+                        {
+                            HandleCreateFileCommand(input);
+                        }
                         break;
                     case OptionRen:
-                    {
-                        HandleRenameFileCommand(input);
-                    }
+                        {
+                            HandleRenameFileCommand(input);
+                        }
                         break;
                     case OptionDel:
-                    {
-                        HandleDeleteFileCommand(input);
-                        break;
-                    }
+                        {
+                            HandleDeleteFileCommand(input);
+                            break;
+                        }
                     default:
-                    {
-                        HandleOpenFileCommand(input);
-                        break;
-                    }
+                        {
+                            HandleOpenFileCommand(input);
+                            break;
+                        }
                 }
             }
         }
@@ -160,11 +162,24 @@ namespace Systems.Sanity.Focus.Pages
 
         private FileInfo FindFile(string fileIdentifier)
         {
+            //Option 1: Check if user input is file number
             if (int.TryParse(fileIdentifier, out int fileNumber) &&
                 _filesToChooseFrom.TryGetValue(fileNumber, out FileInfo file))
             {
                 return file;
             }
+
+            //Option 2: Check if user input is file shortcut string
+            if (fileIdentifier.Length <= AccessibleKeyNumbering.MaxShortcutStringLength)
+            {
+                var fileNumberFromShortcut = AccessibleKeyNumbering.GetNumberFor(fileIdentifier);
+                if (fileNumberFromShortcut != 0 && _filesToChooseFrom.TryGetValue(fileNumber, out FileInfo fileFromShortcut))
+                {
+                    return fileFromShortcut;
+                }
+            }
+
+            //Option 2: Check if user input is file name
             var fileNameIsValid = fileIdentifier.IndexOfAny(Path.GetInvalidFileNameChars()) < 0;
 
             if (fileNameIsValid)
@@ -187,6 +202,7 @@ namespace Systems.Sanity.Focus.Pages
             var optionsWhenNoFileExists = new[] { OptionNew, OptionRefresh, OptionExit };
             return _filesToChooseFrom.Any()
                 ? _filesToChooseFrom.Keys.Select(k => k.ToString())
+                    .Union(_filesToChooseFrom.Keys.Select(k => AccessibleKeyNumbering.GetStringFor(k)))
                     .Union(optionsWhenFileExists)
                     .ToArray()
                 : optionsWhenNoFileExists;
@@ -198,6 +214,7 @@ namespace Systems.Sanity.Focus.Pages
                 ? GetCommandOptions()
                 : GetCommandOptions()
                     .Union(_fileOptions.SelectMany(opt => _filesToChooseFrom.Keys.Select(k => $"{opt} {k}")))
-                    .Union(_fileOptions.SelectMany(opt => _filesToChooseFrom.Values.Select(k => $"{opt} {k}")));
+                    .Union(_fileOptions.SelectMany(opt => _filesToChooseFrom.Values.Select(k => $"{opt} {k}")))
+                    .Union(_fileOptions.SelectMany(opt => _filesToChooseFrom.Keys.Select(k => AccessibleKeyNumbering.GetStringFor(k))));
     }
 }

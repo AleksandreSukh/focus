@@ -8,6 +8,8 @@ namespace Systems.Sanity.Focus.Infrastructure
         private const string AlphabetLeft = "asdf";
         private const string AlphabetRight = "jkl;";
 
+        public const int MaxShortcutStringLength = 3;
+
         private static readonly string[] SpecificWords = new[]
         {
             "ja",
