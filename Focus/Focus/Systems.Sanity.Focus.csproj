@@ -14,11 +14,14 @@
     <PackageReference Include="LibGit2Sharp" Version="0.31.0" />
     <PackageReference Include="Microsoft.Alm.Authentication" Version="4.3.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
-    <PackageReference Include="ReadLine" Version="2.0.1" />
   </ItemGroup>
 
   <ItemGroup>
     <Folder Include="Dialogs\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ReadLine\ReadLine.csproj" />
   </ItemGroup>
 
 </Project>

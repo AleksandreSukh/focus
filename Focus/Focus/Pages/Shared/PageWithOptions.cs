@@ -44,7 +44,7 @@ namespace Systems.Sanity.Focus.Pages.Shared
             messageBuilder.AppendLine();
             messageBuilder.AppendLineCentered("*** Wrong Input ***");
             messageBuilder.AppendLine();
-            messageBuilder.AppendLineCentered($"Valid options are:[GR]{string.Join(", ", options)}[!GR]");
+            messageBuilder.AppendLineCentered($"Valid options are:[{ConsoleColor.Green}]{string.Join(", ", options)}[!]");
             messageBuilder.AppendLine();
             messageBuilder.AppendLineCentered("Press any key to continue");
             messageBuilder.AppendLine();

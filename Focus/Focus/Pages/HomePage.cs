@@ -9,7 +9,6 @@ using Systems.Sanity.Focus.Pages.Edit;
 using Systems.Sanity.Focus.Pages.Edit.Dialogs;
 using Systems.Sanity.Focus.Pages.Shared;
 using Systems.Sanity.Focus.Pages.Shared.Dialogs;
-using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace Systems.Sanity.Focus.Pages
 {
