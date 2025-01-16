@@ -21,6 +21,8 @@ namespace Systems.Sanity.Focus.Pages.Shared
         protected Page()
         {
             ReadLine.AutoCompletionHandler = this;
+            ReadLine.BeforeAutoComplete = () => { Console.ForegroundColor = ConsoleColor.Green; }; //TODO:
+            ReadLine.AfterAutoComplete = () => { Console.ForegroundColor = ConsoleWrapper.DefaultColor; }; //TODO:
             ReadLine.HistoryEnabled = true;
         }
 

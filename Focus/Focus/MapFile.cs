@@ -3,7 +3,7 @@ using System.IO;
 using Newtonsoft.Json;
 using Systems.Sanity.Focus.Domain;
 
-namespace Systems.Sanity.Focus.Infrastructure
+namespace Systems.Sanity.Focus
 {
     public class MapFile
     {

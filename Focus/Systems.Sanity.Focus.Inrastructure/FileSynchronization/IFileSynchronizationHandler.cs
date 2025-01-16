@@ -1,6 +1,6 @@
 ﻿namespace Systems.Sanity.Focus.Infrastructure.FileSynchronization;
 
-internal interface IFileSynchronizationHandler
+public interface IFileSynchronizationHandler
 {
     void Synchronize();
 }

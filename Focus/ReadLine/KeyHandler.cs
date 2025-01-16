@@ -19,6 +19,8 @@ namespace Internal.ReadLine
         private int _completionStart;
         private int _completionsIndex;
         private IConsole Console2;
+        private readonly Action _beforeAutoComplete;
+        private readonly Action _afterAutoComplete;
 
         private bool IsStartOfLine() => _cursorPos == 0;
 
@@ -87,10 +89,12 @@ namespace Internal.ReadLine
                 WriteChar(character);
         }
 
-        private void WriteString(string str)
+        private void WriteAutoCompletedString(string str)
         {
+            _beforeAutoComplete?.Invoke();
             foreach (char character in str)
                 WriteChar(character);
+            _afterAutoComplete?.Invoke();
         }
 
         private void WriteChar() => WriteChar(_keyInfo.KeyChar);
@@ -182,7 +186,7 @@ namespace Internal.ReadLine
 
             _completionsIndex = 0;
 
-            WriteString(_completions[_completionsIndex]);
+            WriteAutoCompletedString(_completions[_completionsIndex]);
         }
 
         private void NextAutoComplete()
@@ -195,7 +199,7 @@ namespace Internal.ReadLine
             if (_completionsIndex == _completions.Length)
                 _completionsIndex = 0;
 
-            WriteString(_completions[_completionsIndex]);
+            WriteAutoCompletedString(_completions[_completionsIndex]);
         }
 
         private void PreviousAutoComplete()
@@ -208,7 +212,7 @@ namespace Internal.ReadLine
             if (_completionsIndex == -1)
                 _completionsIndex = _completions.Length - 1;
 
-            WriteString(_completions[_completionsIndex]);
+            WriteAutoCompletedString(_completions[_completionsIndex]);
         }
 
         private void PrevHistory()
@@ -246,9 +250,11 @@ namespace Internal.ReadLine
             }
         }
 
-        public KeyHandler(IConsole console, List<string> history, IAutoCompleteHandler autoCompleteHandler)
+        public KeyHandler(IConsole console, List<string> history, IAutoCompleteHandler autoCompleteHandler, Action beforeAutoComplete, Action afterAutoComplete)
         {
             Console2 = console;
+            _beforeAutoComplete = beforeAutoComplete;
+            _afterAutoComplete = afterAutoComplete;
 
             _history = history ?? new List<string>();
             _historyIndex = _history.Count;

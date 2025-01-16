@@ -11,7 +11,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="LibGit2Sharp" Version="0.31.0" />
     <PackageReference Include="Microsoft.Alm.Authentication" Version="4.3.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
@@ -22,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ReadLine\ReadLine.csproj" />
+    <ProjectReference Include="..\Systems.Sanity.Focus.Inrastructure\Systems.Sanity.Focus.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>
