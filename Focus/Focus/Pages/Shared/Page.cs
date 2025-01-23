@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using Systems.Sanity.Focus.Infrastructure;
+using Systems.Sanity.Focus.Infrastructure.Input.ReadLine;
 
 namespace Systems.Sanity.Focus.Pages.Shared
 {
@@ -13,6 +14,12 @@ namespace Systems.Sanity.Focus.Pages.Shared
                 .ToArray();
         }
 
+        public void BeforeAutoComplete()
+        { Console.ForegroundColor = ConsoleColor.Green; }
+
+        public void AfterAutoComplete()
+        { Console.ForegroundColor = ConsoleWrapper.DefaultColor; }
+
         public char[] Separators { get; set; } = new char[] { ' ' };
 
         protected virtual IEnumerable<string> GetPageSpecificSuggestions(string text, int index)
@@ -21,8 +28,6 @@ namespace Systems.Sanity.Focus.Pages.Shared
         protected Page()
         {
             ReadLine.AutoCompletionHandler = this;
-            ReadLine.BeforeAutoComplete = () => { Console.ForegroundColor = ConsoleColor.Green; }; //TODO:
-            ReadLine.AfterAutoComplete = () => { Console.ForegroundColor = ConsoleWrapper.DefaultColor; }; //TODO:
             ReadLine.HistoryEnabled = true;
         }
 

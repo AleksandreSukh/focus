@@ -1,9 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using Internal.ReadLine;
-using Internal.ReadLine.Abstractions;
+﻿using Systems.Sanity.Focus.Infrastructure.Input.ReadLine.Abstractions;
 
-namespace ReadLine
+namespace Systems.Sanity.Focus.Infrastructure.Input.ReadLine
 {
     public static class ReadLine
     {
@@ -19,13 +16,11 @@ namespace ReadLine
         public static void ClearHistory() => _history = new List<string>();
         public static bool HistoryEnabled { get; set; }
         public static IAutoCompleteHandler AutoCompletionHandler { private get; set; }
-        public static Action BeforeAutoComplete { private get; set; } //TODO:
-        public static Action AfterAutoComplete { private get; set; } //TODO:
 
         public static string Read(string prompt = "", string @default = "")
         {
             Console.Write(prompt);
-            KeyHandler keyHandler = new KeyHandler(new Console2(), _history, AutoCompletionHandler, BeforeAutoComplete, AfterAutoComplete);
+            KeyHandler keyHandler = new KeyHandler(new Console2(), _history, AutoCompletionHandler);
             string text = GetText(keyHandler);
 
             if (String.IsNullOrWhiteSpace(text) && !String.IsNullOrWhiteSpace(@default))
@@ -44,7 +39,7 @@ namespace ReadLine
         public static string ReadPassword(string prompt = "")
         {
             Console.Write(prompt);
-            KeyHandler keyHandler = new KeyHandler(new Console2() { PasswordMode = true }, null, null, null, null);
+            KeyHandler keyHandler = new KeyHandler(new Console2() { PasswordMode = true }, null, null);
             return GetText(keyHandler);
         }
 

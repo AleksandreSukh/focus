@@ -20,7 +20,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\ReadLine\ReadLine.csproj" />
     <ProjectReference Include="..\Systems.Sanity.Focus.Inrastructure\Systems.Sanity.Focus.Infrastructure.csproj" />
   </ItemGroup>
 

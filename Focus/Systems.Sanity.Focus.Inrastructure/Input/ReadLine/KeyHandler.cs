@@ -1,11 +1,9 @@
-using System;
-using System.Collections.Generic;
 using System.Text;
-using Internal.ReadLine.Abstractions;
+using Systems.Sanity.Focus.Infrastructure.Input.ReadLine.Abstractions;
 
-namespace ReadLine
+namespace Systems.Sanity.Focus.Infrastructure.Input.ReadLine
 {
-    internal class KeyHandler
+    public class KeyHandler
     {
         private int _cursorPos;
         private int _cursorLimit;
@@ -18,8 +16,6 @@ namespace ReadLine
         private int _completionStart;
         private int _completionsIndex;
         private IConsole Console2;
-        private readonly Action _beforeAutoComplete;
-        private readonly Action _afterAutoComplete;
 
         private bool IsStartOfLine() => _cursorPos == 0;
 
@@ -51,8 +47,9 @@ namespace ReadLine
 
         private string BuildKeyInput()
         {
-            return (_keyInfo.Modifiers != ConsoleModifiers.Control && _keyInfo.Modifiers != ConsoleModifiers.Shift) ?
-                _keyInfo.Key.ToString() : _keyInfo.Modifiers.ToString() + _keyInfo.Key.ToString();
+            return (_keyInfo.Modifiers != ConsoleModifiers.Control && _keyInfo.Modifiers != ConsoleModifiers.Shift)
+                ? _keyInfo.Key.ToString()
+                : _keyInfo.Modifiers.ToString() + _keyInfo.Key.ToString();
         }
 
         private void MoveCursorRight()
@@ -90,10 +87,8 @@ namespace ReadLine
 
         private void WriteAutoCompletedString(string str)
         {
-            _beforeAutoComplete?.Invoke();
             foreach (char character in str)
                 WriteChar(character);
-            _afterAutoComplete?.Invoke();
         }
 
         private void WriteChar() => WriteChar(_keyInfo.KeyChar);
@@ -155,10 +150,13 @@ namespace ReadLine
         {
             // local helper functions
             bool almostEndOfLine() => (_cursorLimit - _cursorPos) == 1;
-            int incrementIf(Func<bool> expression, int index) =>  expression() ? index + 1 : index;
+            int incrementIf(Func<bool> expression, int index) => expression() ? index + 1 : index;
             int decrementIf(Func<bool> expression, int index) => expression() ? index - 1 : index;
 
-            if (IsStartOfLine()) { return; }
+            if (IsStartOfLine())
+            {
+                return;
+            }
 
             var firstIdx = decrementIf(IsEndOfLine, _cursorPos - 1);
             var secondIdx = decrementIf(IsEndOfLine, _cursorPos);
@@ -243,17 +241,12 @@ namespace ReadLine
 
         public string Text
         {
-            get
-            {
-                return _text.ToString();
-            }
+            get { return _text.ToString(); }
         }
 
-        public KeyHandler(IConsole console, List<string> history, IAutoCompleteHandler autoCompleteHandler, Action beforeAutoComplete, Action afterAutoComplete)
+        public KeyHandler(IConsole console, List<string> history, IAutoCompleteHandler autoCompleteHandler)
         {
             Console2 = console;
-            _beforeAutoComplete = beforeAutoComplete;
-            _afterAutoComplete = afterAutoComplete;
 
             _history = history ?? new List<string>();
             _historyIndex = _history.Count;
@@ -299,27 +292,38 @@ namespace ReadLine
 
             _keyActions["Tab"] = () =>
             {
+                if(autoCompleteHandler == null)
+                    return;
+
                 if (IsInAutoCompleteMode())
                 {
+                    autoCompleteHandler.BeforeAutoComplete();
                     NextAutoComplete();
+                    autoCompleteHandler.AfterAutoComplete();
                 }
                 else
                 {
-                    if (autoCompleteHandler == null || !IsEndOfLine())
+                    if (!IsEndOfLine())
                         return;
 
                     string text = _text.ToString();
 
-                    _completionStart = text.LastIndexOfAny(autoCompleteHandler.Separators);
-                    _completionStart = _completionStart == -1 ? 0 : _completionStart + 1;
+                    var textContainsSeparator = text.LastIndexOfAny(autoCompleteHandler.Separators) != -1;//TODO: can be sped up
 
-                    _completions = autoCompleteHandler.GetSuggestions(text, _completionStart);
-                    _completions = _completions?.Length == 0 ? null : _completions;
+                    _completionStart = textContainsSeparator ? _completionStart + 1 : 0;
 
-                    if (_completions == null)
-                        return;
-
-                    StartAutoComplete();
+                    var completions = autoCompleteHandler.GetSuggestions(text, _completionStart);
+                    if (completions == null || !completions.Any())
+                    {
+                        _completions = null;
+                    }
+                    else
+                    {
+                        _completions = completions;
+                        autoCompleteHandler.BeforeAutoComplete();
+                        StartAutoComplete();
+                        autoCompleteHandler.AfterAutoComplete();
+                    }
                 }
             };
 
