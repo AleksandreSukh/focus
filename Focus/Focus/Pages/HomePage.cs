@@ -58,13 +58,13 @@ namespace Systems.Sanity.Focus.Pages
         private static string GetHomePageText(Dictionary<int, FileInfo> files)
         {
             var sampleFileNumber = 1;
-            var commandColoring = "green";
+            var commandColor = ConfigurationConstants.CommandColor; 
             var filesExist = files.Any();
             var homePageMenuTextBuilder = new StringBuilder();
             
             foreach (var f in files)
             {
-                homePageMenuTextBuilder.AppendLine($"[{commandColoring}]{AccessibleKeyNumbering.GetStringFor(f.Key)}[!]/[{commandColoring}]{f.Key}[!] - {f.Value.NameWithoutExtension()}.");
+                homePageMenuTextBuilder.AppendLine($"[{commandColor}]{AccessibleKeyNumbering.GetStringFor(f.Key)}[!]/[{commandColor}]{f.Key}[!] - {f.Value.NameWithoutExtension()}.");
                 //homePageMenuTextBuilder.AppendLine($"{f.Key} ({AccessibleKeyNumbering.GetStringFor(f.Key)}) - {f.Value.NameWithoutExtension()}");
             }
 
@@ -72,21 +72,21 @@ namespace Systems.Sanity.Focus.Pages
 
             if (filesExist)
             {
-                homePageMenuTextBuilder.Append($"Type file identifier like \"[{commandColoring}]{sampleFileNumber}[!]\" or \"[{commandColoring}]{AccessibleKeyNumbering.GetStringFor(sampleFileNumber)}[!]\" to open file.{Environment.NewLine}");
+                homePageMenuTextBuilder.Append($"Type file identifier like \"[{commandColor}]{sampleFileNumber}[!]\" or \"[{commandColor}]{AccessibleKeyNumbering.GetStringFor(sampleFileNumber)}[!]\" to open file.{Environment.NewLine}");
             }
 
             homePageMenuTextBuilder.AppendLine(
-                $"\"[{commandColoring}]{OptionNew} and file name[!]\"\t - to create new file");
+                $"\"[{commandColor}]{OptionNew} and file name[!]\"\t - to create new file");
 
             if (filesExist)
             {
-                homePageMenuTextBuilder.AppendLine($"\"[{commandColoring}]{OptionDel} and identifier[!]\"\t - to delete");
+                homePageMenuTextBuilder.AppendLine($"\"[{commandColor}]{OptionDel} and identifier[!]\"\t - to delete");
 
-                homePageMenuTextBuilder.AppendLine($"\"[{commandColoring}]{OptionRen} and identifier[!]\"\t - to rename");
+                homePageMenuTextBuilder.AppendLine($"\"[{commandColor}]{OptionRen} and identifier[!]\"\t - to rename");
             }
 
-            homePageMenuTextBuilder.AppendLine($"\"[{commandColoring}]{OptionRefresh}[!]\" \t\t\t - to refresh list");
-            homePageMenuTextBuilder.AppendLine($"\"[{commandColoring}]{OptionExit}[!]\"\t\t\t - to exit app");
+            homePageMenuTextBuilder.AppendLine($"\"[{commandColor}]{OptionRefresh}[!]\" \t\t\t - to refresh list");
+            homePageMenuTextBuilder.AppendLine($"\"[{commandColor}]{OptionExit}[!]\"\t\t\t - to exit app");
 
             var homePageText = homePageMenuTextBuilder.ToString();
             return homePageText;

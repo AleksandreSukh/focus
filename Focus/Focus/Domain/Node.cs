@@ -65,7 +65,8 @@ public class Node
             return;
 
         var numberString = level == 1
-            ? $"-> {AccessibleKeyNumbering.GetStringFor(Number)}/{Number}. "
+            //? $"-> {AccessibleKeyNumbering.GetStringFor(Number)}/{Number}. " //TODO: temporary feature - to be refactored
+            ? $"-> [{ConfigurationConstants.CommandColor}]{AccessibleKeyNumbering.GetStringFor(Number)}[!]/[{ConfigurationConstants.CommandColor}]{Number}[!]. "
             : level%2 == 0 ? "* ":"• "; //TODO:Extract const chars to separate class
 
         var content = new StringBuilder(numberString);
