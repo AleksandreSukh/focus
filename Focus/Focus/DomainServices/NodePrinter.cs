@@ -42,9 +42,9 @@ namespace Systems.Sanity.Focus.DomainServices
             PrintWithIndentation(nodeToPrint, indent, sb, maxWidth);
 
             if (isEndOfBranch)
-                sb.AppendLine(":"); //TODO:
+                sb.AppendLine(ConfigurationConstants.NodePrinting.LeftBorderAtTheEndOfBranch);
 
-            indent += "    ";
+            indent += ConfigurationConstants.NodePrinting.TabSpaceForIndentation;
 
             if (node.Collapsed && level > 0) return;
             for (int i = 0; i < node.Children.Count; i++)
