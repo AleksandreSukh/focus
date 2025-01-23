@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using Newtonsoft.Json;
+using Systems.Sanity.Focus.DomainServices;
 using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Pages;
 using Systems.Sanity.Focus.Pages.Shared.DialogHelpers;
@@ -118,8 +119,7 @@ namespace Systems.Sanity.Focus.Domain
         public string GetCurrentSubtreeString()
         {
             var sb = new StringBuilder();
-            //TODO:Extract constant chars to constants class
-            _currentNode.Print("| ", false, 0, sb, ConsoleWrapper.WindowWidth - 5);
+            NodePrinter.Print(_currentNode, ConfigurationConstants.NodePrinting.LeftBorder, false, 0, sb, ConsoleWrapper.WindowWidth - 5);
             return sb.ToString();
         }
 

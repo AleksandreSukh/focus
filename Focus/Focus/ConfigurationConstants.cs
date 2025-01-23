@@ -1,13 +1,12 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace Systems.Sanity.Focus
+﻿namespace Systems.Sanity.Focus
 {
     public class ConfigurationConstants
     {
         public const string CommandColor = "green";
+
+        public static class NodePrinting
+        {
+            public const string LeftBorder = "| ";
+        }
     }
 }

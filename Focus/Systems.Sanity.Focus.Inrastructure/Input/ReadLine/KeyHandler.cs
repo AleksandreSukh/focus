@@ -244,7 +244,7 @@ namespace Systems.Sanity.Focus.Infrastructure.Input.ReadLine
             get { return _text.ToString(); }
         }
 
-        public KeyHandler(IConsole console, List<string> history, IAutoCompleteHandler autoCompleteHandler)
+        public KeyHandler(IConsole console, List<string> history, IAutoCompleteHandler? autoCompleteHandler)
         {
             Console2 = console;
 
