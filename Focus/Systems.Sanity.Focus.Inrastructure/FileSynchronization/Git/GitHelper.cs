@@ -1,7 +1,4 @@
-﻿using System;
-using System.Threading;
-using System.Threading.Tasks;
-using LibGit2Sharp;
+﻿using LibGit2Sharp;
 using LibGit2Sharp.Handlers;
 
 namespace Systems.Sanity.Focus.Infrastructure.FileSynchronization.Git
@@ -32,7 +29,7 @@ namespace Systems.Sanity.Focus.Infrastructure.FileSynchronization.Git
         private void CommitPullAndPush()
         {
             Thread.Sleep(5000);
-            var consoleOldTitle = Console.Title;
+            var consoleOldTitle = Console.Title; //TODO: move to consoleTitleWriter infrastructure class
             Commands.Stage(_repository, "*");
 
             var thereAreUnsavedLocalChanges = _repository.RetrieveStatus().IsDirty;

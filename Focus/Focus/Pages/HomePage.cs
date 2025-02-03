@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
-using System.Threading;
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Pages.Edit;
