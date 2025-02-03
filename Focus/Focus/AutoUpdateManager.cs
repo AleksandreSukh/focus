@@ -9,14 +9,19 @@ internal class AutoUpdateManager
 {
     private static UpdateInfo updateInfo;
     private static readonly object _lockObj = new();
+    private static UpdateManager _updateManager;
 
     public static async Task StartUpdateChecker()
     {
         await Task.Delay(TimeSpan.FromSeconds(5));
-        while (true)
+        var mgr = GetGithubUpdateManager();
+        if (mgr.IsInstalled)
         {
-            await CheckForUpdate();
-            await Task.Delay(TimeSpan.FromSeconds(100));
+            while (true)
+            {
+                await CheckForUpdate();
+                await Task.Delay(TimeSpan.FromSeconds(100));
+            }
         }
     }
 
@@ -32,7 +37,7 @@ internal class AutoUpdateManager
 
     public static void HandleUpdate()
     {
-        var mgr = GithubManagerFactory();
+        var mgr = GetGithubUpdateManager();
         UpdateInfo versionToUpdateTo = null;
         lock (_lockObj)
         {
@@ -51,22 +56,25 @@ internal class AutoUpdateManager
         }
     }
 
-    private static UpdateManager GithubManagerFactory() => new UpdateManager(new GithubSource("https://github.com/AleksandreSukh/focus", null, false));
+    private static UpdateManager GetGithubUpdateManager() => _updateManager ??= new UpdateManager(new GithubSource("https://github.com/AleksandreSukh/focus", null, false));
 
     private static async Task CheckForUpdate()
     {
         try
         {
-            var mgr = GithubManagerFactory();
-            // check for new version
-            var newVersion = await mgr.CheckForUpdatesAsync();
-            if (newVersion != null)
+            var mgr = GetGithubUpdateManager();
+            if (mgr.IsInstalled)
             {
-                Console.WriteLine("Found update " + newVersion.TargetFullRelease.Version);
-
-                lock (_lockObj)
+                // check for new version
+                var newVersion = await mgr.CheckForUpdatesAsync();
+                if (newVersion != null)
                 {
-                    updateInfo = newVersion;
+                    Console.WriteLine("Found update " + newVersion.TargetFullRelease.Version);
+
+                    lock (_lockObj)
+                    {
+                        updateInfo = newVersion;
+                    }
                 }
             }
         }
