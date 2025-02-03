@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Pages.Edit;
@@ -19,6 +20,7 @@ namespace Systems.Sanity.Focus.Pages
         public const string OptionDel = "del";
         public const string OptionExit = "exit";
         public const string OptionRefresh = "ls";
+        public const string OptionUpdateApp = "update";
 
         private static readonly string[] FileOptions = { OptionRen, OptionDel };
 
@@ -58,10 +60,10 @@ namespace Systems.Sanity.Focus.Pages
         private static string GetHomePageText(Dictionary<int, FileInfo> files)
         {
             var sampleFileNumber = 1;
-            var commandColor = ConfigurationConstants.CommandColor; 
+            var commandColor = ConfigurationConstants.CommandColor;
             var filesExist = files.Any();
             var homePageMenuTextBuilder = new StringBuilder();
-            
+
             foreach (var f in files)
             {
                 homePageMenuTextBuilder.AppendLine($"[{commandColor}]{AccessibleKeyNumbering.GetStringFor(f.Key)}[!]/[{commandColor}]{f.Key}[!] - {f.Value.NameWithoutExtension()}.");
@@ -87,6 +89,13 @@ namespace Systems.Sanity.Focus.Pages
 
             homePageMenuTextBuilder.AppendLine($"\"[{commandColor}]{OptionRefresh}[!]\" \t\t\t - to refresh list");
             homePageMenuTextBuilder.AppendLine($"\"[{commandColor}]{OptionExit}[!]\"\t\t\t - to exit app");
+
+            var updatedVersion = AutoUpdateManager.CheckUpdatedVersion();
+
+            if (updatedVersion != null)
+            {
+                homePageMenuTextBuilder.AppendLine($"\"[{commandColor}]{OptionUpdateApp}[!]\"\t - to update app to new version: \"{updatedVersion}\"");
+            }
 
             var homePageText = homePageMenuTextBuilder.ToString();
             return homePageText;
@@ -137,12 +146,22 @@ namespace Systems.Sanity.Focus.Pages
                         HandleDeleteFileCommand(input);
                         break;
                     }
+                case OptionUpdateApp:
+                    {
+                        HandleUpdateApp();
+                        break;
+                    }
                 default:
                     {
                         HandleOpenFileCommand(input);
                         break;
                     }
             }
+        }
+
+        private void HandleUpdateApp()
+        {
+            AutoUpdateManager.HandleUpdate();
         }
 
         private void HandleCreateFileCommand(ConsoleInput input)
@@ -260,8 +279,8 @@ namespace Systems.Sanity.Focus.Pages
 
         protected override string[] GetCommandOptions()
         {
-            var optionsWhenFileExists = new[] { OptionNew, OptionRen, OptionDel, OptionRefresh, OptionExit };
-            var optionsWhenNoFileExists = new[] { OptionNew, OptionRefresh, OptionExit };
+            var optionsWhenFileExists = new[] { OptionNew, OptionRen, OptionDel, OptionRefresh, OptionExit, OptionUpdateApp };
+            var optionsWhenNoFileExists = new[] { OptionNew, OptionRefresh, OptionExit, OptionUpdateApp };
             return _fileSelection.Any()
                 ? _fileSelection.Keys.Select(k => k.ToString())
                     .Union(_fileSelection.Keys.Select(AccessibleKeyNumbering.GetStringFor))

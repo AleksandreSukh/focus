@@ -1,10 +1,12 @@
 ﻿using System;
 using System.IO;
+using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.Infrastructure.Input.ReadLine;
 using Systems.Sanity.Focus.Pages;
+using Velopack;
 
 namespace Systems.Sanity.Focus
 {
@@ -12,6 +14,10 @@ namespace Systems.Sanity.Focus
     {
         static void Main(string[] args)
         {
+            //Using Velopack for auto-update capability
+            Task.Run(AutoUpdateManager.StartUpdateChecker);
+            VelopackApp.Build().Run();
+
             Console.OutputEncoding = System.Text.Encoding.Default;
             JsonConvert.DefaultSettings = () => new JsonSerializerSettings
             {
@@ -19,8 +25,6 @@ namespace Systems.Sanity.Focus
                 //TypeNameHandling = TypeNameHandling.Objects,
                 ContractResolver = new CamelCasePropertyNamesContractResolver()
             };
-
- 
 
             var userDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             var configFile = Path.Combine(userDirectory, "focus-config.json");

@@ -13,6 +13,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Alm.Authentication" Version="4.3.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="Velopack" Version="0.0.1053" />
   </ItemGroup>
 
   <ItemGroup>
