@@ -20,7 +20,7 @@ internal class AutoUpdateManager
             while (true)
             {
                 await CheckForUpdate();
-                await Task.Delay(TimeSpan.FromSeconds(100));
+                await Task.Delay(TimeSpan.FromMinutes(30));
             }
         }
     }
