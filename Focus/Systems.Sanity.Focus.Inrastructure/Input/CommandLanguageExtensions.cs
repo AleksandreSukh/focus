@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 
-namespace Systems.Sanity.Focus.Infrastructure;
+namespace Systems.Sanity.Focus.Infrastructure.Input;
 
 [Obsolete("Needs to be refactored")]
 public static class CommandLanguageExtensions
@@ -37,8 +37,8 @@ public static class CommandLanguageExtensions
         }
 
         return resultStringBuilder.ToString();
-    } 
-        
+    }
+
     public static string ToLocalLanguage(this string input)
     {
         var resultStringBuilder = new StringBuilder(input.Length);

@@ -56,7 +56,7 @@ internal class AutoUpdateManager
         }
     }
 
-    private static UpdateManager GetGithubUpdateManager() => _updateManager ??= new UpdateManager(new GithubSource("https://github.com/AleksandreSukh/focus", null, false));
+    private static UpdateManager GetGithubUpdateManager() => _updateManager ??= new UpdateManager(new GithubSource(ConfigurationConstants.GithubPublishRepositoryUrl, null, false));
 
     private static async Task CheckForUpdate()
     {
@@ -69,7 +69,7 @@ internal class AutoUpdateManager
                 var newVersion = await mgr.CheckForUpdatesAsync();
                 if (newVersion != null)
                 {
-                    Console.WriteLine("Found update " + newVersion.TargetFullRelease.Version);
+                    Console.Title = $"Update available{newVersion.TargetFullRelease.Version}";
 
                     lock (_lockObj)
                     {

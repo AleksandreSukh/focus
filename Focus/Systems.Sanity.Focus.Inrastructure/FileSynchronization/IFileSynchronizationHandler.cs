@@ -2,6 +2,5 @@
 
 public interface IFileSynchronizationHandler
 {
-    //TODO: Make this method async
     void Synchronize();
 }

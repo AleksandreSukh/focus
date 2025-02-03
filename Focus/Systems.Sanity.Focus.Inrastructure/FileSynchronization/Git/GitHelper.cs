@@ -1,5 +1,6 @@
 ﻿using LibGit2Sharp;
 using LibGit2Sharp.Handlers;
+using Console = System.Console; 
 
 namespace Systems.Sanity.Focus.Infrastructure.FileSynchronization.Git
 {
@@ -21,7 +22,7 @@ namespace Systems.Sanity.Focus.Infrastructure.FileSynchronization.Git
             _credentialsHandler = (_, _, _) => credenitals;
         }
 
-        public void SyncronizeToRemote()
+        public async Task SyncronizeToRemote()
         {
             RunOnlyOneAtATime(CommitPullAndPush);
         }

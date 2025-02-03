@@ -1,7 +1,7 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
 
-namespace Systems.Sanity.Focus.Infrastructure
+namespace Systems.Sanity.Focus.Infrastructure.Input
 {
     public class AccessibleKeyNumbering
     {
@@ -47,9 +47,9 @@ namespace Systems.Sanity.Focus.Infrastructure
             NumbersToStrings.Keys
                 .ToDictionary(k => NumbersToStrings[k], k => k);
 
-        public static int GetNumberFor(string input) => 
+        public static int GetNumberFor(string input) =>
             StringsToNumers.TryGetValue(input, out int result) ? result : 0;
-        public static string GetStringFor(int input) => 
+        public static string GetStringFor(int input) =>
             NumbersToStrings.TryGetValue(input, out string result) ? result : null;
     }
 }

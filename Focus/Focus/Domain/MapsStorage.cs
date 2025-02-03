@@ -9,13 +9,11 @@ namespace Systems.Sanity.Focus.Domain
 {
     public class MapsStorage
     {
-        const string MapsFolderName = "FocusMaps"; //TODO: make configurable
-
         private readonly IFileSynchronizationHandler _fileSynchronizationHandler;
 
         public MapsStorage(UserConfig userConfig)
         {
-            UserMindMapsDirectory = Path.Combine(userConfig.DataFolder, MapsFolderName); //TODO: improve naming
+            UserMindMapsDirectory = Path.Combine(userConfig.DataFolder, ConfigurationConstants.MindMapDirectoryName);
             GitRepositoryPath = userConfig.GitRepository;
             _fileSynchronizationHandler = InitFileSyncHandler(GitRepositoryPath);
         }
@@ -42,7 +40,7 @@ namespace Systems.Sanity.Focus.Domain
             var existingMapDir = new DirectoryInfo(UserMindMapsDirectory);
             if (!existingMapDir.Exists)
                 return Array.Empty<FileInfo>();
-            return existingMapDir.GetFiles("*.json")
+            return existingMapDir.GetFiles($"*{ConfigurationConstants.RequiredFileNameExtension}")
                 .OrderByDescending(f => f.LastAccessTimeUtc)
                 .Take(top)
                 .ToArray();

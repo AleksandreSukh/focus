@@ -1,7 +1,7 @@
 ﻿using System.Linq;
 using System.Text;
 using Systems.Sanity.Focus.Domain;
-using Systems.Sanity.Focus.Infrastructure;
+using Systems.Sanity.Focus.Infrastructure.Input;
 
 namespace Systems.Sanity.Focus.DomainServices
 {
