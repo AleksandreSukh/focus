@@ -14,13 +14,13 @@ internal class AutoUpdateManager
     public static async Task StartUpdateChecker()
     {
         await Task.Delay(TimeSpan.FromSeconds(5));
-        var mgr = GetGithubUpdateManager();
-        if (mgr.IsInstalled)
+        var githubUpdateManager = GetGithubUpdateManager();
+        if (githubUpdateManager.IsInstalled)
         {
             while (true)
             {
                 await CheckForUpdate();
-                await Task.Delay(TimeSpan.FromSeconds(100));
+                await Task.Delay(TimeSpan.FromMinutes(30));
             }
         }
     }
@@ -37,7 +37,7 @@ internal class AutoUpdateManager
 
     public static void HandleUpdate()
     {
-        var mgr = GetGithubUpdateManager();
+        var githubUpdateManager = GetGithubUpdateManager();
         UpdateInfo versionToUpdateTo = null;
         lock (_lockObj)
         {
@@ -50,9 +50,9 @@ internal class AutoUpdateManager
 
         if (versionToUpdateTo != null)
         {
-            mgr.DownloadUpdates(versionToUpdateTo);
+            githubUpdateManager.DownloadUpdates(versionToUpdateTo);
 
-            mgr.ApplyUpdatesAndRestart(versionToUpdateTo);
+            githubUpdateManager.ApplyUpdatesAndRestart(versionToUpdateTo);
         }
     }
 
@@ -62,14 +62,14 @@ internal class AutoUpdateManager
     {
         try
         {
-            var mgr = GetGithubUpdateManager();
-            if (mgr.IsInstalled)
+            var githubUpdateManager = GetGithubUpdateManager();
+            if (githubUpdateManager.IsInstalled)
             {
                 // check for new version
-                var newVersion = await mgr.CheckForUpdatesAsync();
+                var newVersion = await githubUpdateManager.CheckForUpdatesAsync();
                 if (newVersion != null)
                 {
-                    Console.Title = $"Update available{newVersion.TargetFullRelease.Version}";
+                    Console.Title = $"Update available:\"{newVersion.TargetFullRelease.Version}\"";
 
                     lock (_lockObj)
                     {
