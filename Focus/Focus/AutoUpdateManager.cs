@@ -56,7 +56,8 @@ internal class AutoUpdateManager
         }
     }
 
-    private static UpdateManager GetGithubUpdateManager() => _updateManager ??= new UpdateManager(new GithubSource(ConfigurationConstants.GithubPublishRepositoryUrl, null, false));
+    private static UpdateManager GetGithubUpdateManager() => _updateManager ??= 
+        new UpdateManager(new SimpleWebSource("https://focusupdate.sandro.casa/Releases"));
 
     private static async Task CheckForUpdate()
     {
