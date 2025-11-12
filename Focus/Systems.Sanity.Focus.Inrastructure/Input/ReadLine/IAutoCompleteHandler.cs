@@ -4,7 +4,5 @@ namespace Systems.Sanity.Focus.Infrastructure.Input.ReadLine
     {
         char[] Separators { get; set; }
         string[] GetSuggestions(string text, int index);
-        void BeforeAutoComplete();
-        void AfterAutoComplete();
     }
 }

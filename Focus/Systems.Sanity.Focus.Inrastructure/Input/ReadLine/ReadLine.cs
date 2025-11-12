@@ -17,13 +17,13 @@ namespace Systems.Sanity.Focus.Infrastructure.Input.ReadLine
         public static bool HistoryEnabled { get; set; }
         public static IAutoCompleteHandler AutoCompletionHandler { private get; set; }
 
-        public static string Read(string prompt = "", string @default = "")
+        public static string Read(string prompt = "", string @default = "", Action<string>? beforeEachSuggestionWordWrite = null, Action<string>? afterEachSuggestionWordWrite = null)
         {
             Console.Write(prompt);
-            KeyHandler keyHandler = new KeyHandler(new Console2(), _history, AutoCompletionHandler);
+            KeyHandler keyHandler = new KeyHandler(new Console2(), _history, AutoCompletionHandler, beforeEachSuggestionWordWrite, afterEachSuggestionWordWrite);
             string text = GetText(keyHandler);
 
-            if (String.IsNullOrWhiteSpace(text) && !String.IsNullOrWhiteSpace(@default))
+            if (string.IsNullOrWhiteSpace(text) && !string.IsNullOrWhiteSpace(@default))
             {
                 text = @default;
             }

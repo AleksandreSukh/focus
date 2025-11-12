@@ -17,6 +17,9 @@ namespace Systems.Sanity.Focus.Infrastructure.Input.ReadLine
         private int _completionsIndex;
         private IConsole Console2;
 
+        private Action<string>? beforeEachAutoCompleteSuggestionWrite = null;
+        private Action<string>? afterEachAutoCompleteSuggestionWrite = null;
+
         private bool IsStartOfLine() => _cursorPos == 0;
 
         private bool IsEndOfLine() => _cursorPos == _cursorLimit;
@@ -87,8 +90,10 @@ namespace Systems.Sanity.Focus.Infrastructure.Input.ReadLine
 
         private void WriteAutoCompletedString(string str)
         {
+            beforeEachAutoCompleteSuggestionWrite?.Invoke(str);
             foreach (char character in str)
                 WriteChar(character);
+            afterEachAutoCompleteSuggestionWrite?.Invoke(str);
         }
 
         private void WriteChar() => WriteChar(_keyInfo.KeyChar);
@@ -244,8 +249,10 @@ namespace Systems.Sanity.Focus.Infrastructure.Input.ReadLine
             get { return _text.ToString(); }
         }
 
-        public KeyHandler(IConsole console, List<string> history, IAutoCompleteHandler? autoCompleteHandler)
+        public KeyHandler(IConsole console, List<string> history, IAutoCompleteHandler? autoCompleteHandler, Action<string>? beforeEachAutoCompleteSuggestionWrite = null, Action<string>? afterEachAutoCompleteSuggestionWrite = null)
         {
+            this.beforeEachAutoCompleteSuggestionWrite = beforeEachAutoCompleteSuggestionWrite;
+            this.afterEachAutoCompleteSuggestionWrite = afterEachAutoCompleteSuggestionWrite;
             Console2 = console;
 
             _history = history ?? new List<string>();
@@ -292,14 +299,12 @@ namespace Systems.Sanity.Focus.Infrastructure.Input.ReadLine
 
             _keyActions["Tab"] = () =>
             {
-                if(autoCompleteHandler == null)
+                if (autoCompleteHandler == null)
                     return;
 
                 if (IsInAutoCompleteMode())
                 {
-                    autoCompleteHandler.BeforeAutoComplete();
                     NextAutoComplete();
-                    autoCompleteHandler.AfterAutoComplete();
                 }
                 else
                 {
@@ -320,9 +325,7 @@ namespace Systems.Sanity.Focus.Infrastructure.Input.ReadLine
                     else
                     {
                         _completions = completions;
-                        autoCompleteHandler.BeforeAutoComplete();
                         StartAutoComplete();
-                        autoCompleteHandler.AfterAutoComplete();
                     }
                 }
             };

@@ -15,11 +15,9 @@ namespace Systems.Sanity.Focus.Pages.Shared
                 .ToArray();
         }
 
-        public void BeforeAutoComplete()
-        { Console.ForegroundColor = ConsoleColor.Green; }
+        public virtual void BeforeEachAutoComplete(string str) { }
 
-        public void AfterAutoComplete()
-        { Console.ForegroundColor = ConsoleWrapper.DefaultColor; }
+        public virtual void AfterEachAutoComplete(string str) { }
 
         public char[] Separators { get; set; } = new char[] { ' ' };
 
@@ -39,10 +37,10 @@ namespace Systems.Sanity.Focus.Pages.Shared
             prompt = string.Empty;
             if (defaultInput != null)
             {
-                return new(ReadLine.Read(prompt, defaultInput).Trim());
+                return new(ReadLine.Read(prompt, defaultInput, BeforeEachAutoComplete, AfterEachAutoComplete).Trim());
             }
 
-            return new(ReadLine.Read(prompt).Trim());
+            return new(ReadLine.Read(prompt, "", BeforeEachAutoComplete, AfterEachAutoComplete).Trim());
         }
 
         protected bool ProcessCommandInvariant(Func<string, bool> action, string parameters) => action(parameters)

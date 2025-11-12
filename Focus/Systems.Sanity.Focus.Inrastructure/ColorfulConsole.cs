@@ -1,29 +1,35 @@
-﻿using System.Text;
+﻿using System.Collections.Specialized;
+using System.Text;
 
 namespace Systems.Sanity.Focus.Infrastructure;
 
 public class ColorfulConsole
 {
-    public static readonly HashSet<string> Colors = Enum.GetNames(typeof(ConsoleColor))
-        .Reverse()
-        .Select(i => i.ToLower())
-        .ToHashSet();
-
-    //Hardcoded priority of colors (before we add better priority suggestion method)
-    public static readonly HashSet<string> PrimaryColors = new[]
+    public static readonly Dictionary<string, ConsoleColor> Colors =
+        new[]
         {
             ConsoleColor.Red,
             ConsoleColor.Green,
             ConsoleColor.Yellow,
             ConsoleColor.Blue
         }
-        .Select(i => i.ToString().ToLower())
-        .ToHashSet();
+        .Union(Enum.GetValues<ConsoleColor>().Reverse())
+        .ToDictionary(i => i.ToString().ToLower(), v => v);
 
     public const string ColorCommandTerminationTag = "!";
 
     public const char CommandStartBracket = '[';
     public const char CommandEndBracket = ']';
+
+    private static string FormatColorTag(string c) => $"{CommandStartBracket}{c}{CommandEndBracket}";
+
+    public static readonly Dictionary<string, ConsoleColor> ColorTagsToConsoleColorDict =
+        Colors.ToDictionary(k => FormatColorTag(k.Key),
+            v => v.Value);
+
+    public static readonly HashSet<string> ColorCommands = new[] { FormatColorTag(ColorCommandTerminationTag) }
+        .Union(ColorTagsToConsoleColorDict.Keys)
+        .ToHashSet();
 
     public static void WriteLine(string inputString)
     {
@@ -39,9 +45,8 @@ public class ColorfulConsole
             {
                 commandStarted = false;
                 var currentCommandString = currentCommand.ToString().ToLower();
-                if (Colors.Contains(currentCommandString))
+                if (Colors.TryGetValue(currentCommandString, out ConsoleColor color))
                 {
-                    var color = Enum.Parse<ConsoleColor>(currentCommandString, true);
                     Console.ForegroundColor = color;
                 }
                 else if (currentCommandString == ColorCommandTerminationTag)
