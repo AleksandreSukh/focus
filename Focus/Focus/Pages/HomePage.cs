@@ -78,13 +78,13 @@ namespace Systems.Sanity.Focus.Pages
             }
 
             homePageMenuTextBuilder.AppendLine(
-                $"\"[{commandColor}]{OptionNew} and file name[!]\"\t - to create new file");
+                $"\"[{commandColor}]{OptionNew} <file name>[!]\"\t - to create new file");
 
             if (filesExist)
             {
-                homePageMenuTextBuilder.AppendLine($"\"[{commandColor}]{OptionDel} and identifier[!]\"\t - to delete");
+                homePageMenuTextBuilder.AppendLine($"\"[{commandColor}]{OptionDel} <identifier>[!]\"\t - to delete");
 
-                homePageMenuTextBuilder.AppendLine($"\"[{commandColor}]{OptionRen} and identifier[!]\"\t - to rename");
+                homePageMenuTextBuilder.AppendLine($"\"[{commandColor}]{OptionRen} <identifier>[!]\"\t - to rename");
             }
 
             homePageMenuTextBuilder.AppendLine($"\"[{commandColor}]{OptionRefresh}[!]\" \t\t\t - to refresh list");
