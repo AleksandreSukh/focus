@@ -1,5 +1,3 @@
-﻿using System.IO;
-using System.Text.Json;
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.Pages.Edit;
 using Systems.Sanity.Focus.Pages.Edit.Dialogs;
@@ -26,7 +24,7 @@ namespace Systems.Sanity.Focus.Pages
             string filePathDetermied = null;
             new RequestRenameUntilFileNameIsAvailableDialog(mindMapsDir, _fileName, filePath =>
             {
-                File.WriteAllText(filePath, JsonSerializer.Serialize(_mindMap));
+                MapFile.Save(filePath, _mindMap);
                 filePathDetermied = filePath;
             }).Show();
             new EditMapPage(filePathDetermied, _mapsStorage).Show();

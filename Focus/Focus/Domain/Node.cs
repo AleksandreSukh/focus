@@ -9,6 +9,7 @@ public class Node
     private Node _parentNode;
     public Node()
     {
+        UniqueIdentifier = Guid.NewGuid();
         Name = "";
         Children = new();
         Links = new();
@@ -40,13 +41,20 @@ public class Node
         AddNode(childNode);
     }
 
-    public void AddLink(Node linkedNode, string metadata = null)
+    public void AddLink(
+        Node linkedNode,
+        LinkRelationType relationType = LinkRelationType.Relates,
+        string metadata = null)
     {
-        Links.TryAdd(linkedNode.UniqueIdentifier!.Value, new Link(linkedNode.UniqueIdentifier.Value, metadata));
+        linkedNode.UniqueIdentifier ??= Guid.NewGuid();
+        Links[linkedNode.UniqueIdentifier.Value] =
+            new Link(linkedNode.UniqueIdentifier.Value, relationType, metadata);
     }
 
     private void AddNode(Node childNode)
     {
+        childNode.UniqueIdentifier ??= Guid.NewGuid();
+        childNode.SetParent(this);
         Children.Add(childNode);
     }
 
@@ -84,11 +92,15 @@ public enum NodeType
     TextItem,
     IdeaBagItem
 }
-public record Link(Guid id, string? metadata = null);
+public record Link(
+    Guid id,
+    LinkRelationType relationType = LinkRelationType.Relates,
+    string? metadata = null);
 
 public static class GlobalLinkDitionary
 {
     public static readonly Dictionary<Guid, Node> Nodes = new Dictionary<Guid, Node>();
+    public static readonly Dictionary<Guid, string> NodeFiles = new Dictionary<Guid, string>();
+    public static readonly Dictionary<Guid, HashSet<Guid>> Backlinks = new Dictionary<Guid, HashSet<Guid>>();
     public static readonly Stack<Node> NodesToBeLinked = new Stack<Node>();
-    public static bool LinksLoaded { get; set; }
 }

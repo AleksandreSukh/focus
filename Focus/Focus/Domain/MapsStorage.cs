@@ -46,6 +46,17 @@ namespace Systems.Sanity.Focus.Domain
                 .ToArray();
         }
 
+        public FileInfo[] GetAll()
+        {
+            var existingMapDir = new DirectoryInfo(UserMindMapsDirectory);
+            if (!existingMapDir.Exists)
+                return Array.Empty<FileInfo>();
+
+            return existingMapDir.GetFiles($"*{ConfigurationConstants.RequiredFileNameExtension}")
+                .OrderBy(file => file.Name)
+                .ToArray();
+        }
+
         public void Sync()
         {
             _fileSynchronizationHandler.Synchronize();

@@ -60,6 +60,8 @@ BenchmarkDotNet.Artifacts/
 project.lock.json
 project.fragment.lock.json
 artifacts/
+.dotnet-cli/
+.build-temp/
 
 # StyleCop
 StyleCopReport.xml

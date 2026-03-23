@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using Systems.Sanity.Focus.Domain;
+using Systems.Sanity.Focus.DomainServices;
 using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Infrastructure.Input;
 using Systems.Sanity.Focus.Pages.Edit;
@@ -21,6 +22,7 @@ namespace Systems.Sanity.Focus.Pages
         public const string OptionExit = "exit";
         public const string OptionRefresh = "ls";
         public const string OptionUpdateApp = "update";
+        public const string OptionSearch = "search";
 
         private static readonly string[] FileOptions = { OptionRen, OptionDel };
 
@@ -151,6 +153,11 @@ namespace Systems.Sanity.Focus.Pages
                         HandleUpdateApp();
                         break;
                     }
+                case OptionSearch:
+                    {
+                        HandleSearchCommand(input);
+                        break;
+                    }
                 default:
                     {
                         HandleOpenFileCommand(input);
@@ -162,6 +169,34 @@ namespace Systems.Sanity.Focus.Pages
         private void HandleUpdateApp()
         {
             AutoUpdateManager.HandleUpdate();
+        }
+
+        private void HandleSearchCommand(ConsoleInput input)
+        {
+            var query = input.Parameters;
+            if (string.IsNullOrWhiteSpace(query))
+            {
+                ShowMessage("Search query is empty");
+                return;
+            }
+
+            var searchResults = MapsSearchService.Search(_mapsStorage, query);
+            if (!searchResults.Any())
+            {
+                ShowMessage($"No matches for \"{query}\"");
+                return;
+            }
+
+            var selectedResult = new SearchResultsPage(
+                searchResults,
+                $"Search results for \"{query}\"",
+                includeMapName: true)
+                .SelectResult();
+
+            if (selectedResult != null)
+            {
+                new EditMapPage(selectedResult.MapFilePath, _mapsStorage, selectedResult.NodeId).Show();
+            }
         }
 
         private void HandleCreateFileCommand(ConsoleInput input)
@@ -202,21 +237,19 @@ namespace Systems.Sanity.Focus.Pages
 
         private void LoadLinksFromAllFiles(Dictionary<int, FileInfo> filesToChooseFrom)
         {
-            //TODO: loading files just to fill the links (think of more elegant solution)
-            if (!GlobalLinkDitionary.LinksLoaded)
-            {
-                foreach (var file in filesToChooseFrom)
-                {
-                    MapFile.LoadLinks(file.Value.FullName);
-                }
-                GlobalLinkDitionary.LinksLoaded = true;
-            }
+            MapFile.RebuildNodeIndex(_mapsStorage.GetAll().Select(file => file.FullName));
         }
 
         private static void ShowDeleteFileDialog(FileInfo file)
         {
             if (new Confirmation($"Are you sure you want to delete: \"{file.Name}\"?").Confirmed())
                 file.Delete();
+        }
+
+        private static void ShowMessage(string message)
+        {
+            ColorfulConsole.WriteLine($"{Environment.NewLine}{message}{Environment.NewLine}{Environment.NewLine}Press any key to continue");
+            Console.ReadKey();
         }
 
         private void ShowFileNotFoundError(string fileIdentifier)
@@ -279,8 +312,8 @@ namespace Systems.Sanity.Focus.Pages
 
         protected override string[] GetCommandOptions()
         {
-            var optionsWhenFileExists = new[] { OptionNew, OptionRen, OptionDel, OptionRefresh, OptionExit, OptionUpdateApp };
-            var optionsWhenNoFileExists = new[] { OptionNew, OptionRefresh, OptionExit, OptionUpdateApp };
+            var optionsWhenFileExists = new[] { OptionNew, OptionRen, OptionDel, OptionRefresh, OptionSearch, OptionExit, OptionUpdateApp };
+            var optionsWhenNoFileExists = new[] { OptionNew, OptionRefresh, OptionSearch, OptionExit, OptionUpdateApp };
             return _fileSelection.Any()
                 ? _fileSelection.Keys.Select(k => k.ToString())
                     .Union(_fileSelection.Keys.Select(AccessibleKeyNumbering.GetStringFor))
@@ -293,6 +326,7 @@ namespace Systems.Sanity.Focus.Pages
             !_fileSelection.Any()
                 ? GetCommandOptions()
                 : GetCommandOptions()
+                    .Union(_fileSelection.Values.Select(file => $"{OptionSearch} {file.NameWithoutExtension()}"))
                     .Union(FileOptions.SelectMany(opt => _fileSelection.Keys.Select(k => $"{opt} {k}")))
                     .Union(FileOptions.SelectMany(_ => _fileSelection.Keys.Select(AccessibleKeyNumbering.GetStringFor)));
     }

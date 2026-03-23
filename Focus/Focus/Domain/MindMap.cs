@@ -9,6 +9,7 @@ using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Infrastructure.Input;
 using Systems.Sanity.Focus.Pages;
 using Systems.Sanity.Focus.Pages.Shared.DialogHelpers;
+using Systems.Sanity.Focus;
 
 namespace Systems.Sanity.Focus.Domain
 {
@@ -40,10 +41,7 @@ namespace Systems.Sanity.Focus.Domain
             return JsonConvert.SerializeObject(this);
         }
 
-        public void SaveTo(string filePath)
-        {
-            File.WriteAllText(filePath, this.ToString());
-        }
+        public void SaveTo(string filePath) => MapFile.Save(filePath, this);
 
         public void AddAtCurrentNode(string input) => _currentNode.Add(input);
 
@@ -51,13 +49,20 @@ namespace Systems.Sanity.Focus.Domain
 
         public void LoadAtCurrentNode(MindMap anotherMap) => _currentNode.Add(anotherMap.RootNode);
 
-        public void LinkToCurrentNode(Node linkedNode, string metadata = null) => _currentNode.AddLink(linkedNode, metadata);
+        public void LinkToCurrentNode(
+            Node linkedNode,
+            LinkRelationType relationType = LinkRelationType.Relates,
+            string metadata = null) => _currentNode.AddLink(linkedNode, relationType, metadata);
 
-        public bool LinkToNode(string nodeIdentifier, Node nodeToLinkFrom, string metadata = null)
+        public bool LinkToNode(
+            string nodeIdentifier,
+            Node nodeToLinkFrom,
+            LinkRelationType relationType = LinkRelationType.Relates,
+            string metadata = null)
         {
             var nodeToLinkTo = FindNode(nodeIdentifier);
             if (nodeToLinkTo == null) return false;
-            nodeToLinkTo.AddLink(nodeToLinkFrom, metadata);
+            nodeToLinkFrom.AddLink(nodeToLinkTo, relationType, metadata);
             return true;
         }
 
@@ -231,6 +236,46 @@ namespace Systems.Sanity.Focus.Domain
         public bool IsAtRootNode()
         {
             return _currentNode == RootNode;
+        }
+
+        public Guid? GetCurrentNodeIdentifier()
+        {
+            return _currentNode?.UniqueIdentifier;
+        }
+
+        public Node GetCurrentNode()
+        {
+            return _currentNode;
+        }
+
+        public bool ChangeCurrentNodeById(Guid nodeIdentifier)
+        {
+            var node = FindNodeById(RootNode, nodeIdentifier);
+            if (node == null)
+                return false;
+
+            _currentNode = node;
+            return true;
+        }
+
+        public void ResetCurrentNodeToRoot()
+        {
+            _currentNode = RootNode;
+        }
+
+        private static Node FindNodeById(Node currentNode, Guid nodeIdentifier)
+        {
+            if (currentNode.UniqueIdentifier == nodeIdentifier)
+                return currentNode;
+
+            foreach (var childNode in currentNode.Children)
+            {
+                var matchingNode = FindNodeById(childNode, nodeIdentifier);
+                if (matchingNode != null)
+                    return matchingNode;
+            }
+
+            return null;
         }
     }
 }

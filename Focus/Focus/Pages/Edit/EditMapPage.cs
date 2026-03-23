@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Systems.Sanity.Focus.DomainServices;
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Infrastructure.Input;
@@ -22,6 +23,8 @@ namespace Systems.Sanity.Focus.Pages.Edit
         private const string OutOption = "out";
         private const string LinkFromOption = "linkfrom";
         private const string LinkToOption = "linkto";
+        private const string OpenLinkOption = "openlink";
+        private const string BacklinksOption = "backlinks";
         private const string UpOption = "up";
         private const string GoToOption = "cd";
         private const string GoToOptionSubOptionUp = "..";
@@ -30,6 +33,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
         private const string EditOption = "edit";
         private const string HideOption = "min";
         private const string UnhideOption = "max";
+        private const string SearchOption = "search";
         private const string ExitOption = "exit";
 
         private readonly string[] _nodeOptions = new[] { GoToOption, EditOption, DelOption, HideOption, UnhideOption, SliceOption, LinkFromOption, LinkToOption };
@@ -37,14 +41,22 @@ namespace Systems.Sanity.Focus.Pages.Edit
         private readonly string _filePath;
         private MindMap _map;
         private readonly MapsStorage _mapsStorage;
+        private readonly Guid? _initialNodeIdentifier;
 
         public EditMapPage(
             string filePath,
-            MapsStorage mapsStorage)
+            MapsStorage mapsStorage,
+            Guid? initialNodeIdentifier = null)
         {
             _filePath = filePath;
             _mapsStorage = mapsStorage;
+            _initialNodeIdentifier = initialNodeIdentifier;
             _map = MapFile.OpenFile(_filePath);
+            RefreshGlobalLinkIndex();
+            if (_initialNodeIdentifier.HasValue)
+            {
+                _map.ChangeCurrentNodeById(_initialNodeIdentifier.Value);
+            }
         }
 
         public override void Show()
@@ -88,8 +100,11 @@ namespace Systems.Sanity.Focus.Pages.Edit
                 SliceOption => ProcessSlice(parameters),
                 LinkFromOption => ProcessLinkFrom(parameters),
                 LinkToOption => ProcessLinkTo(parameters),
+                OpenLinkOption => ProcessOpenLink(),
+                BacklinksOption => ProcessBacklinks(),
                 HideOption => ProcessHide(parameters),
                 UnhideOption => ProcessUnhide(parameters),
+                SearchOption => ProcessSearch(parameters),
                 GoToOption => ProcessGoTo(parameters),
                 DelOption => ProcessCommandDel(parameters),
                 RootOption => ProcessGoToRoot(),
@@ -134,6 +149,68 @@ namespace Systems.Sanity.Focus.Pages.Edit
             var addNoteDialog = new AddNoteDialog(_map);
             addNoteDialog.Show();
             return addNoteDialog.DidAddNodes ? CommandExecutionResult.SuccessAndPersist : CommandExecutionResult.Success;
+        }
+
+        private CommandExecutionResult ProcessSearch(string parameters)
+        {
+            if (string.IsNullOrWhiteSpace(parameters))
+                return CommandExecutionResult.Error("Search query is empty");
+
+            var searchResults = MindMapSearchService.Search(_map, parameters, _filePath);
+            if (!searchResults.Any())
+                return CommandExecutionResult.Error($"No matches for \"{parameters}\"");
+
+            var selectedResult = new SearchResultsPage(
+                searchResults,
+                $"Search results for \"{parameters}\"",
+                includeMapName: false)
+                .SelectResult();
+
+            if (selectedResult == null)
+                return CommandExecutionResult.Success;
+
+            return _map.ChangeCurrentNodeById(selectedResult.NodeId)
+                ? CommandExecutionResult.Success
+                : CommandExecutionResult.Error("Couldn't open selected result");
+        }
+
+        private CommandExecutionResult ProcessOpenLink()
+        {
+            var currentNode = _map.GetCurrentNode();
+            var links = LinkNavigationService.GetOutgoingLinks(currentNode);
+            if (!links.Any())
+                return CommandExecutionResult.Error("Current node has no links");
+
+            return NavigateToLinkedNode(links, "Linked nodes");
+        }
+
+        private CommandExecutionResult ProcessBacklinks()
+        {
+            var currentNode = _map.GetCurrentNode();
+            var backlinks = LinkNavigationService.GetBacklinks(currentNode);
+            if (!backlinks.Any())
+                return CommandExecutionResult.Error("Current node has no backlinks");
+
+            return NavigateToLinkedNode(backlinks, "Backlinks");
+        }
+
+        private CommandExecutionResult NavigateToLinkedNode(IReadOnlyList<NodeSearchResult> relatedNodes, string title)
+        {
+            var selectedResult = new SearchResultsPage(relatedNodes, title, includeMapName: true)
+                .SelectResult();
+
+            if (selectedResult == null)
+                return CommandExecutionResult.Success;
+
+            if (string.Equals(selectedResult.MapFilePath, _filePath, StringComparison.InvariantCultureIgnoreCase))
+            {
+                return _map.ChangeCurrentNodeById(selectedResult.NodeId)
+                    ? CommandExecutionResult.Success
+                    : CommandExecutionResult.Error("Couldn't open selected node");
+            }
+
+            new EditMapPage(selectedResult.MapFilePath, _mapsStorage, selectedResult.NodeId).Show();
+            return CommandExecutionResult.Success;
         }
 
         private CommandExecutionResult ProcessSlice(string parameters)
@@ -248,6 +325,9 @@ namespace Systems.Sanity.Focus.Pages.Edit
 
         private CommandExecutionResult ProcessLinkTo(string parameters)
         {
+            if (!GlobalLinkDitionary.NodesToBeLinked.Any())
+                return CommandExecutionResult.Error("No source node selected. Use linkfrom first");
+
             var nodeIdentifier = parameters;
             if (!_map.HasNode(nodeIdentifier))
                 return CommandExecutionResult.Error($"Couldn't find node \"{nodeIdentifier}\"");
@@ -255,13 +335,24 @@ namespace Systems.Sanity.Focus.Pages.Edit
             var targetNodePeek = _map.GetNodeContentPeekByIdentifier(nodeIdentifier);
 
             var nodeToLinkFrom = GlobalLinkDitionary.NodesToBeLinked.Peek();
-            if (!new Confirmation($"Link \"{nodeToLinkFrom.Name}\" to \"{targetNodePeek}\"?").Confirmed())
+            var selectedRelationType = SelectLinkRelationType();
+            if (!selectedRelationType.HasValue)
                 return CommandExecutionResult.Error("Cancelled!");
 
-            var linkResult = _map.LinkToNode(nodeIdentifier, nodeToLinkFrom, "Link Metadata");
+            if (!new Confirmation(
+                    $"Link \"{nodeToLinkFrom.Name}\" to \"{targetNodePeek}\" as \"{selectedRelationType.Value.ToDisplayString()}\"?")
+                .Confirmed())
+                return CommandExecutionResult.Error("Cancelled!");
+
+            var linkResult = _map.LinkToNode(
+                nodeIdentifier,
+                nodeToLinkFrom,
+                selectedRelationType.Value,
+                "Link Metadata");
             if (!linkResult)
                 return CommandExecutionResult.Error($"Unexpected result while linking \"{nodeIdentifier}\"");
 
+            GlobalLinkDitionary.NodesToBeLinked.Pop();
             return CommandExecutionResult.SuccessAndPersist;
         }
         private CommandExecutionResult ProcessLinkFrom(string parameters)
@@ -379,11 +470,12 @@ namespace Systems.Sanity.Focus.Pages.Edit
         private void Save()
         {
             _map.SaveTo(_filePath);
+            RefreshGlobalLinkIndex();
             _mapsStorage.Sync();
         }
 
         private string[] GetCommandOptions() =>
-            new[] { AddOption, AddIdeaOption, ClearIdeasOption, SliceOption, LinkFromOption, LinkToOption, HideOption, UnhideOption, ExitOption, GoToOption, EditOption, DelOption, UpOption, RootOption }
+            new[] { AddOption, AddIdeaOption, ClearIdeasOption, SliceOption, LinkFromOption, LinkToOption, OpenLinkOption, BacklinksOption, HideOption, UnhideOption, SearchOption, ExitOption, GoToOption, EditOption, DelOption, UpOption, RootOption }
                 .Union(_map.GetChildren().Keys.Select(k => k.ToString()))
                 .Union(_map.GetChildren().Keys.Select(k => AccessibleKeyNumbering.GetStringFor(k)))
                 .ToArray();
@@ -397,8 +489,27 @@ namespace Systems.Sanity.Focus.Pages.Edit
             //TODO: Use similar approach in homePage
             return GetCommandOptions()
                     .Union(childNodes.Keys.Select(k => k.ToString()))
+                    .Union(childNodes.Values.Select(value => $"{SearchOption} {value}"))
                     .Union(_nodeOptions.SelectMany(opt => childNodes.Keys.Select(k => $"{opt} {k}")))
                     .Union(_nodeOptions.SelectMany(opt => childNodes.Values.Select(k => $"{opt} {k}")));
+        }
+
+        private void RefreshGlobalLinkIndex()
+        {
+            MapFile.RebuildNodeIndex(_mapsStorage.GetAll().Select(file => file.FullName));
+        }
+
+        private static LinkRelationType? SelectLinkRelationType()
+        {
+            var supportedTypes = LinkRelationTypeExtensions.GetSupportedTypes();
+            var selectionMenu = new SelectionMenu(supportedTypes.Select(type => type.ToDisplayString()).ToArray());
+            selectionMenu.Show();
+
+            var selectedOption = selectionMenu.GetSelectedOption();
+            if (selectedOption <= 0 || selectedOption > supportedTypes.Length)
+                return null;
+
+            return supportedTypes[selectedOption - 1];
         }
     }
 }

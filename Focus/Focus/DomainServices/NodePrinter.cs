@@ -36,6 +36,7 @@ namespace Systems.Sanity.Focus.DomainServices
             // }
 
             PrintLinks(node, indent + new string(' ', numberString.Length), sb, maxWidth);
+            PrintBacklinks(node, indent + new string(' ', numberString.Length), sb, maxWidth);
             PrintIdeaTags(node, indent + new string(' ', numberString.Length), sb, maxWidth);
 
             var nodeToPrint = content.ToString();
@@ -63,10 +64,18 @@ namespace Systems.Sanity.Focus.DomainServices
                 var linksStringBuilder = new StringBuilder();
                 linksStringBuilder.Append("[green]");
                 linksStringBuilder.Append("{");
-                foreach (var link in node.Links)
+                foreach (var link in node.Links.Values)
                 {
-                    var linkedItemName = GlobalLinkDitionary.Nodes[link.Key];
-                    linksStringBuilder.Append($" *({GetShortPeek(linkedItemName.Name, 5)})* ");
+                    if (GlobalLinkDitionary.Nodes.TryGetValue(link.id, out var linkedItemName))
+                    {
+                        linksStringBuilder.Append(
+                            $" *({link.relationType.ToDisplayString()}: {GetShortPeek(linkedItemName.Name, 12)})* ");
+                    }
+                    else
+                    {
+                        linksStringBuilder.Append(
+                            $" *({link.relationType.ToDisplayString()}: missing:{GetShortPeek(link.id.ToString(), 8)})* ");
+                    }
                 }
 
                 linksStringBuilder.Append("}");
@@ -74,6 +83,25 @@ namespace Systems.Sanity.Focus.DomainServices
 
                 PrintWithIndentation(linksStringBuilder.ToString(), indent, sb, maxWidth);
             }
+        }
+
+        private static void PrintBacklinks(Node node, string indent, StringBuilder sb, int maxWidth)
+        {
+            if (!node.UniqueIdentifier.HasValue ||
+                !GlobalLinkDitionary.Backlinks.TryGetValue(node.UniqueIdentifier.Value, out var backlinks) ||
+                backlinks.Count == 0)
+            {
+                return;
+            }
+
+            var backlinksStringBuilder = new StringBuilder();
+            backlinksStringBuilder.Append("[cyan]");
+            backlinksStringBuilder.Append("{");
+            backlinksStringBuilder.Append($" backlinks: {backlinks.Count} ");
+            backlinksStringBuilder.Append("}");
+            backlinksStringBuilder.Append("[!]");
+
+            PrintWithIndentation(backlinksStringBuilder.ToString(), indent, sb, maxWidth);
         }
 
         private static void PrintIdeaTags(Node node, string indent, StringBuilder sb, int maxWidth)
