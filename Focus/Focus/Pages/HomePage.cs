@@ -46,7 +46,6 @@ namespace Systems.Sanity.Focus.Pages
                 Console.WriteLine(GetHeaderRibbonString(title));
 
                 _fileSelection = GetFileSelection();
-                LoadLinksFromAllFiles(_fileSelection);
 
                 var homePageText = GetHomePageText(_fileSelection);
 

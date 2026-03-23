@@ -441,6 +441,21 @@ namespace Systems.Sanity.Focus.Pages.Edit
         private void Redraw(string message = null)
         {
             var newConsoleContent = _map.GetCurrentSubtreeString();
+            var commandOptions = GetCommandOptions();
+            var screenBuilder = new System.Text.StringBuilder(newConsoleContent.Length + 256);
+
+            screenBuilder.Append(newConsoleContent);
+
+            if (!string.IsNullOrEmpty(message))
+            {
+                screenBuilder.Append($":! {message}{Environment.NewLine}{Environment.NewLine}");
+            }
+
+            screenBuilder.Append($":> {string.Join("; ", commandOptions)}{Environment.NewLine}");
+            if (GlobalLinkDitionary.NodesToBeLinked.Any())
+            {
+                screenBuilder.Append($":Nodes to be linked> {string.Join("; ", GlobalLinkDitionary.NodesToBeLinked.Select(n => n.Name))}{Environment.NewLine}");
+            }
 
             //TODO: Refactor: extract console manipulations to wrapper class and handle ioexception
             try
@@ -455,16 +470,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
             {
                 Console.Beep();
             }
-            ColorfulConsole.WriteLine(newConsoleContent);
-
-            if (!string.IsNullOrEmpty(message))
-                ColorfulConsole.WriteLine($":! {message}{Environment.NewLine}");
-
-            ColorfulConsole.WriteLine($":> {string.Join("; ", GetCommandOptions())}");
-            if (GlobalLinkDitionary.NodesToBeLinked.Any())
-            {
-                ColorfulConsole.WriteLine($":Nodes to be linked> {string.Join("; ", GlobalLinkDitionary.NodesToBeLinked.Select(n => n.Name))}");
-            }
+            ColorfulConsole.Write(screenBuilder.ToString());
         }
 
         private void Save()
