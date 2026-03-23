@@ -90,5 +90,4 @@ public static class GlobalLinkDitionary
 {
     public static readonly Dictionary<Guid, Node> Nodes = new Dictionary<Guid, Node>();
     public static readonly Stack<Node> NodesToBeLinked = new Stack<Node>();
-    public static bool LinksLoaded { get; set; }
 }

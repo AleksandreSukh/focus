@@ -65,8 +65,14 @@ namespace Systems.Sanity.Focus.DomainServices
                 linksStringBuilder.Append("{");
                 foreach (var link in node.Links)
                 {
-                    var linkedItemName = GlobalLinkDitionary.Nodes[link.Key];
-                    linksStringBuilder.Append($" *({GetShortPeek(linkedItemName.Name, 5)})* ");
+                    if (GlobalLinkDitionary.Nodes.TryGetValue(link.Key, out var linkedItemName))
+                    {
+                        linksStringBuilder.Append($" *({GetShortPeek(linkedItemName.Name, 5)})* ");
+                    }
+                    else
+                    {
+                        linksStringBuilder.Append(" *(missing)* ");
+                    }
                 }
 
                 linksStringBuilder.Append("}");

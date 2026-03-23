@@ -44,7 +44,6 @@ namespace Systems.Sanity.Focus.Pages
                 Console.WriteLine(GetHeaderRibbonString(title));
 
                 _fileSelection = GetFileSelection();
-                LoadLinksFromAllFiles(_fileSelection);
 
                 var homePageText = GetHomePageText(_fileSelection);
 
@@ -198,19 +197,6 @@ namespace Systems.Sanity.Focus.Pages
                 ShowFileNotFoundError(fileIdentifier);
             else
                 new RenameFileDialog(file).Show();
-        }
-
-        private void LoadLinksFromAllFiles(Dictionary<int, FileInfo> filesToChooseFrom)
-        {
-            //TODO: loading files just to fill the links (think of more elegant solution)
-            if (!GlobalLinkDitionary.LinksLoaded)
-            {
-                foreach (var file in filesToChooseFrom)
-                {
-                    MapFile.LoadLinks(file.Value.FullName);
-                }
-                GlobalLinkDitionary.LinksLoaded = true;
-            }
         }
 
         private static void ShowDeleteFileDialog(FileInfo file)
