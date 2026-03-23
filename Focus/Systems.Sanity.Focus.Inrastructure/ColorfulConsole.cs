@@ -31,14 +31,26 @@ public class ColorfulConsole
         .Union(ColorTagsToConsoleColorDict.Keys)
         .ToHashSet();
 
-    public static void WriteLine(string inputString)
+    public static void Write(string inputString)
     {
         bool commandStarted = false;
         StringBuilder currentCommand = new StringBuilder();
+        StringBuilder pendingText = new StringBuilder();
+
+        void FlushPendingText()
+        {
+            if (pendingText.Length == 0)
+                return;
+
+            Console.Write(pendingText.ToString());
+            pendingText.Clear();
+        }
+
         foreach (var character in inputString)
         {
             if (character == CommandStartBracket && !commandStarted)
             {
+                FlushPendingText();
                 commandStarted = true;
             }
             else if (character == CommandEndBracket && commandStarted)
@@ -61,10 +73,16 @@ public class ColorfulConsole
             }
             else
             {
-                Console.Write(character);
+                pendingText.Append(character);
             }
         }
 
+        FlushPendingText();
+    }
+
+    public static void WriteLine(string inputString)
+    {
+        Write(inputString);
         Console.WriteLine();
     }
 }
