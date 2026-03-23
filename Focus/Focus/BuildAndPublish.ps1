@@ -1,4 +1,4 @@
-param([string]$version="1.0.19") 
+param([string]$version="1.0.22") 
 #build using .net
 dotnet publish Systems.Sanity.Focus.csproj -c Release --self-contained -r win-x64 -o .\publish
 
