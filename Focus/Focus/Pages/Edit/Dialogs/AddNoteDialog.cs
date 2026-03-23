@@ -4,6 +4,8 @@ namespace Systems.Sanity.Focus.Pages.Edit.Dialogs
 {
     internal class AddNoteDialog : TextEditPage
     {
+        public bool DidAddNodes { get; private set; }
+
         private readonly MindMap _map;
 
         public AddNoteDialog(MindMap map)
@@ -17,6 +19,7 @@ namespace Systems.Sanity.Focus.Pages.Edit.Dialogs
             while (!string.IsNullOrWhiteSpace(input = GetInput().InputString))
             {
                 _map.AddAtCurrentNode(input);
+                DidAddNodes = true;
             }
         }
 
@@ -25,6 +28,7 @@ namespace Systems.Sanity.Focus.Pages.Edit.Dialogs
             do
             {
                 _map.AddAtCurrentNode(input);
+                DidAddNodes = true;
             }
             while (!string.IsNullOrWhiteSpace(input = GetInput().InputString));
         }

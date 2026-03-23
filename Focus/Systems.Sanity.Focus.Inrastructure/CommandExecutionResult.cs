@@ -3,6 +3,7 @@
     public sealed class CommandExecutionResult
     {
         public bool ShouldExit { get; private set; }
+        public bool ShouldPersist { get; private set; }
         public bool IsSuccess { get; private set; }
         public string ErrorString { get; private set; }
 
@@ -14,6 +15,7 @@
         private CommandExecutionResult() { }
 
         public static readonly CommandExecutionResult Success = new() { IsSuccess = true };
+        public static readonly CommandExecutionResult SuccessAndPersist = new() { IsSuccess = true, ShouldPersist = true };
 
         public static readonly CommandExecutionResult ExitCommand = new() { ShouldExit = true };
 

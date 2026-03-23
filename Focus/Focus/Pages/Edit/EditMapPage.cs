@@ -59,7 +59,8 @@ namespace Systems.Sanity.Focus.Pages.Edit
                 exit = commandResult.ShouldExit;
                 if (commandResult.IsSuccess)
                 {
-                    Save();
+                    if (commandResult.ShouldPersist)
+                        Save();
                     Redraw();
                 }
                 else
@@ -67,7 +68,6 @@ namespace Systems.Sanity.Focus.Pages.Edit
                     Redraw(commandResult.ErrorString);
                 }
             }
-            Save();
         }
 
         private CommandExecutionResult ProcessCommand()
@@ -115,20 +115,25 @@ namespace Systems.Sanity.Focus.Pages.Edit
 
         private CommandExecutionResult ProcessAddCurrentInputString(ConsoleInput input)
         {
-            new AddNoteDialog(_map).ShowWithInitialInput(input.InputString);
-            return CommandExecutionResult.Success;
+            var addNoteDialog = new AddNoteDialog(_map);
+            addNoteDialog.ShowWithInitialInput(input.InputString);
+            return addNoteDialog.DidAddNodes
+                ? CommandExecutionResult.SuccessAndPersist
+                : CommandExecutionResult.Success;
         }
 
         private CommandExecutionResult ProcessEdit(string parameters)
         {
-            new EditDialog(_map, parameters).Show();
-            return CommandExecutionResult.Success;
+            var editDialog = new EditDialog(_map, parameters);
+            editDialog.Show();
+            return editDialog.DidEdit ? CommandExecutionResult.SuccessAndPersist : CommandExecutionResult.Success;
         }
 
         private CommandExecutionResult ProcessAdd()
         {
-            new AddNoteDialog(_map).Show();
-            return CommandExecutionResult.Success;
+            var addNoteDialog = new AddNoteDialog(_map);
+            addNoteDialog.Show();
+            return addNoteDialog.DidAddNodes ? CommandExecutionResult.SuccessAndPersist : CommandExecutionResult.Success;
         }
 
         private CommandExecutionResult ProcessSlice(string parameters)
@@ -147,22 +152,25 @@ namespace Systems.Sanity.Focus.Pages.Edit
 
         private CommandExecutionResult ProcessAttach()
         {
-            new AttachMode(_map, _mapsStorage).Show();
-            return CommandExecutionResult.Success;
+            var attachMode = new AttachMode(_map, _mapsStorage);
+            attachMode.Show();
+            return attachMode.DidAttachMap
+                ? CommandExecutionResult.SuccessAndPersist
+                : CommandExecutionResult.Success;
         }
 
         private CommandExecutionResult ProcessAddIdea(string parameters)
         {
             if (!string.IsNullOrWhiteSpace(parameters))
             {
-                new AddIdeaDialog(_map).ShowWithInitialInput(parameters);
-            }
-            else
-            {
-                new AddIdeaDialog(_map).Show();
+                var addIdeaDialog = new AddIdeaDialog(_map);
+                addIdeaDialog.ShowWithInitialInput(parameters);
+                return addIdeaDialog.DidAddIdeas ? CommandExecutionResult.SuccessAndPersist : CommandExecutionResult.Success;
             }
 
-            return CommandExecutionResult.Success;
+            var dialog = new AddIdeaDialog(_map);
+            dialog.Show();
+            return dialog.DidAddIdeas ? CommandExecutionResult.SuccessAndPersist : CommandExecutionResult.Success;
         }
 
         private CommandExecutionResult ProcessClearIdeas(string parameters)
@@ -180,7 +188,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
                     return CommandExecutionResult.Error("Cancelled!");
 
                 return _map.DeleteNodeIdeaTags(nodeIdentifier)
-                    ? CommandExecutionResult.Success
+                    ? CommandExecutionResult.SuccessAndPersist
                     : CommandExecutionResult.Error($"Couldn't remove \"{nodeIdentifier}\"");
             }
 
@@ -189,7 +197,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
                 return CommandExecutionResult.Error("Cancelled!");
 
             return _map.DeleteCurrentNodeIdeaTags()
-                ? CommandExecutionResult.Success
+                ? CommandExecutionResult.SuccessAndPersist
                 : CommandExecutionResult.Error("Can't delete current node (report a bug)");
 
         }
@@ -222,7 +230,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
                 if (new Confirmation($"Detach current node? {nodeContentPreview}").Confirmed())
                 {
                     _map.DetachCurrentNode(_mapsStorage);
-                    return CommandExecutionResult.Success;
+                    return CommandExecutionResult.SuccessAndPersist;
                 }
 
                 return CommandExecutionResult.Error("Cancelled");
@@ -235,7 +243,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
 
             _map.DetachNode(_mapsStorage, nodeIdentifier);
 
-            return CommandExecutionResult.Success;
+            return CommandExecutionResult.SuccessAndPersist;
         }
 
         private CommandExecutionResult ProcessLinkTo(string parameters)
@@ -254,7 +262,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
             if (!linkResult)
                 return CommandExecutionResult.Error($"Unexpected result while linking \"{nodeIdentifier}\"");
 
-            return CommandExecutionResult.Success;
+            return CommandExecutionResult.SuccessAndPersist;
         }
         private CommandExecutionResult ProcessLinkFrom(string parameters)
         {
@@ -269,7 +277,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
             var nodeIdentifier = parameters;
             if (_map.HideNode(nodeIdentifier))
             {
-                return CommandExecutionResult.Success;
+                return CommandExecutionResult.SuccessAndPersist;
             }
             return CommandExecutionResult.Error($"Can't find \"{nodeIdentifier}\"");
         }
@@ -279,7 +287,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
             var nodeIdentifier = parameters;
             if (_map.UnhideNode(nodeIdentifier))
             {
-                return CommandExecutionResult.Success;
+                return CommandExecutionResult.SuccessAndPersist;
             }
             return CommandExecutionResult.Error($"Can't find \"{nodeIdentifier}\"");
         }
@@ -299,7 +307,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
                     return CommandExecutionResult.Error("Cancelled!");
 
                 return _map.DeleteChildNode(nodeIdentifier)
-                    ? CommandExecutionResult.Success
+                    ? CommandExecutionResult.SuccessAndPersist
                     : CommandExecutionResult.Error($"Couldn't remove \"{nodeIdentifier}\"");
             }
 
@@ -313,7 +321,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
                 return CommandExecutionResult.Error("Cancelled!");
 
             return _map.DeleteChildNode(nodeToDelete)
-                ? CommandExecutionResult.Success
+                ? CommandExecutionResult.SuccessAndPersist
                 : CommandExecutionResult.Error("Can't delete current node (report a bug)");
         }
 

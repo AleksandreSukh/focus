@@ -5,6 +5,8 @@ namespace Systems.Sanity.Focus.Pages.Edit.Dialogs
 {
     internal class AddIdeaDialog : Page
     {
+        public bool DidAddIdeas { get; private set; }
+
         private readonly MindMap _map;
 
         public AddIdeaDialog(MindMap map)
@@ -18,6 +20,7 @@ namespace Systems.Sanity.Focus.Pages.Edit.Dialogs
             while (!string.IsNullOrWhiteSpace(input = GetInput().InputString))
             {
                 _map.AddIdeaAtCurrentNode(input);
+                DidAddIdeas = true;
             }
         }
 
@@ -26,7 +29,8 @@ namespace Systems.Sanity.Focus.Pages.Edit.Dialogs
             do
             {
                 _map.AddIdeaAtCurrentNode(input);
-            } 
+                DidAddIdeas = true;
+            }
             while (!string.IsNullOrWhiteSpace(input = GetInput().InputString));
         }
     }

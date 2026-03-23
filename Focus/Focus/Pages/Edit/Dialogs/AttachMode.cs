@@ -13,6 +13,8 @@ namespace Systems.Sanity.Focus.Pages.Edit.Dialogs
     {
         public const string OptionExit = "exit";
 
+        public bool DidAttachMap { get; private set; }
+
         private readonly MindMap _map;
         private readonly MapsStorage _mapsStorage;
         private Dictionary<int, FileInfo> _filesToChooseFrom;
@@ -75,6 +77,7 @@ namespace Systems.Sanity.Focus.Pages.Edit.Dialogs
         {
             var map = MapFile.OpenFile(file.FullName);
             _map.LoadAtCurrentNode(map);
+            DidAttachMap = true;
         }
 
         protected override IEnumerable<string> GetPageSpecificSuggestions(string text, int index)
