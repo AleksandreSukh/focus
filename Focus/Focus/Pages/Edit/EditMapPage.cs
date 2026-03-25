@@ -13,10 +13,6 @@ using Systems.Sanity.Focus.Pages.Shared.Dialogs;
 
 namespace Systems.Sanity.Focus.Pages.Edit
 {
-    internal sealed record ExportMarkdownArguments(
-        string FileName,
-        bool SkipCollapsedDescendants);
-
     internal class EditMapPage : PageWithSuggestedOptions
     {
         private const string AddOption = "add";
@@ -38,7 +34,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
         private const string HideOption = "min";
         private const string UnhideOption = "max";
         private const string SearchOption = "search";
-        private const string ExportMarkdownOption = "exportmd";
+        private const string ExportOption = "export";
         private const string ExitOption = "exit";
 
         private readonly string[] _nodeOptions = new[] { GoToOption, EditOption, DelOption, HideOption, UnhideOption, SliceOption, LinkFromOption, LinkToOption };
@@ -112,7 +108,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
                 HideOption => ProcessHide(parameters),
                 UnhideOption => ProcessUnhide(parameters),
                 SearchOption => ProcessSearch(parameters),
-                ExportMarkdownOption => ProcessExportMarkdown(input.ParameterWords),
+                ExportOption => ProcessExport(),
                 GoToOption => ProcessGoTo(parameters),
                 DelOption => ProcessCommandDel(parameters),
                 RootOption => ProcessGoToRoot(),
@@ -182,22 +178,41 @@ namespace Systems.Sanity.Focus.Pages.Edit
                 : CommandExecutionResult.Error("Couldn't open selected result");
         }
 
-        private CommandExecutionResult ProcessExportMarkdown(string[] parameterWords)
+        private CommandExecutionResult ProcessExport()
+        {
+            var exportPage = new ExportPage(_map.GetCurrentNodeName());
+            exportPage.Show();
+
+            if (exportPage.SelectedExport == null)
+                return CommandExecutionResult.Success;
+
+            return ProcessExport(exportPage.SelectedExport);
+        }
+
+        private CommandExecutionResult ProcessExport(ExportFormat format, IEnumerable<string> parameterWords)
+        {
+            var exportRequest = ParseExportArguments(format, parameterWords);
+            return ProcessExport(exportRequest);
+        }
+
+        private CommandExecutionResult ProcessExport(ExportRequest exportRequest)
         {
             var exportDirectory = Path.GetDirectoryName(_filePath);
             if (string.IsNullOrWhiteSpace(exportDirectory))
                 return CommandExecutionResult.Error("Couldn't determine export folder");
 
-            var exportArguments = ParseExportMarkdownArguments(parameterWords);
             var targetFileName = MapFileHelper.SanitizeFileName(
-                string.IsNullOrWhiteSpace(exportArguments.FileName)
+                string.IsNullOrWhiteSpace(exportRequest.FileName)
                     ? _map.GetCurrentNodeName()
-                    : exportArguments.FileName,
+                    : exportRequest.FileName,
                 fallbackFileName: "export");
 
             try
             {
-                var markdown = _map.GetCurrentSubtreeMarkdown(exportArguments.SkipCollapsedDescendants);
+                var exportedContent = MapExportService.Export(
+                    _map.GetCurrentNode(),
+                    exportRequest.Format,
+                    new NodeExportOptions(exportRequest.SkipCollapsedDescendants));
                 string exportedFilePath = null;
 
                 new RequestRenameUntilFileNameIsAvailableDialog(
@@ -205,24 +220,25 @@ namespace Systems.Sanity.Focus.Pages.Edit
                     targetFileName,
                     filePath =>
                     {
-                        File.WriteAllText(filePath, markdown);
+                        File.WriteAllText(filePath, exportedContent);
                         exportedFilePath = filePath;
                     },
-                    ConfigurationConstants.MarkdownFileNameExtension)
+                    exportRequest.Format.GetFileExtension())
                     .Show();
 
                 _mapsStorage.Sync();
-                var collapsedSuffix = exportArguments.SkipCollapsedDescendants ? " (collapsed descendants skipped)" : string.Empty;
-                _transientMessage = $"Exported markdown to \"{Path.GetFileName(exportedFilePath)}\"{collapsedSuffix}";
+                var collapsedSuffix = exportRequest.SkipCollapsedDescendants ? " (collapsed descendants skipped)" : string.Empty;
+                _transientMessage =
+                    $"Exported {exportRequest.Format.ToExportVerb()} to \"{Path.GetFileName(exportedFilePath)}\"{collapsedSuffix}";
                 return CommandExecutionResult.Success;
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException)
             {
-                return CommandExecutionResult.Error($"Couldn't export markdown: {ex.Message}");
+                return CommandExecutionResult.Error($"Couldn't export {exportRequest.Format.ToExportVerb()}: {ex.Message}");
             }
         }
 
-        private static ExportMarkdownArguments ParseExportMarkdownArguments(IEnumerable<string> parameterWords)
+        private static ExportRequest ParseExportArguments(ExportFormat format, IEnumerable<string> parameterWords)
         {
             var fileNameParts = new List<string>();
             var skipCollapsedDescendants = false;
@@ -238,7 +254,8 @@ namespace Systems.Sanity.Focus.Pages.Edit
                 fileNameParts.Add(parameterWord);
             }
 
-            return new ExportMarkdownArguments(
+            return new ExportRequest(
+                format,
                 string.Join(' ', fileNameParts),
                 skipCollapsedDescendants);
         }
@@ -564,9 +581,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
                 HideOption,
                 UnhideOption,
                 SearchOption,
-                ExportMarkdownOption,
-                $"{ExportMarkdownOption} -c",
-                $"{ExportMarkdownOption} --collapsed",
+                ExportOption,
                 ExitOption,
                 GoToOption,
                 EditOption,

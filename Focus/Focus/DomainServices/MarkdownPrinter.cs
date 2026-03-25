@@ -5,22 +5,18 @@ using Systems.Sanity.Focus.Domain;
 
 namespace Systems.Sanity.Focus.DomainServices
 {
-    internal sealed record MarkdownPrintOptions(
-        bool SkipCollapsedDescendants = false);
-
     internal static class MarkdownPrinter
     {
         private const string Indentation = "    ";
-        private const string UntitledNodeName = "Untitled";
 
-        public static void Print(Node node, StringBuilder sb, MarkdownPrintOptions options = null)
+        public static void Print(Node node, StringBuilder sb, NodeExportOptions options = null)
         {
-            options ??= new MarkdownPrintOptions();
+            options ??= new NodeExportOptions();
 
             sb.Append("# ");
-            sb.AppendLine(NormalizeNodeName(node.Name));
+            sb.AppendLine(NodeExportHelpers.NormalizeNodeName(node.Name));
 
-            var visibleChildren = GetVisibleChildren(node).ToArray();
+            var visibleChildren = NodeExportHelpers.GetVisibleChildren(node).ToArray();
             if (!visibleChildren.Any())
                 return;
 
@@ -35,7 +31,7 @@ namespace Systems.Sanity.Focus.DomainServices
             IReadOnlyList<Node> children,
             int level,
             StringBuilder sb,
-            MarkdownPrintOptions options)
+            NodeExportOptions options)
         {
             for (var index = 0; index < children.Count; index++)
             {
@@ -48,7 +44,7 @@ namespace Systems.Sanity.Focus.DomainServices
             int level,
             int visibleIndex,
             StringBuilder sb,
-            MarkdownPrintOptions options)
+            NodeExportOptions options)
         {
             var indent = new string(' ', (level - 1) * Indentation.Length);
             var prefix = level == 1
@@ -57,9 +53,9 @@ namespace Systems.Sanity.Focus.DomainServices
 
             sb.Append(indent);
             sb.Append(prefix);
-            sb.AppendLine(NormalizeNodeName(node.Name));
+            sb.AppendLine(NodeExportHelpers.NormalizeNodeName(node.Name));
 
-            var visibleChildren = GetVisibleChildren(node).ToArray();
+            var visibleChildren = NodeExportHelpers.GetVisibleChildren(node).ToArray();
             if (!visibleChildren.Any())
                 return;
 
@@ -67,17 +63,6 @@ namespace Systems.Sanity.Focus.DomainServices
                 return;
 
             PrintChildren(visibleChildren, level + 1, sb, options);
-        }
-
-        private static IEnumerable<Node> GetVisibleChildren(Node node) =>
-            node.Children.Where(child => child.NodeType != NodeType.IdeaBagItem);
-
-        private static string NormalizeNodeName(string nodeName)
-        {
-            if (string.IsNullOrWhiteSpace(nodeName))
-                return UntitledNodeName;
-
-            return nodeName.ReplaceLineEndings(" ").Trim();
         }
     }
 }

@@ -132,7 +132,7 @@ namespace Systems.Sanity.Focus.Domain
         public string GetCurrentSubtreeMarkdown(bool skipCollapsedDescendants = false)
         {
             var sb = new StringBuilder();
-            MarkdownPrinter.Print(_currentNode, sb, new MarkdownPrintOptions(skipCollapsedDescendants));
+            MarkdownPrinter.Print(_currentNode, sb, new NodeExportOptions(skipCollapsedDescendants));
             return sb.ToString();
         }
 

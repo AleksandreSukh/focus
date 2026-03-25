@@ -7,6 +7,7 @@ public class ConfigurationConstants
     public const string CommandColor = "green";
     public const string RequiredFileNameExtension = ".json";
     public const string MarkdownFileNameExtension = ".md";
+    public const string HtmlFileNameExtension = ".html";
     public static class NodePrinting
     {
         public const string LeftBorder = "| ";
