@@ -228,7 +228,7 @@ namespace Systems.Sanity.Focus.Domain
             var node = FindNode(nodeIdentifier);
             if (node == null) return false;
 
-            node.Collapsed = true;
+            node.Collapse();
             return true;
         }
 
@@ -236,7 +236,7 @@ namespace Systems.Sanity.Focus.Domain
         {
             var node = FindNode(nodeIdentifier);
             if (node == null) return false;
-            node.Collapsed = false;
+            node.Expand();
             return true;
         }
 

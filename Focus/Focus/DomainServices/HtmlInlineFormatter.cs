@@ -10,104 +10,23 @@ internal static class HtmlInlineFormatter
     {
         var normalizedInput = NodeExportHelpers.NormalizeNodeName(input);
         var htmlBuilder = new StringBuilder(normalizedInput.Length + 32);
-        var pendingText = new StringBuilder();
-        string activeColorClass = null;
 
-        void FlushPendingText()
+        foreach (var run in InlineFormatParser.Parse(normalizedInput))
         {
-            if (pendingText.Length == 0)
-                return;
+            var encodedText = WebUtility.HtmlEncode(run.Text);
+            if (!run.ForegroundColor.HasValue)
+            {
+                htmlBuilder.Append(encodedText);
+                continue;
+            }
 
-            htmlBuilder.Append(WebUtility.HtmlEncode(pendingText.ToString()));
-            pendingText.Clear();
+            var colorName = ColorfulConsole.ConsoleColorNames[run.ForegroundColor.Value];
+            htmlBuilder.Append($"<span class=\"color-{colorName}\">{encodedText}</span>");
         }
 
-        void CloseActiveSpan()
-        {
-            if (activeColorClass == null)
-                return;
-
-            htmlBuilder.Append("</span>");
-            activeColorClass = null;
-        }
-
-        for (var index = 0; index < normalizedInput.Length; index++)
-        {
-            var currentCharacter = normalizedInput[index];
-            if (currentCharacter != ColorfulConsole.CommandStartBracket)
-            {
-                pendingText.Append(currentCharacter);
-                continue;
-            }
-
-            var commandEndIndex = normalizedInput.IndexOf(ColorfulConsole.CommandEndBracket, index + 1);
-            if (commandEndIndex < 0)
-            {
-                pendingText.Append(currentCharacter);
-                continue;
-            }
-
-            var command = normalizedInput[(index + 1)..commandEndIndex];
-            if (command == ColorfulConsole.ColorCommandTerminationTag)
-            {
-                FlushPendingText();
-                CloseActiveSpan();
-                index = commandEndIndex;
-                continue;
-            }
-
-            if (ColorfulConsole.Colors.TryGetValue(command.ToLowerInvariant(), out _))
-            {
-                FlushPendingText();
-                CloseActiveSpan();
-                activeColorClass = $"color-{command.ToLowerInvariant()}";
-                htmlBuilder.Append($"<span class=\"{activeColorClass}\">");
-                index = commandEndIndex;
-                continue;
-            }
-
-            pendingText.Append(normalizedInput[index..(commandEndIndex + 1)]);
-            index = commandEndIndex;
-        }
-
-        FlushPendingText();
-        CloseActiveSpan();
         return htmlBuilder.ToString();
     }
 
-    public static string ToPlainText(string input)
-    {
-        var normalizedInput = NodeExportHelpers.NormalizeNodeName(input);
-        var plainTextBuilder = new StringBuilder(normalizedInput.Length);
-
-        for (var index = 0; index < normalizedInput.Length; index++)
-        {
-            var currentCharacter = normalizedInput[index];
-            if (currentCharacter != ColorfulConsole.CommandStartBracket)
-            {
-                plainTextBuilder.Append(currentCharacter);
-                continue;
-            }
-
-            var commandEndIndex = normalizedInput.IndexOf(ColorfulConsole.CommandEndBracket, index + 1);
-            if (commandEndIndex < 0)
-            {
-                plainTextBuilder.Append(currentCharacter);
-                continue;
-            }
-
-            var command = normalizedInput[(index + 1)..commandEndIndex];
-            var isKnownColorCommand = command == ColorfulConsole.ColorCommandTerminationTag
-                || ColorfulConsole.Colors.ContainsKey(command.ToLowerInvariant());
-
-            if (!isKnownColorCommand)
-            {
-                plainTextBuilder.Append(normalizedInput[index..(commandEndIndex + 1)]);
-            }
-
-            index = commandEndIndex;
-        }
-
-        return plainTextBuilder.ToString();
-    }
+    public static string ToPlainText(string input) =>
+        PlainTextInlineFormatter.ToPlainText(NodeExportHelpers.NormalizeNodeName(input));
 }

@@ -26,7 +26,7 @@ namespace Systems.Sanity.Focus.DomainServices
             var content = new StringBuilder(numberString);
             content.Append(node.Name);
 
-            if (node.Collapsed && level > 0)
+            if (node.IsCollapsed() && level > 0)
             {
                 content.Append($" {new string('/', node.GetTotalSize())}");
             }
@@ -47,7 +47,7 @@ namespace Systems.Sanity.Focus.DomainServices
 
             indent += ConfigurationConstants.NodePrinting.TabSpaceForIndentation;
 
-            if (node.Collapsed && level > 0) return;
+            if (node.IsCollapsed() && level > 0) return;
             for (int i = 0; i < node.Children.Count; i++)
                 Print(node.Children[i], indent, i == node.Children.Count - 1, level + 1, sb, maxWidth);
         }

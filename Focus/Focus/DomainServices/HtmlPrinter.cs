@@ -30,7 +30,7 @@ internal static class HtmlPrinter
         AppendLine(sb, 3, $"<h1>{HtmlInlineFormatter.ToHtml(node.Name)}</h1>");
 
         var visibleChildren = NodeExportHelpers.GetVisibleChildren(node).ToArray();
-        if (visibleChildren.Any() && !(options.SkipCollapsedDescendants && node.Collapsed))
+        if (visibleChildren.Any())
         {
             AppendLine(sb, 3, "<ol>");
             foreach (var childNode in visibleChildren)
@@ -57,7 +57,7 @@ internal static class HtmlPrinter
         AppendLine(sb, indentationLevel + 1, HtmlInlineFormatter.ToHtml(node.Name));
 
         var visibleChildren = NodeExportHelpers.GetVisibleChildren(node).ToArray();
-        if (visibleChildren.Any() && !(options.SkipCollapsedDescendants && node.Collapsed))
+        if (visibleChildren.Any() && !(options.SkipCollapsedDescendants && node.IsCollapsed()))
         {
             AppendLine(sb, indentationLevel + 1, "<ul>");
             foreach (var childNode in visibleChildren)

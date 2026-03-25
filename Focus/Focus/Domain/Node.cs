@@ -7,6 +7,7 @@ namespace Systems.Sanity.Focus.Domain;
 public class Node
 {
     private Node _parentNode;
+
     public Node()
     {
         UniqueIdentifier = Guid.NewGuid();
@@ -22,7 +23,19 @@ public class Node
         Number = number;
     }
 
+    public NodeType NodeType { get; }
+    public Guid? UniqueIdentifier { get; set; }
+    public string Name { get; set; }
+    //TODO we could optimize performance by making this a dictionary (see usages)
+    public List<Node> Children { get; }
+    public Dictionary<Guid, Link> Links { get; }
+    public int Number { get; set; }
+    public bool Collapsed { get; set; }
+
+    public bool IsCollapsed() => Collapsed && _parentNode != null;
+
     public Node GetParent() => _parentNode;
+
     public void SetParent(Node parent)
     {
         _parentNode = parent;
@@ -74,29 +87,10 @@ public class Node
         return true;
     }
 
-    private static string SanitizeText(string input)
-    {
-        if (input == null)
-            return string.Empty;
-
-        return new string(input
-            .Where(c => !char.IsControl(c) || c == '\r' || c == '\n' || c == '\t')
-            .ToArray());
-    }
-
     public int GetTotalSize()
     {
         return !Children.Any() ? 1 : Children.Sum(c => c.GetTotalSize());
     }
-
-    public NodeType NodeType { get; }
-    public Guid? UniqueIdentifier { get; set; }
-    public string Name { get; set; }
-    //TODO we could optimize performance by making this a dictionary (see usages)
-    public List<Node> Children { get; }
-    public Dictionary<Guid, Link> Links { get; }
-    public int Number { get; set; }
-    public bool Collapsed { get; set; }
 
     public void RenumberChildNodes()
     {
@@ -105,6 +99,26 @@ public class Node
         {
             childNodes[i].Number = i + 1;
         }
+    }
+
+    internal void Collapse()
+    {
+        Collapsed = true;
+    }
+
+    internal void Expand()
+    {
+        Collapsed = false;
+    }
+
+    private static string SanitizeText(string input)
+    {
+        if (input == null)
+            return string.Empty;
+
+        return new string(input
+            .Where(c => !char.IsControl(c) || c == '\r' || c == '\n' || c == '\t')
+            .ToArray());
     }
 }
 
