@@ -34,6 +34,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
         private const string HideOption = "min";
         private const string UnhideOption = "max";
         private const string SearchOption = "search";
+        private const string ExportMarkdownOption = "exportmd";
         private const string ExitOption = "exit";
 
         private readonly string[] _nodeOptions = new[] { GoToOption, EditOption, DelOption, HideOption, UnhideOption, SliceOption, LinkFromOption, LinkToOption };
@@ -42,6 +43,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
         private MindMap _map;
         private readonly MapsStorage _mapsStorage;
         private readonly Guid? _initialNodeIdentifier;
+        private string _transientMessage;
 
         public EditMapPage(
             string filePath,
@@ -73,11 +75,12 @@ namespace Systems.Sanity.Focus.Pages.Edit
                 {
                     if (commandResult.ShouldPersist)
                         Save();
-                    Redraw();
+                    Redraw(_transientMessage);
+                    _transientMessage = null;
                 }
                 else
                 {
-                    Redraw(commandResult.ErrorString);
+                    Redraw(commandResult.ErrorString, isError: true);
                 }
             }
         }
@@ -105,6 +108,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
                 HideOption => ProcessHide(parameters),
                 UnhideOption => ProcessUnhide(parameters),
                 SearchOption => ProcessSearch(parameters),
+                ExportMarkdownOption => ProcessExportMarkdown(parameters),
                 GoToOption => ProcessGoTo(parameters),
                 DelOption => ProcessCommandDel(parameters),
                 RootOption => ProcessGoToRoot(),
@@ -172,6 +176,44 @@ namespace Systems.Sanity.Focus.Pages.Edit
             return _map.ChangeCurrentNodeById(selectedResult.NodeId)
                 ? CommandExecutionResult.Success
                 : CommandExecutionResult.Error("Couldn't open selected result");
+        }
+
+        private CommandExecutionResult ProcessExportMarkdown(string parameters)
+        {
+            var exportDirectory = Path.GetDirectoryName(_filePath);
+            if (string.IsNullOrWhiteSpace(exportDirectory))
+                return CommandExecutionResult.Error("Couldn't determine export folder");
+
+            var targetFileName = MapFileHelper.SanitizeFileName(
+                string.IsNullOrWhiteSpace(parameters)
+                    ? _map.GetCurrentNodeName()
+                    : parameters,
+                fallbackFileName: "export");
+
+            try
+            {
+                var markdown = _map.GetCurrentSubtreeMarkdown();
+                string exportedFilePath = null;
+
+                new RequestRenameUntilFileNameIsAvailableDialog(
+                    exportDirectory,
+                    targetFileName,
+                    filePath =>
+                    {
+                        File.WriteAllText(filePath, markdown);
+                        exportedFilePath = filePath;
+                    },
+                    ConfigurationConstants.MarkdownFileNameExtension)
+                    .Show();
+
+                _mapsStorage.Sync();
+                _transientMessage = $"Exported markdown to \"{Path.GetFileName(exportedFilePath)}\"";
+                return CommandExecutionResult.Success;
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException)
+            {
+                return CommandExecutionResult.Error($"Couldn't export markdown: {ex.Message}");
+            }
         }
 
         private CommandExecutionResult ProcessOpenLink()
@@ -438,7 +480,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
 
         private bool ThereAreSubNodes() => _map.GetChildren().Any();
 
-        private void Redraw(string message = null)
+        private void Redraw(string message = null, bool isError = false)
         {
             var newConsoleContent = _map.GetCurrentSubtreeString();
             var commandOptions = GetCommandOptions();
@@ -448,7 +490,8 @@ namespace Systems.Sanity.Focus.Pages.Edit
 
             if (!string.IsNullOrEmpty(message))
             {
-                screenBuilder.Append($":! {message}{Environment.NewLine}{Environment.NewLine}");
+                var messagePrefix = isError ? ":!" : ":i";
+                screenBuilder.Append($"{messagePrefix} {message}{Environment.NewLine}{Environment.NewLine}");
             }
 
             screenBuilder.Append($":> {string.Join("; ", commandOptions)}{Environment.NewLine}");
@@ -481,7 +524,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
         }
 
         private string[] GetCommandOptions() =>
-            new[] { AddOption, AddIdeaOption, ClearIdeasOption, SliceOption, LinkFromOption, LinkToOption, OpenLinkOption, BacklinksOption, HideOption, UnhideOption, SearchOption, ExitOption, GoToOption, EditOption, DelOption, UpOption, RootOption }
+            new[] { AddOption, AddIdeaOption, ClearIdeasOption, SliceOption, LinkFromOption, LinkToOption, OpenLinkOption, BacklinksOption, HideOption, UnhideOption, SearchOption, ExportMarkdownOption, ExitOption, GoToOption, EditOption, DelOption, UpOption, RootOption }
                 .Union(_map.GetChildren().Keys.Select(k => k.ToString()))
                 .Union(_map.GetChildren().Keys.Select(k => AccessibleKeyNumbering.GetStringFor(k)))
                 .ToArray();

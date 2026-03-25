@@ -17,7 +17,7 @@ public class Node
 
     public Node(string name, NodeType nodeType, int number) : this()
     {
-        Name = name;
+        Name = SanitizeText(name);
         NodeType = nodeType;
         Number = number;
     }
@@ -54,13 +54,34 @@ public class Node
     private void AddNode(Node childNode)
     {
         childNode.UniqueIdentifier ??= Guid.NewGuid();
+        childNode.Name = SanitizeText(childNode.Name);
         childNode.SetParent(this);
         Children.Add(childNode);
     }
 
     public void EditNode(string newString)
     {
-        Name = newString;
+        Name = SanitizeText(newString);
+    }
+
+    public bool SanitizeName()
+    {
+        var sanitizedName = SanitizeText(Name);
+        if (Name == sanitizedName)
+            return false;
+
+        Name = sanitizedName;
+        return true;
+    }
+
+    private static string SanitizeText(string input)
+    {
+        if (input == null)
+            return string.Empty;
+
+        return new string(input
+            .Where(c => !char.IsControl(c) || c == '\r' || c == '\n' || c == '\t')
+            .ToArray());
     }
 
     public int GetTotalSize()

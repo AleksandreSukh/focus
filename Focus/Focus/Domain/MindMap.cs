@@ -129,6 +129,13 @@ namespace Systems.Sanity.Focus.Domain
             return sb.ToString();
         }
 
+        public string GetCurrentSubtreeMarkdown()
+        {
+            var sb = new StringBuilder();
+            MarkdownPrinter.Print(_currentNode, sb);
+            return sb.ToString();
+        }
+
         public string GetCurrentNodeName() => _currentNode.Name;
 
         public Dictionary<int, string> GetChildren()

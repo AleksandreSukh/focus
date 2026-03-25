@@ -37,8 +37,11 @@ internal class RenameFileDialog : Page
 			return;
 
 		if (_existingFile.Name != newFileName)
-			new RequestRenameUntilFileNameIsAvailableDialog(_existingFile.DirectoryName, newFileName,
-					filePath => File.Move(existingFilePath, filePath))
+			new RequestRenameUntilFileNameIsAvailableDialog(
+					_existingFile.DirectoryName,
+					newFileName,
+					filePath => File.Move(existingFilePath, filePath),
+					fileExtension)
 				.Show();
 	}
 

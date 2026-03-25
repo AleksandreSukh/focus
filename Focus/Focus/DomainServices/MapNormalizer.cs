@@ -40,6 +40,11 @@ internal static class MapNormalizer
     {
         node.SetParent(parentNode);
 
+        if (node.SanitizeName())
+        {
+            normalizationResult.SanitizedNodeNamesCount++;
+        }
+
         var existingIdentifier = node.UniqueIdentifier;
         if (!existingIdentifier.HasValue || existingIdentifier.Value == Guid.Empty)
         {

@@ -6,6 +6,7 @@ public class ConfigurationConstants
     public const string MindMapDirectoryName = "FocusMaps";
     public const string CommandColor = "green";
     public const string RequiredFileNameExtension = ".json";
+    public const string MarkdownFileNameExtension = ".md";
     public static class NodePrinting
     {
         public const string LeftBorder = "| ";

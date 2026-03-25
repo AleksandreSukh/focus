@@ -1,17 +1,37 @@
-﻿using System.IO;
+using System;
+using System.IO;
+using System.Linq;
 
 namespace Systems.Sanity.Focus.Pages;
 
 public class MapFileHelper
 {
-    public static string GetFullFilePath(string directory, string fileName)
+    public static string GetFullFilePath(string directory, string fileName, string requiredExtension = null)
     {
-        //TODO: 
-        var fileNameExtension = ConfigurationConstants.RequiredFileNameExtension;
-        if (!fileName.EndsWith(fileNameExtension))
+        var fileNameExtension = string.IsNullOrWhiteSpace(requiredExtension)
+            ? ConfigurationConstants.RequiredFileNameExtension
+            : requiredExtension;
+
+        if (!fileName.EndsWith(fileNameExtension, StringComparison.InvariantCultureIgnoreCase))
             fileName += fileNameExtension;
 
-        var filePath = Path.Combine(directory, fileName);
-        return filePath;
+        return Path.Combine(directory, fileName);
+    }
+
+    public static string SanitizeFileName(string fileName, string fallbackFileName = "untitled")
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+            return fallbackFileName;
+
+        var invalidChars = Path.GetInvalidFileNameChars().ToHashSet();
+        var sanitizedFileName = new string(fileName
+                .Select(c => invalidChars.Contains(c) ? '_' : c)
+                .ToArray())
+            .Trim()
+            .TrimEnd('.');
+
+        return string.IsNullOrWhiteSpace(sanitizedFileName)
+            ? fallbackFileName
+            : sanitizedFileName;
     }
 }

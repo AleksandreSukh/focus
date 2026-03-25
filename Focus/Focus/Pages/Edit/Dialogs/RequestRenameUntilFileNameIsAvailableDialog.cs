@@ -10,12 +10,20 @@ namespace Systems.Sanity.Focus.Pages.Edit.Dialogs
 		private readonly Action<string> _fileAction;
 		private readonly string _tartgetDir;
 		private string _fileName;
+		private readonly string _fileExtension;
 
-		public RequestRenameUntilFileNameIsAvailableDialog(string tartgetDir, string fileName, Action<string> fileAction)
+		public RequestRenameUntilFileNameIsAvailableDialog(
+			string tartgetDir,
+			string fileName,
+			Action<string> fileAction,
+			string fileExtension = null)
 		{
 			_tartgetDir = tartgetDir;
 			_fileName = fileName;
 			_fileAction = fileAction;
+			_fileExtension = string.IsNullOrWhiteSpace(fileExtension)
+				? ConfigurationConstants.RequiredFileNameExtension
+				: fileExtension;
 		}
 
 		public override void Show()
@@ -30,7 +38,7 @@ namespace Systems.Sanity.Focus.Pages.Edit.Dialogs
 			if (!parentDir.Exists)
 				parentDir.Create();
 
-			var filePath = MapFileHelper.GetFullFilePath(dir, fileName);
+			var filePath = MapFileHelper.GetFullFilePath(dir, fileName, _fileExtension);
 
 			var existingFileWithThisNameCounter = 2;
 			while (File.Exists(filePath))
@@ -46,7 +54,7 @@ namespace Systems.Sanity.Focus.Pages.Edit.Dialogs
 					? newName
 					: suggestedFileName;
 
-				filePath = MapFileHelper.GetFullFilePath(dir, newFileName);
+				filePath = MapFileHelper.GetFullFilePath(dir, newFileName, _fileExtension);
 				existingFileWithThisNameCounter++;
 			}
 

@@ -50,9 +50,19 @@ namespace Systems.Sanity.Focus.Infrastructure.Input.ReadLine
 
         private string BuildKeyInput()
         {
-            return (_keyInfo.Modifiers != ConsoleModifiers.Control && _keyInfo.Modifiers != ConsoleModifiers.Shift)
-                ? _keyInfo.Key.ToString()
-                : _keyInfo.Modifiers.ToString() + _keyInfo.Key.ToString();
+            if (_keyInfo.Modifiers == 0)
+                return _keyInfo.Key.ToString();
+
+            var keyInputBuilder = new StringBuilder();
+            if ((_keyInfo.Modifiers & ConsoleModifiers.Control) != 0)
+                keyInputBuilder.Append(ConsoleModifiers.Control);
+            if ((_keyInfo.Modifiers & ConsoleModifiers.Alt) != 0)
+                keyInputBuilder.Append(ConsoleModifiers.Alt);
+            if ((_keyInfo.Modifiers & ConsoleModifiers.Shift) != 0)
+                keyInputBuilder.Append(ConsoleModifiers.Shift);
+
+            keyInputBuilder.Append(_keyInfo.Key);
+            return keyInputBuilder.ToString();
         }
 
         private void MoveCursorRight()
@@ -347,10 +357,35 @@ namespace Systems.Sanity.Focus.Infrastructure.Input.ReadLine
             if (IsInAutoCompleteMode() && _keyInfo.Key != ConsoleKey.Tab)
                 ResetAutoComplete();
 
-            Action action;
-            _keyActions.TryGetValue(BuildKeyInput(), out action);
-            action = action ?? WriteChar;
-            action.Invoke();
+            if (_keyInfo.Key == ConsoleKey.Backspace)
+            {
+                Backspace();
+                return;
+            }
+
+            if (_keyInfo.Key == ConsoleKey.Delete)
+            {
+                Delete();
+                return;
+            }
+
+            _keyActions.TryGetValue(BuildKeyInput(), out var action);
+            if (action != null)
+            {
+                action.Invoke();
+                return;
+            }
+
+            if (!CanWriteKeyChar(_keyInfo))
+                return;
+
+            WriteChar();
+        }
+
+        private static bool CanWriteKeyChar(ConsoleKeyInfo keyInfo)
+        {
+            var keyChar = keyInfo.KeyChar;
+            return keyChar != default && !char.IsControl(keyChar);
         }
     }
 }
