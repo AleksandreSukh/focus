@@ -129,10 +129,10 @@ namespace Systems.Sanity.Focus.Domain
             return sb.ToString();
         }
 
-        public string GetCurrentSubtreeMarkdown()
+        public string GetCurrentSubtreeMarkdown(bool skipCollapsedDescendants = false)
         {
             var sb = new StringBuilder();
-            MarkdownPrinter.Print(_currentNode, sb);
+            MarkdownPrinter.Print(_currentNode, sb, new MarkdownPrintOptions(skipCollapsedDescendants));
             return sb.ToString();
         }
 

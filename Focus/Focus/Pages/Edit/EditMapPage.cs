@@ -13,6 +13,10 @@ using Systems.Sanity.Focus.Pages.Shared.Dialogs;
 
 namespace Systems.Sanity.Focus.Pages.Edit
 {
+    internal sealed record ExportMarkdownArguments(
+        string FileName,
+        bool SkipCollapsedDescendants);
+
     internal class EditMapPage : PageWithSuggestedOptions
     {
         private const string AddOption = "add";
@@ -108,7 +112,7 @@ namespace Systems.Sanity.Focus.Pages.Edit
                 HideOption => ProcessHide(parameters),
                 UnhideOption => ProcessUnhide(parameters),
                 SearchOption => ProcessSearch(parameters),
-                ExportMarkdownOption => ProcessExportMarkdown(parameters),
+                ExportMarkdownOption => ProcessExportMarkdown(input.ParameterWords),
                 GoToOption => ProcessGoTo(parameters),
                 DelOption => ProcessCommandDel(parameters),
                 RootOption => ProcessGoToRoot(),
@@ -178,21 +182,22 @@ namespace Systems.Sanity.Focus.Pages.Edit
                 : CommandExecutionResult.Error("Couldn't open selected result");
         }
 
-        private CommandExecutionResult ProcessExportMarkdown(string parameters)
+        private CommandExecutionResult ProcessExportMarkdown(string[] parameterWords)
         {
             var exportDirectory = Path.GetDirectoryName(_filePath);
             if (string.IsNullOrWhiteSpace(exportDirectory))
                 return CommandExecutionResult.Error("Couldn't determine export folder");
 
+            var exportArguments = ParseExportMarkdownArguments(parameterWords);
             var targetFileName = MapFileHelper.SanitizeFileName(
-                string.IsNullOrWhiteSpace(parameters)
+                string.IsNullOrWhiteSpace(exportArguments.FileName)
                     ? _map.GetCurrentNodeName()
-                    : parameters,
+                    : exportArguments.FileName,
                 fallbackFileName: "export");
 
             try
             {
-                var markdown = _map.GetCurrentSubtreeMarkdown();
+                var markdown = _map.GetCurrentSubtreeMarkdown(exportArguments.SkipCollapsedDescendants);
                 string exportedFilePath = null;
 
                 new RequestRenameUntilFileNameIsAvailableDialog(
@@ -207,13 +212,35 @@ namespace Systems.Sanity.Focus.Pages.Edit
                     .Show();
 
                 _mapsStorage.Sync();
-                _transientMessage = $"Exported markdown to \"{Path.GetFileName(exportedFilePath)}\"";
+                var collapsedSuffix = exportArguments.SkipCollapsedDescendants ? " (collapsed descendants skipped)" : string.Empty;
+                _transientMessage = $"Exported markdown to \"{Path.GetFileName(exportedFilePath)}\"{collapsedSuffix}";
                 return CommandExecutionResult.Success;
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException)
             {
                 return CommandExecutionResult.Error($"Couldn't export markdown: {ex.Message}");
             }
+        }
+
+        private static ExportMarkdownArguments ParseExportMarkdownArguments(IEnumerable<string> parameterWords)
+        {
+            var fileNameParts = new List<string>();
+            var skipCollapsedDescendants = false;
+
+            foreach (var parameterWord in parameterWords.Where(word => !string.IsNullOrWhiteSpace(word)))
+            {
+                if (parameterWord is "-c" or "--collapsed")
+                {
+                    skipCollapsedDescendants = true;
+                    continue;
+                }
+
+                fileNameParts.Add(parameterWord);
+            }
+
+            return new ExportMarkdownArguments(
+                string.Join(' ', fileNameParts),
+                skipCollapsedDescendants);
         }
 
         private CommandExecutionResult ProcessOpenLink()
@@ -524,7 +551,29 @@ namespace Systems.Sanity.Focus.Pages.Edit
         }
 
         private string[] GetCommandOptions() =>
-            new[] { AddOption, AddIdeaOption, ClearIdeasOption, SliceOption, LinkFromOption, LinkToOption, OpenLinkOption, BacklinksOption, HideOption, UnhideOption, SearchOption, ExportMarkdownOption, ExitOption, GoToOption, EditOption, DelOption, UpOption, RootOption }
+            new[]
+            {
+                AddOption,
+                AddIdeaOption,
+                ClearIdeasOption,
+                SliceOption,
+                LinkFromOption,
+                LinkToOption,
+                OpenLinkOption,
+                BacklinksOption,
+                HideOption,
+                UnhideOption,
+                SearchOption,
+                ExportMarkdownOption,
+                $"{ExportMarkdownOption} -c",
+                $"{ExportMarkdownOption} --collapsed",
+                ExitOption,
+                GoToOption,
+                EditOption,
+                DelOption,
+                UpOption,
+                RootOption
+            }
                 .Union(_map.GetChildren().Keys.Select(k => k.ToString()))
                 .Union(_map.GetChildren().Keys.Select(k => AccessibleKeyNumbering.GetStringFor(k)))
                 .ToArray();
