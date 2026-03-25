@@ -5,6 +5,7 @@ using Systems.Sanity.Focus;
 using Systems.Sanity.Focus.DomainServices;
 using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Infrastructure.Input;
+using Systems.Sanity.Focus.Pages;
 using Systems.Sanity.Focus.Pages.Shared;
 using Systems.Sanity.Focus.Pages.Shared.Dialogs;
 
@@ -30,8 +31,8 @@ internal class ExportPage : Page
 
     public ExportPage(string defaultFileName)
     {
-        _defaultFileName = defaultFileName;
-        _fileName = defaultFileName;
+        _defaultFileName = MapFileHelper.SanitizeFileName(defaultFileName, fallbackFileName: "export");
+        _fileName = _defaultFileName;
     }
 
     public ExportRequest? SelectedExport { get; private set; }
@@ -111,7 +112,7 @@ internal class ExportPage : Page
             return;
         }
 
-        _fileName = fileName.Trim();
+        _fileName = MapFileHelper.SanitizeFileName(fileName.Trim(), fallbackFileName: "export");
         _message = $"File name set to \"{_fileName}\"";
     }
 

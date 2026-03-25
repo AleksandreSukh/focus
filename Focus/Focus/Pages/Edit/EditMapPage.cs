@@ -180,7 +180,8 @@ namespace Systems.Sanity.Focus.Pages.Edit
 
         private CommandExecutionResult ProcessExport()
         {
-            var exportPage = new ExportPage(_map.GetCurrentNodeName());
+            var exportPage = new ExportPage(
+                MapFileHelper.SanitizeFileName(_map.GetCurrentNodeName(), fallbackFileName: "export"));
             exportPage.Show();
 
             if (exportPage.SelectedExport == null)

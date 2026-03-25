@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using Systems.Sanity.Focus.DomainServices;
 
 namespace Systems.Sanity.Focus.Pages;
 
@@ -20,6 +21,10 @@ public class MapFileHelper
 
     public static string SanitizeFileName(string fileName, string fallbackFileName = "untitled")
     {
+        if (string.IsNullOrWhiteSpace(fileName))
+            return fallbackFileName;
+
+        fileName = PlainTextInlineFormatter.ToPlainText(fileName);
         if (string.IsNullOrWhiteSpace(fileName))
             return fallbackFileName;
 
