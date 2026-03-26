@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using Systems.Sanity.Focus;
 using Systems.Sanity.Focus.DomainServices;
@@ -53,16 +54,7 @@ internal class ExportPage : Page
     }
 
     protected override IEnumerable<string> GetPageSpecificSuggestions(string text, int index) =>
-        new[]
-        {
-            MarkdownOption,
-            HtmlOption,
-            FullOption,
-            CollapsedOption,
-            $"{NameOption} {_fileName}",
-            SaveOption,
-            CancelOption
-        };
+        GetVisibleOptions().Select(option => option.Suggestion);
 
     private void HandleInput(ConsoleInput input)
     {
@@ -72,20 +64,16 @@ internal class ExportPage : Page
         switch (input.FirstWord.ToCommandLanguage())
         {
             case MarkdownOption:
-                _format = ExportFormat.Markdown;
-                _message = "Format set to Markdown";
+                SetFormat(ExportFormat.Markdown);
                 return;
             case HtmlOption:
-                _format = ExportFormat.Html;
-                _message = "Format set to HTML";
+                SetFormat(ExportFormat.Html);
                 return;
             case FullOption:
-                _skipCollapsedDescendants = false;
-                _message = "Scope set to full subtree";
+                SetScope(skipCollapsedDescendants: false);
                 return;
             case CollapsedOption:
-                _skipCollapsedDescendants = true;
-                _message = "Collapsed descendants will be skipped";
+                SetScope(skipCollapsedDescendants: true);
                 return;
             case NameOption:
                 UpdateFileName(input.Parameters);
@@ -116,6 +104,59 @@ internal class ExportPage : Page
         _message = $"File name set to \"{_fileName}\"";
     }
 
+    private void SetFormat(ExportFormat format)
+    {
+        if (_format == format)
+        {
+            _message = $"Format already set to {format.ToDisplayString()}";
+            return;
+        }
+
+        _format = format;
+        _message = $"Format set to {format.ToDisplayString()}";
+    }
+
+    private void SetScope(bool skipCollapsedDescendants)
+    {
+        if (_skipCollapsedDescendants == skipCollapsedDescendants)
+        {
+            _message = skipCollapsedDescendants
+                ? "Scope already set to skip descendants under collapsed nodes"
+                : "Scope already set to full subtree";
+            return;
+        }
+
+        _skipCollapsedDescendants = skipCollapsedDescendants;
+        _message = skipCollapsedDescendants
+            ? "Collapsed descendants will be skipped"
+            : "Scope set to full subtree";
+    }
+
+    private IEnumerable<ExportOption> GetVisibleOptions()
+    {
+        if (_format == ExportFormat.Markdown)
+        {
+            yield return new ExportOption(HtmlOption, HtmlOption, "export as HTML");
+        }
+        else
+        {
+            yield return new ExportOption(MarkdownOption, MarkdownOption, "export as Markdown");
+        }
+
+        if (_skipCollapsedDescendants)
+        {
+            yield return new ExportOption(FullOption, FullOption, "include all descendants");
+        }
+        else
+        {
+            yield return new ExportOption(CollapsedOption, CollapsedOption, "skip descendants under collapsed nodes");
+        }
+
+        yield return new ExportOption($"{NameOption} <file name>", $"{NameOption} {_fileName}", "set exported file name");
+        yield return new ExportOption(SaveOption, SaveOption, "create exported file");
+        yield return new ExportOption(CancelOption, CancelOption, "return without exporting");
+    }
+
     private string BuildScreen()
     {
         var builder = new StringBuilder();
@@ -127,13 +168,11 @@ internal class ExportPage : Page
         builder.AppendLine($"Format: {_format.ToDisplayString()} ({_format.GetFileExtension()})");
         builder.AppendLine($"Scope: {(_skipCollapsedDescendants ? "Skip descendants under collapsed nodes" : "Full subtree")}");
         builder.AppendLine();
-        builder.AppendLine($"\"[{ConfigurationConstants.CommandColor}]{MarkdownOption}[!]\" - export as Markdown");
-        builder.AppendLine($"\"[{ConfigurationConstants.CommandColor}]{HtmlOption}[!]\" - export as HTML");
-        builder.AppendLine($"\"[{ConfigurationConstants.CommandColor}]{FullOption}[!]\" - include all descendants");
-        builder.AppendLine($"\"[{ConfigurationConstants.CommandColor}]{CollapsedOption}[!]\" - skip descendants under collapsed nodes");
-        builder.AppendLine($"\"[{ConfigurationConstants.CommandColor}]{NameOption} <file name>[!]\" - set exported file name");
-        builder.AppendLine($"\"[{ConfigurationConstants.CommandColor}]{SaveOption}[!]\" - create exported file");
-        builder.AppendLine($"\"[{ConfigurationConstants.CommandColor}]{CancelOption}[!]\" - return without exporting");
+        foreach (var option in GetVisibleOptions())
+        {
+            builder.AppendLine(
+                $"\"[{ConfigurationConstants.CommandColor}]{option.DisplayCommand}[!]\" - {option.Description}");
+        }
 
         if (!string.IsNullOrWhiteSpace(_message))
         {
@@ -145,4 +184,9 @@ internal class ExportPage : Page
         builder.AppendLine();
         return builder.ToString();
     }
+
+    private sealed record ExportOption(
+        string DisplayCommand,
+        string Suggestion,
+        string Description);
 }
