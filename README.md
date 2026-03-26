@@ -68,11 +68,33 @@ dotnet build Focus/Focus.sln
 dotnet run --project Focus/Focus/Systems.Sanity.Focus.csproj
 ```
 
-The repository also includes a packaging script:
+For local release deployment of build artifacts, the repository includes:
 
-`Focus/Focus/BuildAndPublish.ps1`
+- `Focus/Focus/ReleaseAndUpload.ps1`
+  Calculates the next release version automatically, builds and packages the app, prompts for upload credentials when needed, stores them as a DPAPI-encrypted `Export-Clixml` file under `%APPDATA%\Focus\Secrets\focus-ftps.clixml`, and mirrors the generated `Focus/Focus/Releases` directory to an FTP, FTPS, or SFTP target directory using WinSCP.
 
-That script publishes a self-contained Windows build and creates a Velopack package.
+- `Focus/Focus/ReleaseAndUploadLauncher.ps1`
+  Convenience wrapper around `ReleaseAndUpload.ps1` that targets the project's current SFTP release endpoint.
+
+Example workflow:
+
+```powershell
+pwsh -File Focus/Focus/ReleaseAndUpload.ps1 -RemoteBaseUrl sftp://example.com/var/www/html/Releases -UpdateCredential -DryRun
+pwsh -File Focus/Focus/ReleaseAndUpload.ps1 -RemoteBaseUrl sftp://example.com/var/www/html/Releases
+pwsh -File Focus/Focus/ReleaseAndUploadLauncher.ps1 -DryRun
+pwsh -File Focus/Focus/ReleaseAndUploadLauncher.ps1
+```
+
+Notes:
+
+- WinSCP must be installed locally. The release script uses `WinSCP.com`, so the standard WinSCP install works in `pwsh`.
+- Use `-UpdateCredential` when you want to overwrite the saved upload credential before running a release.
+- `-SkipBuild` uploads an already prepared local `Releases` folder without rerunning packaging.
+- `-DryRun` prints the planned upload and delete actions without changing the remote directory.
+- `-RemoteBaseUrl` accepts `ftp://...`, `ftps://...`, `ftpes://...`, and `sftp://...`. `-FtpsBaseUrl` still works as an alias for backwards compatibility.
+- `ftps://...` uses the selected `-FtpsMode` and defaults to explicit TLS. `ftpes://...` always uses explicit TLS.
+- If you use SFTP and do not provide `-SshHostKeyFingerprint`, WinSCP will accept the server host key on first connection.
+- The remote target directory should correspond to the HTTP-served `/Releases` endpoint used by `AutoUpdateManager`.
 
 ## Data and configuration
 
