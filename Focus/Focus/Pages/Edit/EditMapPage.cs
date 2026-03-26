@@ -157,23 +157,18 @@ namespace Systems.Sanity.Focus.Pages.Edit
 
         private CommandExecutionResult ProcessSearch(string parameters)
         {
-            if (string.IsNullOrWhiteSpace(parameters))
-                return CommandExecutionResult.Error("Search query is empty");
+            var searchResult = SearchCommandHelper.Run(
+                parameters,
+                query => MindMapSearchService.Search(_map, query, _filePath),
+                includeMapName: false);
 
-            var searchResults = MindMapSearchService.Search(_map, parameters, _filePath);
-            if (!searchResults.Any())
-                return CommandExecutionResult.Error($"No matches for \"{parameters}\"");
+            if (searchResult.HasError)
+                return CommandExecutionResult.Error(searchResult.ErrorMessage);
 
-            var selectedResult = new SearchResultsPage(
-                searchResults,
-                $"Search results for \"{parameters}\"",
-                includeMapName: false)
-                .SelectResult();
-
-            if (selectedResult == null)
+            if (searchResult.SelectedResult == null)
                 return CommandExecutionResult.Success;
 
-            return _map.ChangeCurrentNodeById(selectedResult.NodeId)
+            return _map.ChangeCurrentNodeById(searchResult.SelectedResult.NodeId)
                 ? CommandExecutionResult.Success
                 : CommandExecutionResult.Error("Couldn't open selected result");
         }

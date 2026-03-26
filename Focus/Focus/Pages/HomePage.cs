@@ -88,6 +88,7 @@ namespace Systems.Sanity.Focus.Pages
                 homePageMenuTextBuilder.AppendLine($"\"[{commandColor}]{OptionRen} and identifier[!]\"\t - to rename");
             }
 
+            homePageMenuTextBuilder.AppendLine($"\"[{commandColor}]{OptionSearch} <query>[!]\"\t - to search across all maps");
             homePageMenuTextBuilder.AppendLine($"\"[{commandColor}]{OptionRefresh}[!]\" \t\t\t - to refresh list");
             homePageMenuTextBuilder.AppendLine($"\"[{commandColor}]{OptionExit}[!]\"\t\t\t - to exit app");
 
@@ -172,29 +173,20 @@ namespace Systems.Sanity.Focus.Pages
 
         private void HandleSearchCommand(ConsoleInput input)
         {
-            var query = input.Parameters;
-            if (string.IsNullOrWhiteSpace(query))
+            var searchResult = SearchCommandHelper.Run(
+                input.Parameters,
+                query => MapsSearchService.Search(_mapsStorage, query),
+                includeMapName: true);
+
+            if (searchResult.HasError)
             {
-                ShowMessage("Search query is empty");
+                ShowMessage(searchResult.ErrorMessage);
                 return;
             }
 
-            var searchResults = MapsSearchService.Search(_mapsStorage, query);
-            if (!searchResults.Any())
+            if (searchResult.SelectedResult != null)
             {
-                ShowMessage($"No matches for \"{query}\"");
-                return;
-            }
-
-            var selectedResult = new SearchResultsPage(
-                searchResults,
-                $"Search results for \"{query}\"",
-                includeMapName: true)
-                .SelectResult();
-
-            if (selectedResult != null)
-            {
-                new EditMapPage(selectedResult.MapFilePath, _mapsStorage, selectedResult.NodeId).Show();
+                new EditMapPage(searchResult.SelectedResult.MapFilePath, _mapsStorage, searchResult.SelectedResult.NodeId).Show();
             }
         }
 
