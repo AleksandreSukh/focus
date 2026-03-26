@@ -38,24 +38,36 @@ namespace Systems.Sanity.Focus.Pages.Edit.Dialogs
 			if (!parentDir.Exists)
 				parentDir.Create();
 
-			var filePath = MapFileHelper.GetFullFilePath(dir, fileName, _fileExtension);
-
+			var fileNameToTry = fileName;
+			var suggestionBaseFileName = fileName;
 			var existingFileWithThisNameCounter = 2;
+			var filePath = MapFileHelper.GetFullFilePath(dir, fileNameToTry, _fileExtension);
 			while (File.Exists(filePath))
 			{
 				var fileNameToAlter = Path.GetFileNameWithoutExtension(filePath);
-				var suggestedFileName = $"{fileNameToAlter}_({existingFileWithThisNameCounter})";
+				var suggestedFileName = $"{suggestionBaseFileName}_({existingFileWithThisNameCounter})";
 
 				var newName =
 					ReadLine.Read(
 						$"File: {fileNameToAlter} already exists. Use suggested name {suggestedFileName} by pressing Enter or type new name below{Environment.NewLine}>");
 
-				var newFileName = !string.IsNullOrWhiteSpace(newName)
-					? newName
-					: suggestedFileName;
+				var useSuggestedFileName =
+					string.IsNullOrWhiteSpace(newName) ||
+					string.Equals(newName, suggestedFileName, StringComparison.Ordinal);
 
-				filePath = MapFileHelper.GetFullFilePath(dir, newFileName, _fileExtension);
-				existingFileWithThisNameCounter++;
+				if (useSuggestedFileName)
+				{
+					fileNameToTry = suggestedFileName;
+					existingFileWithThisNameCounter++;
+				}
+				else
+				{
+					fileNameToTry = newName;
+					suggestionBaseFileName = newName;
+					existingFileWithThisNameCounter = 2;
+				}
+
+				filePath = MapFileHelper.GetFullFilePath(dir, fileNameToTry, _fileExtension);
 			}
 
 			return filePath;
