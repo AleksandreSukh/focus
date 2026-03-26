@@ -1,15 +1,10 @@
-﻿using System;
+#nullable enable
+
+using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
-using System.Text;
 using Newtonsoft.Json;
-using Systems.Sanity.Focus.DomainServices;
-using Systems.Sanity.Focus.Infrastructure;
-using Systems.Sanity.Focus.Infrastructure.Input;
-using Systems.Sanity.Focus.Pages;
 using Systems.Sanity.Focus.Pages.Shared.DialogHelpers;
-using Systems.Sanity.Focus;
 
 namespace Systems.Sanity.Focus.Domain
 {
@@ -28,7 +23,7 @@ namespace Systems.Sanity.Focus.Domain
 
         public MindMap(Node nodeToCopyFrom)
         {
-            var node = JsonConvert.DeserializeObject<Node>(JsonConvert.SerializeObject(nodeToCopyFrom));
+            var node = JsonConvert.DeserializeObject<Node>(JsonConvert.SerializeObject(nodeToCopyFrom))!;
             node.Number = 1;
             RootNode = node;
             _currentNode = RootNode;
@@ -41,27 +36,29 @@ namespace Systems.Sanity.Focus.Domain
             return JsonConvert.SerializeObject(this);
         }
 
-        public void SaveTo(string filePath) => MapFile.Save(filePath, this);
-
         public void AddAtCurrentNode(string input) => _currentNode.Add(input);
 
         public void AddIdeaAtCurrentNode(string input) => _currentNode.Add(input, NodeType.IdeaBagItem);
+
+        public void EditCurrentNode(string newString) => _currentNode.EditNode(newString);
 
         public void LoadAtCurrentNode(MindMap anotherMap) => _currentNode.Add(anotherMap.RootNode);
 
         public void LinkToCurrentNode(
             Node linkedNode,
             LinkRelationType relationType = LinkRelationType.Relates,
-            string metadata = null) => _currentNode.AddLink(linkedNode, relationType, metadata);
+            string? metadata = null) => _currentNode.AddLink(linkedNode, relationType, metadata);
 
         public bool LinkToNode(
             string nodeIdentifier,
             Node nodeToLinkFrom,
             LinkRelationType relationType = LinkRelationType.Relates,
-            string metadata = null)
+            string? metadata = null)
         {
             var nodeToLinkTo = FindNode(nodeIdentifier);
-            if (nodeToLinkTo == null) return false;
+            if (nodeToLinkTo == null)
+                return false;
+
             nodeToLinkFrom.AddLink(nodeToLinkTo, relationType, metadata);
             return true;
         }
@@ -69,190 +66,13 @@ namespace Systems.Sanity.Focus.Domain
         public bool ChangeCurrentNode(string nodeIdentifier)
         {
             var newNode = FindNode(nodeIdentifier);
-            if (newNode == null) return false;
+            if (newNode == null)
+                return false;
+
             var parentNode = _currentNode;
             _currentNode = newNode;
             _currentNode.SetParent(parentNode);
             return true;
-        }
-
-        private Node FindNode(string parameter) //TODO: create new method for internal use which will find nodes by Id (Guid) for simplicity
-        {
-            var currentNodes = _currentNode.Children;
-
-            if (int.TryParse(parameter, out int nodeNumber))
-            {
-                var targetNode = currentNodes.FirstOrDefault(n => n.Number == nodeNumber);
-                return targetNode;
-            }
-
-            var shortcutNumber = AccessibleKeyNumbering.GetNumberFor(parameter);
-            if (shortcutNumber != 0)
-            {
-                var targetNode = currentNodes.FirstOrDefault(n => n.Number == shortcutNumber);
-                if (targetNode != null)
-                    return targetNode;
-            }
-
-            return currentNodes.FirstOrDefault(n =>
-                n.Name.StartsWith(parameter, StringComparison.InvariantCultureIgnoreCase));
-        }
-
-        //TODO:Refactor double usages of FindNode (return the node as read only object)
-        public bool HasNode(string identifier) => FindNode(identifier) != null;
-        public string GetNodeContentPeekByIdentifier(string identifier)
-        {
-            var node = FindNode(identifier);
-            return node.Name.GetContentPeek();
-        }        
-        
-        public string GetCurrentNodeContentPeek() => _currentNode.Name.GetContentPeek();
-
-        public bool GoToRoot()
-        {
-            _currentNode = RootNode;
-            return true;
-        }
-
-        public bool GoUp()
-        {
-            var parentNode = _currentNode.GetParent();
-            if (parentNode == null) return false;
-            _currentNode = parentNode;
-            return true;
-        }
-
-        public string GetCurrentSubtreeString()
-        {
-            var sb = new StringBuilder();
-            NodePrinter.Print(_currentNode, ConfigurationConstants.NodePrinting.LeftBorder, false, 0, sb, ConsoleWrapper.WindowWidth - 5);
-            return sb.ToString();
-        }
-
-        public string GetCurrentSubtreeMarkdown(bool skipCollapsedDescendants = false)
-        {
-            var sb = new StringBuilder();
-            MarkdownPrinter.Print(_currentNode, sb, new NodeExportOptions(skipCollapsedDescendants));
-            return sb.ToString();
-        }
-
-        public string GetCurrentNodeName() => _currentNode.Name;
-
-        public Dictionary<int, string> GetChildren()
-        {
-            _currentNode.RenumberChildNodes(); //TODO: only necessary after deletion. remove unnecessary call after 
-            return _currentNode.Children.ToDictionary(n => n.Number, n => n.Name);
-        }
-
-        public void EditCurrentNode(string newString)
-        {
-            _currentNode.EditNode(newString);
-        }
-
-        public bool DeleteChildNode(string nodeIdentifier)
-        {
-            var nodeToDelete = FindNode(nodeIdentifier);
-            if (nodeToDelete == null) return false;
-
-            return DeleteChildNode(_currentNode, nodeToDelete);
-        }
-
-        private static bool DeleteChildNode(Node parentNode, Node nodeToDelete)
-        {
-            var removeResult = parentNode.Children.Remove(nodeToDelete);
-            parentNode.RenumberChildNodes();
-            return removeResult;
-        }
-
-        public bool DeleteNodeIdeaTags(string nodeIdentifier)
-        {
-            var nodeToClear = FindNode(nodeIdentifier);
-
-            return ClearIdeaTagsOfNode(nodeToClear);
-        }
-
-        private bool ClearIdeaTagsOfNode(Node nodeToClear)
-        {
-            var ideaTagsToRemove = nodeToClear.Children.Where(n => n.NodeType == NodeType.IdeaBagItem).ToArray();
-            if (!ideaTagsToRemove.Any()) return false;
-
-            foreach (var ideaTag in ideaTagsToRemove)
-            {
-                nodeToClear.Children.Remove(ideaTag);
-            }
-
-            _currentNode.RenumberChildNodes();
-            return true;
-        }
-
-        public bool DeleteCurrentNodeIdeaTags()
-        {
-            return ClearIdeaTagsOfNode(_currentNode);
-        }
-
-
-        public void DetachCurrentNode(MapsStorage mapsStorage)
-        {
-            var nodeToDetach = _currentNode;
-
-            DetachNodeAsNewMap(mapsStorage, nodeToDetach);
-        }        
-        
-        public void DetachNode(MapsStorage mapsStorage, string nodeIdentifier)
-        {
-            var nodeToDetach = FindNode(nodeIdentifier);
-
-            DetachNodeAsNewMap(mapsStorage, nodeToDetach);
-        }
-
-        private static void DetachNodeAsNewMap(MapsStorage mapsStorage, Node nodeToDetach)
-        {
-            var nodeToDetachFrom = nodeToDetach.GetParent();
-            var detachedMap = new MindMap(nodeToDetach);
-            //TODO: When detachedMap.RootNode.Name is long string, we may get PathTooLongException
-            new CreateMapPage(mapsStorage, detachedMap.RootNode.Name, detachedMap).Show();
-
-            DeleteChildNode(nodeToDetachFrom, nodeToDetach);
-        }
-
-        public void AddNodeToLinkStack(string nodeIdentifier)
-        {
-            var nodeToLink = FindNode(nodeIdentifier);
-            if (nodeToLink == null) return;
-
-            GlobalLinkDitionary.NodesToBeLinked.Push(nodeToLink);
-        }
-
-        public bool HideNode(string nodeIdentifier)
-        {
-            var node = FindNode(nodeIdentifier);
-            if (node == null) return false;
-
-            node.Collapse();
-            return true;
-        }
-
-        public bool UnhideNode(string nodeIdentifier)
-        {
-            var node = FindNode(nodeIdentifier);
-            if (node == null) return false;
-            node.Expand();
-            return true;
-        }
-
-        public bool IsAtRootNode()
-        {
-            return _currentNode == RootNode;
-        }
-
-        public Guid? GetCurrentNodeIdentifier()
-        {
-            return _currentNode?.UniqueIdentifier;
-        }
-
-        public Node GetCurrentNode()
-        {
-            return _currentNode;
         }
 
         public bool ChangeCurrentNodeById(Guid nodeIdentifier)
@@ -265,12 +85,170 @@ namespace Systems.Sanity.Focus.Domain
             return true;
         }
 
+        public bool DeleteChildNode(string nodeIdentifier)
+        {
+            var nodeToDelete = FindNode(nodeIdentifier);
+            if (nodeToDelete == null)
+                return false;
+
+            return DeleteChildNode(_currentNode, nodeToDelete);
+        }
+
+        public bool DeleteCurrentNodeIdeaTags() => ClearIdeaTagsOfNode(_currentNode);
+
+        public bool DeleteNodeIdeaTags(string nodeIdentifier)
+        {
+            var nodeToClear = FindNode(nodeIdentifier);
+            return nodeToClear != null && ClearIdeaTagsOfNode(nodeToClear);
+        }
+
+        public MindMap? DetachCurrentNodeAsNewMap()
+        {
+            var nodeToDetach = _currentNode;
+            var parentNode = nodeToDetach.GetParent();
+            var detachedMap = DetachNodeAsNewMap(nodeToDetach);
+            if (detachedMap != null && parentNode != null)
+            {
+                _currentNode = parentNode;
+            }
+
+            return detachedMap;
+        }
+
+        public MindMap? DetachNodeAsNewMap(string nodeIdentifier)
+        {
+            var nodeToDetach = FindNode(nodeIdentifier);
+            return nodeToDetach == null
+                ? null
+                : DetachNodeAsNewMap(nodeToDetach);
+        }
+
+        public Dictionary<int, string> GetChildren()
+        {
+            _currentNode.RenumberChildNodes();
+            return _currentNode.Children.ToDictionary(node => node.Number, node => node.Name);
+        }
+
+        public Node GetCurrentNode() => _currentNode;
+
+        public string GetCurrentNodeContentPeek() => _currentNode.Name.GetContentPeek();
+
+        public Guid? GetCurrentNodeIdentifier() => _currentNode.UniqueIdentifier;
+
+        public string GetCurrentNodeName() => _currentNode.Name;
+
+        public Node? GetNode(string identifier) => FindNode(identifier);
+
+        public string GetNodeContentPeekByIdentifier(string identifier)
+        {
+            var node = FindNode(identifier);
+            return node?.Name.GetContentPeek() ?? string.Empty;
+        }
+
+        public bool GoToRoot()
+        {
+            _currentNode = RootNode;
+            return true;
+        }
+
+        public bool GoUp()
+        {
+            var parentNode = _currentNode.GetParent();
+            if (parentNode == null)
+                return false;
+
+            _currentNode = parentNode;
+            return true;
+        }
+
+        public bool HasNode(string identifier) => FindNode(identifier) != null;
+
+        public bool HideNode(string nodeIdentifier)
+        {
+            var node = FindNode(nodeIdentifier);
+            if (node == null)
+                return false;
+
+            node.Collapse();
+            return true;
+        }
+
+        public bool IsAtRootNode() => _currentNode == RootNode;
+
         public void ResetCurrentNodeToRoot()
         {
             _currentNode = RootNode;
         }
 
-        private static Node FindNodeById(Node currentNode, Guid nodeIdentifier)
+        public bool UnhideNode(string nodeIdentifier)
+        {
+            var node = FindNode(nodeIdentifier);
+            if (node == null)
+                return false;
+
+            node.Expand();
+            return true;
+        }
+
+        private bool ClearIdeaTagsOfNode(Node nodeToClear)
+        {
+            var ideaTagsToRemove = nodeToClear.Children.Where(node => node.NodeType == NodeType.IdeaBagItem).ToArray();
+            if (!ideaTagsToRemove.Any())
+                return false;
+
+            foreach (var ideaTag in ideaTagsToRemove)
+            {
+                nodeToClear.Children.Remove(ideaTag);
+            }
+
+            nodeToClear.RenumberChildNodes();
+            return true;
+        }
+
+        private static bool DeleteChildNode(Node? parentNode, Node nodeToDelete)
+        {
+            if (parentNode == null)
+                return false;
+
+            var removeResult = parentNode.Children.Remove(nodeToDelete);
+            parentNode.RenumberChildNodes();
+            return removeResult;
+        }
+
+        private MindMap? DetachNodeAsNewMap(Node nodeToDetach)
+        {
+            var nodeToDetachFrom = nodeToDetach.GetParent();
+            if (nodeToDetachFrom == null)
+                return null;
+
+            var detachedMap = new MindMap(nodeToDetach);
+            return DeleteChildNode(nodeToDetachFrom, nodeToDetach)
+                ? detachedMap
+                : null;
+        }
+
+        private Node? FindNode(string parameter)
+        {
+            var currentNodes = _currentNode.Children;
+
+            if (int.TryParse(parameter, out var nodeNumber))
+            {
+                return currentNodes.FirstOrDefault(node => node.Number == nodeNumber);
+            }
+
+            var shortcutNumber = Infrastructure.Input.AccessibleKeyNumbering.GetNumberFor(parameter);
+            if (shortcutNumber != 0)
+            {
+                var targetNode = currentNodes.FirstOrDefault(node => node.Number == shortcutNumber);
+                if (targetNode != null)
+                    return targetNode;
+            }
+
+            return currentNodes.FirstOrDefault(node =>
+                node.Name.StartsWith(parameter, StringComparison.InvariantCultureIgnoreCase));
+        }
+
+        private static Node? FindNodeById(Node currentNode, Guid nodeIdentifier)
         {
             if (currentNode.UniqueIdentifier == nodeIdentifier)
                 return currentNode;

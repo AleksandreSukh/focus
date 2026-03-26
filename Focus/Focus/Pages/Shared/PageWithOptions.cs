@@ -1,7 +1,8 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using Systems.Sanity.Focus.Application;
 using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Infrastructure.Input;
 using Systems.Sanity.Focus.Pages.Shared.Dialogs;
@@ -19,23 +20,21 @@ namespace Systems.Sanity.Focus.Pages.Shared
 
         protected ConsoleInput GetCommand(string prompt = "")
         {
-            var input = GetInput(prompt);
-            ParseOptions(input.FirstWord);
-            return input;
+            while (true)
+            {
+                var input = GetInput(prompt);
+                if (IsValidOption(input.FirstWord))
+                    return input;
+
+                ColorfulConsole.WriteLine(BuildInputErrorMessageDialogText(GetCommandOptions().WithLocalizations()).ToString());
+                AppConsole.Current.ReadKey();
+            }
         }
 
-        //TODO:Merge get options and parse options 
-        private void ParseOptions(string input)
+        private bool IsValidOption(string input)
         {
             var options = GetCommandOptions().WithLocalizations().ToList();
-            if (!string.IsNullOrWhiteSpace(input) && !options.Contains(input))
-            {
-                var messageBuilder = BuildInputErrorMessageDialogText(options);
-                ColorfulConsole.WriteLine(messageBuilder.ToString()); 
-                Console.ReadKey();
-
-                Show();
-            }
+            return string.IsNullOrWhiteSpace(input) || options.Contains(input);
         }
 
         private static StringBuilder BuildInputErrorMessageDialogText(IEnumerable<string> options)

@@ -1,33 +1,42 @@
+#nullable enable
+
+using Systems.Sanity.Focus.Application;
 using Systems.Sanity.Focus.Domain;
-using Systems.Sanity.Focus.Pages.Edit;
 using Systems.Sanity.Focus.Pages.Edit.Dialogs;
 using Systems.Sanity.Focus.Pages.Shared;
 
-namespace Systems.Sanity.Focus.Pages
+namespace Systems.Sanity.Focus.Pages;
+
+internal sealed class CreateMapPage : Page
 {
-    internal class CreateMapPage : Page
+    private readonly FocusAppContext _appContext;
+    private readonly string _fileName;
+    private readonly MindMap _mindMap;
+
+    public CreateMapPage(FocusAppContext appContext, string fileName, MindMap mindMap)
     {
-        private readonly MapsStorage _mapsStorage;
-        private string _fileName;
-        private readonly MindMap _mindMap;
+        _appContext = appContext;
+        _fileName = fileName.Trim().Trim('\0');
+        _mindMap = mindMap;
+    }
 
-        public CreateMapPage(MapsStorage mapsStorage, string fileName, MindMap mindMap)
-        {
-            _mapsStorage = mapsStorage;
-            _fileName = fileName.Trim().Trim('\0');
-            _mindMap = mindMap;
-        }
+    public override void Show()
+    {
+        var mindMapsDir = _appContext.MapRepository.UserMindMapsDirectory;
+        string? filePathDetermined = null;
 
-        public override void Show()
-        {
-            var mindMapsDir = _mapsStorage.UserMindMapsDirectory;
-            string filePathDetermied = null;
-            new RequestRenameUntilFileNameIsAvailableDialog(mindMapsDir, _fileName, filePath =>
+        new RequestRenameUntilFileNameIsAvailableDialog(
+            mindMapsDir,
+            _fileName,
+            filePath =>
             {
-                MapFile.Save(filePath, _mindMap);
-                filePathDetermied = filePath;
+                _appContext.MapRepository.SaveMap(filePath, _mindMap);
+                filePathDetermined = filePath;
             }).Show();
-            new EditMapPage(filePathDetermied, _mapsStorage).Show();
+
+        if (!string.IsNullOrWhiteSpace(filePathDetermined))
+        {
+            _appContext.Navigator.OpenEditMap(filePathDetermined);
         }
     }
 }

@@ -1,6 +1,6 @@
-﻿using System;
+using System;
 using System.Text;
-using Systems.Sanity.Focus.Infrastructure.Input.ReadLine;
+using Systems.Sanity.Focus.Application;
 
 namespace Systems.Sanity.Focus.Pages.Shared.Dialogs
 {
@@ -8,6 +8,7 @@ namespace Systems.Sanity.Focus.Pages.Shared.Dialogs
     {
         private readonly string _message;
         private const string OptionYes = "yes";
+
         public Confirmation(string message)
         {
             _message = message;
@@ -23,7 +24,7 @@ namespace Systems.Sanity.Focus.Pages.Shared.Dialogs
             messageBuilder.AppendLineCentered($"Type \"{OptionYes}\" to confirm or \"Enter\" to cancel");
             messageBuilder.AppendLine();
 
-            return ReadLine.Read(messageBuilder.ToString())
+            return AppConsole.Current.CommandLineEditor.Read(messageBuilder.ToString())
                 .ToLowerInvariant() == OptionYes;
         }
     }

@@ -1,106 +1,105 @@
-﻿using System;
+#nullable enable
+
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
+using Systems.Sanity.Focus.Application;
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Pages.Shared;
+using Systems.Sanity.Focus.Pages.Shared.Dialogs;
 
-namespace Systems.Sanity.Focus.Pages.Edit.Dialogs
+namespace Systems.Sanity.Focus.Pages.Edit.Dialogs;
+
+internal sealed class AttachMode : PageWithSuggestedOptions
 {
-    //TODO: extract file loader functionality from here and HomePage to new infrastructrue class
-    internal class AttachMode : PageWithSuggestedOptions
+    public const string OptionExit = "exit";
+
+    private readonly MindMap _map;
+    private readonly FocusAppContext _appContext;
+    private Dictionary<int, FileInfo> _filesToChooseFrom = new();
+    private string? _message;
+    private bool _isError;
+    private bool _shouldExit;
+
+    public AttachMode(MindMap map, FocusAppContext appContext)
     {
-        public const string OptionExit = "exit";
+        _map = map;
+        _appContext = appContext;
+    }
 
-        public bool DidAttachMap { get; private set; }
+    public bool DidAttachMap { get; private set; }
 
-        private readonly MindMap _map;
-        private readonly MapsStorage _mapsStorage;
-        private Dictionary<int, FileInfo> _filesToChooseFrom;
-        private bool _shouldExit;
-
-        public AttachMode(MindMap map, MapsStorage mapsStorage)
+    public override void Show()
+    {
+        while (!_shouldExit)
         {
-            _map = map;
-            _mapsStorage = mapsStorage;
+            _filesToChooseFrom = _appContext.MapSelectionService.GetTopSelection();
+            AppConsole.Current.Clear();
+            ColorfulConsole.WriteLine(BuildScreen());
+
+            var input = GetCommand("Choose file identifier to attach or type \"exit\"");
+            if (string.IsNullOrWhiteSpace(input.InputString))
+                continue;
+
+            HandleInput(input.FirstWord);
+        }
+    }
+
+    protected override IEnumerable<string> GetPageSpecificSuggestions(string text, int index)
+    {
+        return _filesToChooseFrom.Keys.Select(k => k.ToString())
+            .Union(_filesToChooseFrom.Keys.Select(Infrastructure.Input.AccessibleKeyNumbering.GetStringFor))
+            .Union(new[] { OptionExit });
+    }
+
+    private string BuildScreen()
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine();
+        builder.AppendLineCentered("*** Attach Map ***");
+        builder.AppendLine();
+
+        foreach (var file in _filesToChooseFrom)
+        {
+            builder.AppendLine($"{file.Key} - {file.Value.NameWithoutExtension()}");
         }
 
-        public override void Show()
+        if (!string.IsNullOrWhiteSpace(_message))
         {
-            while (!_shouldExit)
-            {
-                //TODO: merge duplicate code with HomePage
-                _filesToChooseFrom = new Dictionary<int, FileInfo>();
-                var existingMaps = _mapsStorage.GetTop(100); //TODO: extract constants
-                for (var index = 0; index < existingMaps.Length; index++)
-                {
-                    var mapFile = existingMaps[index];
-                    _filesToChooseFrom.Add(index + 1, mapFile);
-                    Console.WriteLine($"{index + 1} - {mapFile.NameWithoutExtension()}");
-                }
-
-                var input = GetCommand(
-                    Environment.NewLine +
-                    $"Choose file number to open.{Environment.NewLine}" +
-                    $"Type \"{OptionExit}\" - to exit{Environment.NewLine}");
-
-                switch (input.FirstWord)
-                {
-                    case OptionExit:
-                        SetToExit();
-                        break;
-                    default:
-                        {
-                            var fileIdentifier = input.FirstWord;
-                            var file = FindFile(fileIdentifier);
-                            if (file == null)
-                                ShowFileNotFoundError(fileIdentifier);
-                            else
-                            {
-                                LoadFile(file);
-                                file.Delete();
-                                SetToExit();
-                            }
-                            break;
-                        }
-                }
-            }
+            builder.AppendLine();
+            builder.AppendLine($"{(_isError ? ":!" : ":i")} {_message}");
         }
 
-        private void SetToExit()
+        builder.AppendLine();
+        return builder.ToString();
+    }
+
+    private void HandleInput(string fileIdentifier)
+    {
+        _message = null;
+        _isError = false;
+
+        if (fileIdentifier.ToLowerInvariant() == OptionExit)
         {
             _shouldExit = true;
+            return;
         }
 
-        private void LoadFile(FileInfo file)
+        var file = _appContext.MapSelectionService.FindFile(_filesToChooseFrom, fileIdentifier);
+        if (file == null)
         {
-            var map = MapFile.OpenFile(file.FullName);
-            _map.LoadAtCurrentNode(map);
-            DidAttachMap = true;
+            _message = $"File \"{fileIdentifier}\" wasn't found. Try again.";
+            _isError = true;
+            return;
         }
 
-        protected override IEnumerable<string> GetPageSpecificSuggestions(string text, int index)
-        {
-            return _filesToChooseFrom.Keys.Select(k => k.ToString());
-        }
-
-        private FileInfo FindFile(string fileIdentifier)
-        {
-            if (int.TryParse(fileIdentifier, out int fileNumber) &&
-                _filesToChooseFrom.TryGetValue(fileNumber, out FileInfo file)
-                || (file = new FileInfo(Path.Combine(_mapsStorage.UserMindMapsDirectory,
-                    fileIdentifier))).Exists
-                || (file = new FileInfo(Path.Combine(_mapsStorage.UserMindMapsDirectory,
-                    $"{fileIdentifier}.json"))).Exists)
-                return file;
-            return null;
-        }
-
-        private void ShowFileNotFoundError(string input)
-        {
-            Console.WriteLine($"File {input} wasn't found. try again");
-            Show();
-        }
+        var map = _appContext.MapRepository.OpenMap(file.FullName);
+        _map.LoadAtCurrentNode(map);
+        _appContext.MapRepository.DeleteMap(file);
+        DidAttachMap = true;
+        _shouldExit = true;
     }
 }

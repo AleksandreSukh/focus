@@ -1,42 +1,53 @@
+#nullable enable
+
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Systems.Sanity.Focus.Application;
 using Systems.Sanity.Focus.Domain;
 
 namespace Systems.Sanity.Focus.DomainServices;
 
-internal static class LinkNavigationService
+internal sealed class LinkNavigationService
 {
-    public static IReadOnlyList<NodeSearchResult> GetOutgoingLinks(Node node)
+    private readonly ILinkIndex _linkIndex;
+
+    public LinkNavigationService(ILinkIndex linkIndex)
+    {
+        _linkIndex = linkIndex;
+    }
+
+    public IReadOnlyList<NodeSearchResult> GetOutgoingLinks(Node node)
     {
         return node.Links.Values
             .Select(link => CreateSearchResult(link.id, link.relationType.ToDisplayString()))
-            .Where(result => result != null)
+            .OfType<NodeSearchResult>()
             .OrderBy(result => result.MapName)
             .ThenBy(result => result.NodePath)
             .ToArray();
     }
 
-    public static IReadOnlyList<NodeSearchResult> GetBacklinks(Node node)
+    public IReadOnlyList<NodeSearchResult> GetBacklinks(Node node)
     {
         if (!node.UniqueIdentifier.HasValue ||
-            !GlobalLinkDitionary.Backlinks.TryGetValue(node.UniqueIdentifier.Value, out var backlinkIdentifiers))
+            !_linkIndex.TryGetBacklinkIds(node.UniqueIdentifier.Value, out var backlinkIdentifiers) ||
+            backlinkIdentifiers.Count == 0)
         {
             return Array.Empty<NodeSearchResult>();
         }
 
         return backlinkIdentifiers
             .Select(backlinkIdentifier => CreateBacklinkSearchResult(backlinkIdentifier, node.UniqueIdentifier.Value))
-            .Where(result => result != null)
+            .OfType<NodeSearchResult>()
             .OrderBy(result => result.MapName)
             .ThenBy(result => result.NodePath)
             .ToArray();
     }
 
-    private static NodeSearchResult CreateBacklinkSearchResult(Guid sourceNodeIdentifier, Guid targetNodeIdentifier)
+    private NodeSearchResult? CreateBacklinkSearchResult(Guid sourceNodeIdentifier, Guid targetNodeIdentifier)
     {
-        if (!GlobalLinkDitionary.Nodes.TryGetValue(sourceNodeIdentifier, out var sourceNode))
+        if (!_linkIndex.TryGetNode(sourceNodeIdentifier, out var sourceNode))
             return null;
 
         sourceNode.Links.TryGetValue(targetNodeIdentifier, out var backlink);
@@ -47,12 +58,12 @@ internal static class LinkNavigationService
         return CreateSearchResult(sourceNodeIdentifier, relationLabel);
     }
 
-    private static NodeSearchResult CreateSearchResult(Guid nodeIdentifier, string contextLabel = null)
+    private NodeSearchResult? CreateSearchResult(Guid nodeIdentifier, string? contextLabel = null)
     {
-        if (!GlobalLinkDitionary.Nodes.TryGetValue(nodeIdentifier, out var linkedNode))
+        if (!_linkIndex.TryGetNode(nodeIdentifier, out var linkedNode))
             return null;
 
-        GlobalLinkDitionary.NodeFiles.TryGetValue(nodeIdentifier, out var mapFilePath);
+        _linkIndex.TryGetNodeFile(nodeIdentifier, out var mapFilePath);
         mapFilePath ??= string.Empty;
 
         var mapName = string.IsNullOrWhiteSpace(mapFilePath)

@@ -1,10 +1,10 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text;
+using Systems.Sanity.Focus.Application;
 using Systems.Sanity.Focus.Infrastructure;
-using Systems.Sanity.Focus.Infrastructure.Input.ReadLine;
 using Systems.Sanity.Focus.Pages.Shared.Dialogs;
 
 namespace Systems.Sanity.Focus.Pages.Shared
@@ -17,7 +17,7 @@ namespace Systems.Sanity.Focus.Pages.Shared
         {
             _options = new Dictionary<string, int>();
             _options.Add("Cancel", 0);
-            for (int i = 0; i < options.Count; i++)
+            for (var i = 0; i < options.Count; i++)
             {
                 _options.Add(options.ElementAt(i).ToLowerInvariant(), i + 1);
             }
@@ -28,20 +28,20 @@ namespace Systems.Sanity.Focus.Pages.Shared
             var messageBuilder = new StringBuilder();
 
             messageBuilder.AppendLine();
-            messageBuilder.AppendLineCentered($"*** Select Option ***");
+            messageBuilder.AppendLineCentered("*** Select Option ***");
             messageBuilder.AppendLine();
             for (var i = 0; i < _options.Count; i++)
             {
                 messageBuilder.AppendLineCentered($"\"{_options.ElementAt(i).Value}\" or \"{_options.ElementAt(i).Key}\"");
             }
             messageBuilder.AppendLine();
-            ColorfulConsole.WriteLine(messageBuilder.ToString()); //TODO:No need to be colorful
+            ColorfulConsole.WriteLine(messageBuilder.ToString());
         }
 
         public int GetSelectedOption()
         {
-            var selectedOption = ReadLine.Read().ToLowerInvariant();
-            if (int.TryParse(selectedOption, NumberStyles.Integer, null, out int optionNumber))
+            var selectedOption = AppConsole.Current.CommandLineEditor.Read(string.Empty).ToLowerInvariant();
+            if (int.TryParse(selectedOption, NumberStyles.Integer, null, out var optionNumber))
             {
                 return optionNumber <= _options.Count ? optionNumber : 0;
             }

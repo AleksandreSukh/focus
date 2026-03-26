@@ -1,7 +1,10 @@
+#nullable enable
+
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using Systems.Sanity.Focus.Application;
 using Systems.Sanity.Focus.DomainServices;
 using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Pages.Shared.Dialogs;
@@ -26,11 +29,11 @@ internal class SearchResultsPage : Page
         SelectResult();
     }
 
-    public NodeSearchResult SelectResult()
+    public NodeSearchResult? SelectResult()
     {
         while (true)
         {
-            Console.Clear();
+            AppConsole.Current.Clear();
             ColorfulConsole.WriteLine(BuildResultsScreen());
 
             var input = GetInput("Type result number to open or press Enter to cancel").InputString;

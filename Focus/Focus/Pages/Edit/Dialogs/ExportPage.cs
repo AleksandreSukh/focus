@@ -1,12 +1,12 @@
-using System;
+#nullable enable
+
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using Systems.Sanity.Focus;
+using Systems.Sanity.Focus.Application;
 using Systems.Sanity.Focus.DomainServices;
 using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Infrastructure.Input;
-using Systems.Sanity.Focus.Pages;
 using Systems.Sanity.Focus.Pages.Shared;
 using Systems.Sanity.Focus.Pages.Shared.Dialogs;
 
@@ -26,7 +26,7 @@ internal class ExportPage : Page
     private string _fileName;
     private ExportFormat _format = ExportFormat.Markdown;
     private bool _skipCollapsedDescendants;
-    private string _message;
+    private string? _message;
     private bool _isError;
     private bool _cancelled;
 
@@ -42,7 +42,7 @@ internal class ExportPage : Page
     {
         while (SelectedExport == null && !_cancelled)
         {
-            Console.Clear();
+            AppConsole.Current.Clear();
             ColorfulConsole.WriteLine(BuildScreen());
 
             var input = GetInput("Choose export option").InputString;

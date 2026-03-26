@@ -5,7 +5,6 @@ using System.Text;
 
 namespace Systems.Sanity.Focus.Infrastructure.Input;
 
-[Obsolete("Needs to be refactored")]
 public static class CommandLanguageExtensions
 {
     private static readonly Dictionary<char, char> GeorgianMappingDict;

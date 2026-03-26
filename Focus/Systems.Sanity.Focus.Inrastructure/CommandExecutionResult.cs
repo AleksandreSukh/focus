@@ -1,24 +1,26 @@
-﻿namespace Systems.Sanity.Focus.Infrastructure
+#nullable enable
+
+namespace Systems.Sanity.Focus.Infrastructure;
+
+public sealed class CommandExecutionResult
 {
-    public sealed class CommandExecutionResult
-    {
-        public bool ShouldExit { get; private set; }
-        public bool ShouldPersist { get; private set; }
-        public bool IsSuccess { get; private set; }
-        public string ErrorString { get; private set; }
+    public bool ShouldExit { get; private init; }
 
-        private CommandExecutionResult(string errorString)
-        {
-            ErrorString = errorString;
-        }
+    public bool ShouldPersist { get; private init; }
 
-        private CommandExecutionResult() { }
+    public bool IsSuccess { get; private init; }
 
-        public static readonly CommandExecutionResult Success = new() { IsSuccess = true };
-        public static readonly CommandExecutionResult SuccessAndPersist = new() { IsSuccess = true, ShouldPersist = true };
+    public string? ErrorString { get; private init; }
 
-        public static readonly CommandExecutionResult ExitCommand = new() { ShouldExit = true };
+    public string? Message { get; private init; }
 
-        public static CommandExecutionResult Error(string errorString) => new(errorString);
-    }
+    public static CommandExecutionResult ExitCommand { get; } = new() { ShouldExit = true };
+
+    public static CommandExecutionResult Error(string errorString) => new() { ErrorString = errorString };
+
+    public static CommandExecutionResult Success(string? message = null) =>
+        new() { IsSuccess = true, Message = message };
+
+    public static CommandExecutionResult SuccessAndPersist(string? message = null) =>
+        new() { IsSuccess = true, ShouldPersist = true, Message = message };
 }
