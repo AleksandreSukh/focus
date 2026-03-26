@@ -1,7 +1,6 @@
 ﻿using System;
 using System.IO;
 using System.Linq;
-using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Infrastructure.FileSynchronization;
 using Systems.Sanity.Focus.Infrastructure.FileSynchronization.Git;
 
@@ -20,15 +19,12 @@ namespace Systems.Sanity.Focus.Domain
 
         private IFileSynchronizationHandler InitFileSyncHandler(string gitRepositoryPath)
         {
-            bool isWindows = OsInfo.IsWindows();
-            if (isWindows)
+            if (GitHelper.IsRepositoryAvailable(gitRepositoryPath))
             {
-                if (!string.IsNullOrWhiteSpace(gitRepositoryPath))
-                {
-                    var gitHelper = new GitHelper(gitRepositoryPath);
-                    return new FileSynchronizationHandlerGit(gitHelper);
-                }
+                var gitHelper = new GitHelper(gitRepositoryPath);
+                return new FileSynchronizationHandlerGit(gitHelper);
             }
+
             return new FileSynchronizationHandlerEmpty();
         }
 

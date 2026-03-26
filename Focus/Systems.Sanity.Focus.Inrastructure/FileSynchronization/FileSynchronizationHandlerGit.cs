@@ -11,5 +11,5 @@ public class FileSynchronizationHandlerGit : IFileSynchronizationHandler
         _gitHelper = gitHelper;
     }
 
-    public void Synchronize() => _gitHelper.SyncronizeToRemote();
+    public void Synchronize() => _gitHelper.SynchronizeToRemote();
 }
