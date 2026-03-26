@@ -80,6 +80,7 @@ internal static class HtmlPrinter
         AppendLine(sb, 3, "h1 { margin-bottom: 1rem; font-size: 2rem; }");
         AppendLine(sb, 3, "ol, ul { padding-left: 1.5rem; }");
         AppendLine(sb, 3, "li { margin: 0.4rem 0; }");
+        AppendLine(sb, 3, ".mindmap-export a, .mindmap-export a:visited { color: inherit; text-decoration: underline; text-decoration-color: currentColor; }");
 
         foreach (var colorEntry in ColorfulConsole.Colors.OrderBy(entry => entry.Key))
         {
