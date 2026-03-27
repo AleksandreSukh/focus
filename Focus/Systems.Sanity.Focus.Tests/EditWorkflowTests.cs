@@ -1,6 +1,8 @@
 using Systems.Sanity.Focus.Application;
+using Systems.Sanity.Focus;
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.Infrastructure;
+using Systems.Sanity.Focus.Infrastructure.Input;
 
 namespace Systems.Sanity.Focus.Tests;
 
@@ -187,10 +189,57 @@ public class EditWorkflowTests
 
         var workflow = new EditWorkflow(filePath, workspace.AppContext);
         var screen = workflow.BuildScreen();
+        var goToLine = GetLineContaining(screen, ColorLabel("Go to"));
 
-        Assert.Contains("Go to: ", screen);
-        Assert.Contains("To Do: ", screen);
-        Assert.Contains("Navigate: ", screen);
+        Assert.Contains(ColorLabel("Go to"), screen);
+        Assert.Contains("text: ja", goToLine);
+        Assert.Contains("numbers: 1", goToLine);
+        Assert.DoesNotContain("...", goToLine);
+        Assert.Contains(ColorLabel("To Do"), screen);
+        Assert.Contains(ColorLabel("Navigate"), screen);
+    }
+
+    [Fact]
+    public void BuildScreen_ShowsGoToShortcutListsWithoutEllipsis_WhenThereAreAtMostFiveChildren()
+    {
+        using var workspace = new TestWorkspace();
+        var map = new MindMap("Root");
+        for (var index = 0; index < 5; index++)
+        {
+            map.AddAtCurrentNode($"Child {index + 1}");
+        }
+
+        var filePath = workspace.SaveMap("workflow-map", map);
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+
+        var screen = workflow.BuildScreen();
+        var goToLine = GetLineContaining(screen, ColorLabel("Go to"));
+
+        Assert.Contains("text: ja, ka, fa, ad, da", goToLine);
+        Assert.Contains("numbers: 1, 2, 3, 4, 5", goToLine);
+        Assert.DoesNotContain("...", goToLine);
+    }
+
+    [Fact]
+    public void BuildScreen_ShowsGoToShortcutListsWithEllipsis_WhenThereAreMoreThanFiveChildren()
+    {
+        using var workspace = new TestWorkspace();
+        var map = new MindMap("Root");
+        for (var index = 0; index < 6; index++)
+        {
+            map.AddAtCurrentNode($"Child {index + 1}");
+        }
+
+        var filePath = workspace.SaveMap("workflow-map", map);
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+
+        var screen = workflow.BuildScreen();
+        var goToLine = GetLineContaining(screen, ColorLabel("Go to"));
+
+        Assert.Contains("text: ja, ka, fa, ad, da, ...", goToLine);
+        Assert.Contains("numbers: 1, 2, 3, 4, 5, ...", goToLine);
+        Assert.DoesNotContain(AccessibleKeyNumbering.GetStringFor(6), goToLine);
+        Assert.DoesNotContain("6", goToLine);
     }
 
     [Fact]
@@ -202,8 +251,8 @@ public class EditWorkflowTests
         var workflow = new EditWorkflow(filePath, workspace.AppContext);
         var screen = workflow.BuildScreen();
 
-        Assert.DoesNotContain("Go to: ", screen);
-        Assert.Contains("To Do: ", screen);
+        Assert.DoesNotContain(ColorLabel("Go to"), screen);
+        Assert.Contains(ColorLabel("To Do"), screen);
     }
 
     [Fact]
@@ -220,6 +269,13 @@ public class EditWorkflowTests
         var screen = workflow.BuildScreen();
 
         Assert.Contains(":Nodes to be linked>", screen);
-        Assert.Contains("Links: ", screen);
+        Assert.Contains(ColorLabel("Links"), screen);
     }
+
+    private static string ColorLabel(string label) =>
+        $"[{ConfigurationConstants.CommandColor}]{label}[!]: ";
+
+    private static string GetLineContaining(string content, string value) =>
+        content.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+            .Single(line => line.Contains(value, StringComparison.InvariantCulture));
 }

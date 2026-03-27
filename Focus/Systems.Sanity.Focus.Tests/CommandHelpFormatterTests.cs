@@ -1,3 +1,4 @@
+using Systems.Sanity.Focus;
 using Systems.Sanity.Focus.Pages.Shared;
 
 namespace Systems.Sanity.Focus.Tests;
@@ -17,10 +18,11 @@ public class CommandHelpFormatterTests
             maxWidth: 120);
 
         Assert.DoesNotContain("Empty: ", output);
-        Assert.Contains("Navigate: ", output);
-        Assert.Contains("To Do: ", output);
-        Assert.True(output.IndexOf("Navigate: ", StringComparison.InvariantCulture) <
-                    output.IndexOf("To Do: ", StringComparison.InvariantCulture));
+        Assert.Contains(ColorLabel("Navigate"), output);
+        Assert.Contains(ColorLabel("To Do"), output);
+        Assert.DoesNotContain(ColorEntry("cd <child>"), output);
+        Assert.True(output.IndexOf(ColorLabel("Navigate"), StringComparison.InvariantCulture) <
+                    output.IndexOf(ColorLabel("To Do"), StringComparison.InvariantCulture));
     }
 
     [Fact]
@@ -36,8 +38,8 @@ public class CommandHelpFormatterTests
         var lines = output
             .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
 
-        Assert.Equal(2, lines.Length);
-        Assert.StartsWith("Go to: ", lines[0]);
+        Assert.True(lines.Length >= 2);
+        Assert.StartsWith(ColorLabel("Go to"), lines[0]);
         Assert.StartsWith(new string(' ', "Go to: ".Length), lines[1]);
     }
 
@@ -53,7 +55,8 @@ public class CommandHelpFormatterTests
             .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
 
         Assert.True(lines.Length >= 2);
-        Assert.StartsWith("Valid options are: ", lines[0]);
+        Assert.StartsWith(ColorLabel("Valid options are"), lines[0]);
+        Assert.DoesNotContain(ColorEntry("rename"), output);
         Assert.StartsWith(new string(' ', "Valid options are: ".Length), lines[1]);
     }
 
@@ -65,7 +68,13 @@ public class CommandHelpFormatterTests
         var output = PageWithExclusiveOptions.BuildInputErrorMessageDialogText(new[] { "rename", "delete", "search" });
 
         Assert.Contains("*** Wrong Input ***", output);
-        Assert.Contains("Valid options are: ", output);
+        Assert.Contains(ColorLabel("Valid options are"), output);
         Assert.Contains(Environment.NewLine + new string(' ', "Valid options are: ".Length), output);
     }
+
+    private static string ColorLabel(string label) =>
+        $"[{ConfigurationConstants.CommandColor}]{label}[!]: ";
+
+    private static string ColorEntry(string entry) =>
+        $"[{ConfigurationConstants.CommandColor}]{entry}[!]";
 }

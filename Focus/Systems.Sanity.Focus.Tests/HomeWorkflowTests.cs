@@ -1,4 +1,5 @@
 using Systems.Sanity.Focus.Application;
+using Systems.Sanity.Focus;
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Infrastructure.Input;
@@ -76,9 +77,12 @@ public class HomeWorkflowTests
         var text = workflow.BuildHomePageText(workflow.GetFileSelection());
 
         Assert.Contains("- alpha.", text, StringComparison.InvariantCultureIgnoreCase);
-        Assert.Contains("Create: ", text);
-        Assert.Contains("Manage: ", text);
-        Assert.Contains("Find: ", text);
-        Assert.Contains("System: ", text);
+        Assert.Contains(ColorLabel("Create"), text);
+        Assert.Contains(ColorLabel("Manage"), text);
+        Assert.Contains(ColorLabel("Find"), text);
+        Assert.Contains(ColorLabel("System"), text);
     }
+
+    private static string ColorLabel(string label) =>
+        $"[{ConfigurationConstants.CommandColor}]{label}[!]: ";
 }

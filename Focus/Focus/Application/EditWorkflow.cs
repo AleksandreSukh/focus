@@ -121,9 +121,7 @@ internal sealed class EditWorkflow
         {
             helpGroups.Add(new CommandHelpGroup(
                 "Go to",
-                childNodes
-                    .Select(node => $"{AccessibleKeyNumbering.GetStringFor(node.Key)}/{node.Key}")
-                    .ToArray()));
+                BuildGoToEntries(childNodes)));
         }
 
         helpGroups.Add(new CommandHelpGroup("Navigate", new[]
@@ -170,6 +168,33 @@ internal sealed class EditWorkflow
         }));
 
         return CommandHelpFormatter.BuildGroupedLines(helpGroups);
+    }
+
+    private static IReadOnlyList<string> BuildGoToEntries(IEnumerable<KeyValuePair<int, string>> childNodes)
+    {
+        var orderedNodes = childNodes
+            .OrderBy(node => node.Key)
+            .ToArray();
+
+        return new[]
+        {
+            BuildGoToEntry("text", orderedNodes.Select(node => AccessibleKeyNumbering.GetStringFor(node.Key))),
+            BuildGoToEntry("numbers", orderedNodes.Select(node => node.Key.ToString()))
+        };
+    }
+
+    private static string BuildGoToEntry(string label, IEnumerable<string?> items)
+    {
+        var itemList = items
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Cast<string>()
+            .ToList();
+        var visibleItems = itemList.Take(5).ToList();
+
+        if (itemList.Count > 5)
+            visibleItems.Add("...");
+
+        return $"{label}: {string.Join(", ", visibleItems)}";
     }
 
     public CommandExecutionResult Execute(ConsoleInput input)

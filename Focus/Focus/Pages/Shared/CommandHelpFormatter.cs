@@ -50,22 +50,23 @@ internal static class CommandHelpFormatter
         if (!entryArray.Any())
             return;
 
-        var prefix = $"{label}: ";
-        var effectiveWidth = Math.Max(prefix.Length + 1, maxWidth);
-        var continuationIndent = new string(' ', prefix.Length);
-        var currentLineLength = prefix.Length;
+        var visiblePrefix = $"{label}: ";
+        var effectiveWidth = Math.Max(visiblePrefix.Length + 1, maxWidth);
+        var continuationIndent = new string(' ', visiblePrefix.Length);
+        var currentLineLength = visiblePrefix.Length;
 
-        builder.Append(prefix);
+        builder.Append(FormatLabel(label));
+        builder.Append(": ");
 
         foreach (var entry in entryArray)
         {
-            var isFirstEntryOnLine = currentLineLength == prefix.Length;
+            var isFirstEntryOnLine = currentLineLength == visiblePrefix.Length;
             var segmentLength = entry.Length + (isFirstEntryOnLine ? 0 : 2);
             if (!isFirstEntryOnLine && currentLineLength + segmentLength > effectiveWidth)
             {
                 builder.AppendLine();
                 builder.Append(continuationIndent);
-                currentLineLength = prefix.Length;
+                currentLineLength = visiblePrefix.Length;
                 isFirstEntryOnLine = true;
             }
 
@@ -82,6 +83,8 @@ internal static class CommandHelpFormatter
         builder.AppendLine();
     }
 
-    private static string FormatCommand(string command) =>
-        $"[{ConfigurationConstants.CommandColor}]{command}[!]";
+    private static string FormatCommand(string command) => command;
+
+    private static string FormatLabel(string label) =>
+        $"[{ConfigurationConstants.CommandColor}]{label}[!]";
 }
