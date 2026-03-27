@@ -15,13 +15,13 @@ internal class SearchResultsPage : Page
 {
     private readonly IReadOnlyList<NodeSearchResult> _results;
     private readonly string _title;
-    private readonly bool _includeMapName;
+    private readonly SearchResultDisplayOptions _displayOptions;
 
-    public SearchResultsPage(IReadOnlyList<NodeSearchResult> results, string title, bool includeMapName)
+    public SearchResultsPage(IReadOnlyList<NodeSearchResult> results, string title, SearchResultDisplayOptions displayOptions)
     {
         _results = results;
         _title = title;
-        _includeMapName = includeMapName;
+        _displayOptions = displayOptions;
     }
 
     public override void Show()
@@ -64,7 +64,7 @@ internal class SearchResultsPage : Page
 
         for (var index = 0; index < _results.Count; index++)
         {
-            messageBuilder.AppendLine($"{index + 1}. {_results[index].ToDisplayString(_includeMapName)}");
+            messageBuilder.AppendLine($"{index + 1}. {SearchResultDisplayFormatter.Format(_results[index], _displayOptions)}");
         }
 
         messageBuilder.AppendLine();

@@ -184,7 +184,10 @@ internal sealed class HomeWorkflow
         var selectedResult = new SearchResultsPage(
             tasks,
             TaskCommandHelper.GetTasksTitle(filter, acrossAllMaps: true),
-            includeMapName: true)
+            new SearchResultDisplayOptions(
+                includeMapName: true,
+                colorizeAncestorPath: true,
+                highlightTerms: Array.Empty<string>()))
             .SelectResult();
 
         if (selectedResult != null)

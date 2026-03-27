@@ -8,7 +8,10 @@ internal static class NodeDisplayHelper
     public static string BuildDisplayName(Node node) =>
         PrefixTaskMarker(node.Name, node.TaskState);
 
-    public static string BuildNodePath(Node node)
+    public static string BuildNodePath(Node node) =>
+        string.Join(" > ", BuildNodePathSegments(node));
+
+    public static IReadOnlyList<string> BuildNodePathSegments(Node node)
     {
         var pathSegments = new Stack<string>();
         var currentNode = node;
@@ -22,7 +25,7 @@ internal static class NodeDisplayHelper
             currentNode = currentNode.GetParent();
         }
 
-        return string.Join(" > ", pathSegments);
+        return pathSegments.ToArray();
     }
 
     public static int GetDepth(Node node)

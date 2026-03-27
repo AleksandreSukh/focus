@@ -32,7 +32,8 @@ internal static class MindMapSearchService
         if (!node.UniqueIdentifier.HasValue || node.UniqueIdentifier == Guid.Empty)
             return null;
 
-        var nodePath = NodeDisplayHelper.BuildNodePath(node);
+        var nodePathSegments = NodeDisplayHelper.BuildNodePathSegments(node);
+        var nodePath = string.Join(" > ", nodePathSegments);
         var searchableText = $"{node.Name} {nodePath}";
         if (!searchTerms.All(term => searchableText.Contains(term, StringComparison.InvariantCultureIgnoreCase)))
             return null;
@@ -45,7 +46,10 @@ internal static class MindMapSearchService
             mapName,
             GetScore(node.Name, nodePath, fullQuery),
             NodeDisplayHelper.GetDepth(node),
-            TaskState: node.TaskState);
+            TaskState: node.TaskState)
+        {
+            NodePathSegments = nodePathSegments
+        };
     }
 
     private static IEnumerable<Node> Traverse(Node node)

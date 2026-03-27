@@ -69,16 +69,20 @@ internal sealed class LinkNavigationService
         var mapName = string.IsNullOrWhiteSpace(mapFilePath)
             ? linkedNode.Name
             : Path.GetFileNameWithoutExtension(mapFilePath);
+        var nodePathSegments = NodeDisplayHelper.BuildNodePathSegments(linkedNode);
 
         return new NodeSearchResult(
             nodeIdentifier,
             linkedNode.Name,
-            NodeDisplayHelper.BuildNodePath(linkedNode),
+            string.Join(" > ", nodePathSegments),
             mapFilePath,
             mapName,
             Score: 0,
             Depth: NodeDisplayHelper.GetDepth(linkedNode),
             ContextLabel: contextLabel,
-            TaskState: linkedNode.TaskState);
+            TaskState: linkedNode.TaskState)
+        {
+            NodePathSegments = nodePathSegments
+        };
     }
 }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Systems.Sanity.Focus.Domain;
 
 namespace Systems.Sanity.Focus.DomainServices;
@@ -14,6 +15,8 @@ internal sealed record NodeSearchResult(
     string ContextLabel = null,
     TaskState TaskState = TaskState.None)
 {
+    public IReadOnlyList<string> NodePathSegments { get; init; } = Array.Empty<string>();
+
     public string ToDisplayString(bool includeMapName)
     {
         var locationPrefix = includeMapName ? $"{MapName}: " : string.Empty;

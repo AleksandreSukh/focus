@@ -49,16 +49,23 @@ internal static class TaskQueryService
             .ToArray();
     }
 
-    private static NodeSearchResult CreateSearchResult(Node node, string mapFilePath, string mapName) =>
-        new(
+    private static NodeSearchResult CreateSearchResult(Node node, string mapFilePath, string mapName)
+    {
+        var nodePathSegments = NodeDisplayHelper.BuildNodePathSegments(node);
+
+        return new NodeSearchResult(
             node.UniqueIdentifier!.Value,
             node.Name,
-            NodeDisplayHelper.BuildNodePath(node),
+            string.Join(" > ", nodePathSegments),
             mapFilePath,
             mapName,
             Score: node.TaskState.ToSortPriority(),
             Depth: NodeDisplayHelper.GetDepth(node),
-            TaskState: node.TaskState);
+            TaskState: node.TaskState)
+        {
+            NodePathSegments = nodePathSegments
+        };
+    }
 
     private static bool IsMatchingTask(Node node, TaskListFilter filter)
     {

@@ -669,7 +669,10 @@ internal sealed class EditWorkflow
         var selectedResult = new SearchResultsPage(
             tasks,
             TaskCommandHelper.GetTasksTitle(filter, acrossAllMaps: false),
-            includeMapName: false)
+            new SearchResultDisplayOptions(
+                includeMapName: false,
+                colorizeAncestorPath: true,
+                highlightTerms: Array.Empty<string>()))
             .SelectResult();
 
         if (selectedResult == null)
@@ -718,7 +721,14 @@ internal sealed class EditWorkflow
 
     private CommandExecutionResult NavigateToLinkedNode(IReadOnlyList<NodeSearchResult> relatedNodes, string title)
     {
-        var selectedResult = new SearchResultsPage(relatedNodes, title, includeMapName: true).SelectResult();
+        var selectedResult = new SearchResultsPage(
+            relatedNodes,
+            title,
+            new SearchResultDisplayOptions(
+                includeMapName: true,
+                colorizeAncestorPath: false,
+                highlightTerms: Array.Empty<string>()))
+            .SelectResult();
         if (selectedResult == null)
             return CommandExecutionResult.Success();
 

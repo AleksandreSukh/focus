@@ -23,7 +23,10 @@ internal static class SearchCommandHelper
         var selectedResult = new SearchResultsPage(
             searchResults,
             $"Search results for \"{trimmedQuery}\"",
-            includeMapName)
+            new SearchResultDisplayOptions(
+                includeMapName,
+                colorizeAncestorPath: true,
+                trimmedQuery.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)))
             .SelectResult();
 
         return SearchCommandResult.Success(selectedResult);
