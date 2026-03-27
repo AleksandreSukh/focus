@@ -42,7 +42,7 @@ internal sealed class HomePage : PageWithExclusiveOptions
         while (!shouldExit)
         {
             AppConsole.Current.Clear();
-            AppConsole.Current.SetTitle(_appContext.StartupSyncNotificationState.BuildTitle("Welcome"));
+            AppConsole.Current.SetTitle(_appContext.StartupSyncNotificationState.BuildTitle(ApplicationInfo.DefaultConsoleTitle));
             ColorfulConsole.WriteLine(GetHeaderRibbonString("Welcome"));
 
             _fileSelection = _workflow.GetFileSelection();

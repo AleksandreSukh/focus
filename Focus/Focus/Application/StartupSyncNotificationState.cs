@@ -86,7 +86,7 @@ internal sealed class StartupSyncNotificationState
         lock (_lockObject)
         {
             var defaultTitle = string.IsNullOrWhiteSpace(_currentOpenFilePath)
-                ? "Welcome"
+                ? ApplicationInfo.DefaultConsoleTitle
                 : Path.GetFileName(_currentOpenFilePath) ?? "Focus";
 
             if (!_hasRepositoryUpdates)
