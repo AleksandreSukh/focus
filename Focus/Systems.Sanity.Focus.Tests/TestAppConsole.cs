@@ -23,14 +23,22 @@ internal sealed class AppConsoleScope : IDisposable
 
 internal sealed class ScriptedConsoleSession : IConsoleAppSession
 {
+    private readonly int _windowWidth;
+
     public ScriptedConsoleSession(params string[] inputs)
+        : this(120, inputs)
     {
+    }
+
+    public ScriptedConsoleSession(int windowWidth, params string[] inputs)
+    {
+        _windowWidth = windowWidth;
         CommandLineEditor = new ScriptedCommandLineEditor(inputs);
     }
 
     public ICommandLineEditor CommandLineEditor { get; }
 
-    public int WindowWidth => 120;
+    public int WindowWidth => _windowWidth;
 
     public void SetTitle(string? title)
     {

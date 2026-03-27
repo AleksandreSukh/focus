@@ -26,7 +26,7 @@ namespace Systems.Sanity.Focus.Pages.Shared
                 if (IsValidOption(input.FirstWord))
                     return input;
 
-                ColorfulConsole.WriteLine(BuildInputErrorMessageDialogText(GetCommandOptions().WithLocalizations()).ToString());
+                ColorfulConsole.WriteLine(BuildInputErrorMessageDialogText(GetCommandOptions().WithLocalizations()));
                 AppConsole.Current.ReadKey();
             }
         }
@@ -37,18 +37,18 @@ namespace Systems.Sanity.Focus.Pages.Shared
             return string.IsNullOrWhiteSpace(input) || options.Contains(input);
         }
 
-        private static StringBuilder BuildInputErrorMessageDialogText(IEnumerable<string> options)
+        internal static string BuildInputErrorMessageDialogText(IEnumerable<string> options)
         {
             var messageBuilder = new StringBuilder();
 
             messageBuilder.AppendLine();
             messageBuilder.AppendLineCentered("*** Wrong Input ***");
             messageBuilder.AppendLine();
-            messageBuilder.AppendLineCentered($"Valid options are:[{ConsoleColor.Green}]{string.Join(", ", options)}[!]");
+            messageBuilder.Append(CommandHelpFormatter.BuildWrappedOptionList("Valid options are", options));
             messageBuilder.AppendLine();
             messageBuilder.AppendLineCentered("Press any key to continue");
             messageBuilder.AppendLine();
-            return messageBuilder;
+            return messageBuilder.ToString();
         }
     }
 }

@@ -51,27 +51,39 @@ internal sealed class HomeWorkflow
                 $"Type file identifier like \"[{commandColor}]{sampleFileNumber}[!]\" or \"[{commandColor}]{AccessibleKeyNumbering.GetStringFor(sampleFileNumber)}[!]\" to open file.{Environment.NewLine}");
         }
 
-        homePageMenuTextBuilder.AppendLine($"\"[{commandColor}]{HomePage.OptionNew} and file name[!]\"\t - to create new file");
+        var updatedVersion = AutoUpdateManager.CheckUpdatedVersion();
+        homePageMenuTextBuilder.AppendLine();
+        homePageMenuTextBuilder.Append(CommandHelpFormatter.BuildGroupedLines(GetHomeCommandGroups(filesExist, updatedVersion)));
+
+        return homePageMenuTextBuilder.ToString();
+    }
+
+    private static IReadOnlyList<CommandHelpGroup> GetHomeCommandGroups(bool filesExist, string? updatedVersion)
+    {
+        var groups = new List<CommandHelpGroup>
+        {
+            new("Create", new[] { $"{HomePage.OptionNew} <file name>" }),
+            new("Find", new[]
+            {
+                $"{HomePage.OptionSearch} <query>",
+                $"{HomePage.OptionTasks}/{HomePage.OptionTasksAlias} [todo|doing|done|all]",
+                HomePage.OptionRefresh
+            }),
+            new("System", updatedVersion == null
+                ? new[] { HomePage.OptionExit }
+                : new[] { $"{HomePage.OptionUpdateApp} ({updatedVersion})", HomePage.OptionExit })
+        };
 
         if (filesExist)
         {
-            homePageMenuTextBuilder.AppendLine($"\"[{commandColor}]{HomePage.OptionDel} and identifier[!]\"\t - to delete");
-            homePageMenuTextBuilder.AppendLine($"\"[{commandColor}]{HomePage.OptionRen} and identifier[!]\"\t - to rename");
+            groups.Insert(1, new CommandHelpGroup("Manage", new[]
+            {
+                $"{HomePage.OptionRen} <file>",
+                $"{HomePage.OptionDel} <file>"
+            }));
         }
 
-        homePageMenuTextBuilder.AppendLine($"\"[{commandColor}]{HomePage.OptionSearch} <query>[!]\"\t - to search across all maps");
-        homePageMenuTextBuilder.AppendLine($"\"[{commandColor}]{HomePage.OptionTasks} [todo|doing|done|all][!]\"\t - to browse tasks across all maps");
-        homePageMenuTextBuilder.AppendLine($"\"[{commandColor}]{HomePage.OptionRefresh}[!]\" \t\t\t - to refresh list");
-        homePageMenuTextBuilder.AppendLine($"\"[{commandColor}]{HomePage.OptionExit}[!]\"\t\t\t - to exit app");
-
-        var updatedVersion = AutoUpdateManager.CheckUpdatedVersion();
-        if (updatedVersion != null)
-        {
-            homePageMenuTextBuilder.AppendLine(
-                $"\"[{commandColor}]{HomePage.OptionUpdateApp}[!]\"\t - to update app to new version: \"{updatedVersion}\"");
-        }
-
-        return homePageMenuTextBuilder.ToString();
+        return groups;
     }
 
     public HomeWorkflowResult Execute(ConsoleInput input, IReadOnlyDictionary<int, FileInfo> fileSelection)

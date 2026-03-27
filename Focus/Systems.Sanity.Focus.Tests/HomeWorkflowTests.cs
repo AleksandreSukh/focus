@@ -64,4 +64,21 @@ public class HomeWorkflowTests
         Assert.Equal(betaFilePath, navigator.OpenedEditMapFilePath);
         Assert.Equal(betaTaskId, navigator.OpenedEditMapNodeIdentifier);
     }
+
+    [Fact]
+    public void BuildHomePageText_UsesGroupedHelpWhileKeepingFileList()
+    {
+        using var workspace = new TestWorkspace();
+        workspace.SaveMap("alpha", new MindMap("Alpha"));
+        var workflow = new HomeWorkflow(workspace.AppContext);
+
+        using var consoleScope = new AppConsoleScope(new ScriptedConsoleSession(80));
+        var text = workflow.BuildHomePageText(workflow.GetFileSelection());
+
+        Assert.Contains("- alpha.", text, StringComparison.InvariantCultureIgnoreCase);
+        Assert.Contains("Create: ", text);
+        Assert.Contains("Manage: ", text);
+        Assert.Contains("Find: ", text);
+        Assert.Contains("System: ", text);
+    }
 }
