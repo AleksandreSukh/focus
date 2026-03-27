@@ -1,5 +1,7 @@
 using System.ComponentModel;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using Systems.Sanity.Focus.Infrastructure.FileSynchronization;
 
 namespace Systems.Sanity.Focus.Infrastructure.FileSynchronization.Git;
@@ -7,23 +9,29 @@ namespace Systems.Sanity.Focus.Infrastructure.FileSynchronization.Git;
 public class GitHelper
 {
     private const string GitExecutableName = "git";
-    private const string SyncCommitMessage = "auto update";
+    private const string FallbackSyncCommitMessage = "Update files";
 
     private readonly object _gitSyncLock = new();
+    private readonly object _syncStateLock = new();
+    private readonly Queue<string> _pendingCommitMessages = new();
     private readonly string _gitRepositoryPath;
     private readonly Func<string, bool, bool, string[], (int ExitCode, string StandardOutput, string StandardError)> _executeGitCommand;
+    private readonly Action<TimeSpan> _waitForSynchronizationDelay;
+    private bool _syncWorkerRunning;
 
     public GitHelper(string gitRepositoryPath)
-        : this(gitRepositoryPath, ExecuteGitCommand)
+        : this(gitRepositoryPath, ExecuteGitCommand, Thread.Sleep)
     {
     }
 
     internal GitHelper(
         string gitRepositoryPath,
-        Func<string, bool, bool, string[], (int ExitCode, string StandardOutput, string StandardError)> executeGitCommand)
+        Func<string, bool, bool, string[], (int ExitCode, string StandardOutput, string StandardError)> executeGitCommand,
+        Action<TimeSpan>? waitForSynchronizationDelay = null)
     {
         _gitRepositoryPath = gitRepositoryPath;
         _executeGitCommand = executeGitCommand;
+        _waitForSynchronizationDelay = waitForSynchronizationDelay ?? Thread.Sleep;
     }
 
     public static bool IsRepositoryAvailable(string gitRepositoryPath)
@@ -48,9 +56,21 @@ public class GitHelper
         }
     }
 
-    public void SynchronizeToRemote()
+    public void SynchronizeToRemote(string commitMessage)
     {
-        RunOnlyOneAtATime(CommitPullAndPush);
+        if (string.IsNullOrWhiteSpace(commitMessage))
+            throw new ArgumentException("Sync commit message is required.", nameof(commitMessage));
+
+        lock (_syncStateLock)
+        {
+            _pendingCommitMessages.Enqueue(commitMessage.Trim());
+            if (_syncWorkerRunning)
+                return;
+
+            _syncWorkerRunning = true;
+        }
+
+        Task.Run(ProcessPendingSynchronizations);
     }
 
     public StartupSyncResult PullLatestAtStartup()
@@ -79,54 +99,123 @@ public class GitHelper
 
     private void CommitPullAndPush()
     {
-        Thread.Sleep(TimeSpan.FromSeconds(5));
-
         var consoleOldTitle = TryGetConsoleTitle();
-
-        RunGitCommand("add", "--all");
-
-        if (HasPendingChanges())
+        try
         {
-            TrySetConsoleTitle("Syncing (committing changes)");
-            RunGitCommand("commit", "-m", SyncCommitMessage);
+            var pendingMessageCount = GetPendingCommitMessageCount();
+
+            RunGitCommand("add", "--all");
+
+            if (HasPendingChanges())
+            {
+                var commitMessage = FormatCommitMessage(DrainPendingCommitMessages(pendingMessageCount));
+                TrySetConsoleTitle("Syncing (committing changes)");
+                RunGitCommand("commit", "-m", commitMessage);
+            }
+            else
+            {
+                DrainPendingCommitMessages(pendingMessageCount);
+            }
+
+            TrySetConsoleTitle("Syncing (git pull)");
+            RunGitCommand("pull", "--no-rebase", "--quiet");
+
+            TrySetConsoleTitle("Syncing (git push)");
+            RunGitCommand("push", "--quiet");
         }
-
-        TrySetConsoleTitle("Syncing (git pull)");
-        RunGitCommand("pull", "--no-rebase", "--quiet");
-
-        TrySetConsoleTitle("Syncing (git push)");
-        RunGitCommand("push", "--quiet");
-
-        if (!string.IsNullOrEmpty(consoleOldTitle))
-            TrySetConsoleTitle(consoleOldTitle);
+        finally
+        {
+            if (!string.IsNullOrEmpty(consoleOldTitle))
+                TrySetConsoleTitle(consoleOldTitle);
+        }
     }
 
-    private void RunOnlyOneAtATime(Action syncAction)
+    private void ProcessPendingSynchronizations()
     {
-        Task.Run(() =>
+        while (true)
         {
-            if (!Monitor.TryEnter(_gitSyncLock))
-                return;
+            _waitForSynchronizationDelay(TimeSpan.FromSeconds(5));
 
             try
             {
-                syncAction();
+                lock (_gitSyncLock)
+                {
+                    CommitPullAndPush();
+                }
             }
             catch (Exception e)
             {
                 ReportSyncFailure(e.Message);
+                lock (_syncStateLock)
+                {
+                    _syncWorkerRunning = false;
+                }
+
+                return;
             }
-            finally
+
+            lock (_syncStateLock)
             {
-                Monitor.Exit(_gitSyncLock);
+                if (_pendingCommitMessages.Count > 0)
+                    continue;
+
+                _syncWorkerRunning = false;
+                return;
             }
-        });
+        }
     }
 
     private bool HasPendingChanges()
     {
         var result = _executeGitCommand(_gitRepositoryPath, true, true, ["status", "--porcelain"]);
         return !string.IsNullOrWhiteSpace(result.StandardOutput);
+    }
+
+    private int GetPendingCommitMessageCount()
+    {
+        lock (_syncStateLock)
+        {
+            return _pendingCommitMessages.Count;
+        }
+    }
+
+    private IReadOnlyList<string> DrainPendingCommitMessages(int messageCount)
+    {
+        var messages = new List<string>(Math.Max(0, messageCount));
+
+        lock (_syncStateLock)
+        {
+            while (messageCount-- > 0 && _pendingCommitMessages.Count > 0)
+            {
+                messages.Add(_pendingCommitMessages.Dequeue());
+            }
+        }
+
+        return messages;
+    }
+
+    private static string FormatCommitMessage(IReadOnlyList<string> messages)
+    {
+        var uniqueMessages = messages
+            .Where(message => !string.IsNullOrWhiteSpace(message))
+            .Select(message => message.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        if (uniqueMessages.Count == 0)
+            return FallbackSyncCommitMessage;
+
+        if (uniqueMessages.Count == 1)
+            return uniqueMessages[0];
+
+        const int maxMessagesInSummary = 2;
+        var displayedMessages = uniqueMessages.Take(maxMessagesInSummary).ToArray();
+        var remainingMessageCount = uniqueMessages.Count - displayedMessages.Length;
+        var summary = string.Join("; ", displayedMessages);
+
+        return remainingMessageCount > 0
+            ? $"Batch update: {summary}; +{remainingMessageCount} more"
+            : $"Batch update: {summary}";
     }
 
     private void RunGitCommand(params string[] arguments)

@@ -47,7 +47,8 @@ internal sealed class EditMapPage : PageWithSuggestedOptions
             if (commandResult.IsSuccess)
             {
                 if (commandResult.ShouldPersist)
-                    _workflow.Save();
+                    _workflow.Save(commandResult.SyncCommitMessage
+                        ?? throw new InvalidOperationException("Sync commit message is required for persisted commands."));
 
                 message = commandResult.Message;
                 isError = false;

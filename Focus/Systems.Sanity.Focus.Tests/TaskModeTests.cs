@@ -68,8 +68,8 @@ public class TaskModeTests
         map.AddAtCurrentNode("Child");
         var filePath = workspace.SaveMap("legacy-task-map", map);
 
-        var json = JToken.Parse(File.ReadAllText(filePath));
-        foreach (var property in json.DescendantsAndSelf().OfType<JProperty>().Where(property => property.Name == "taskState").ToArray())
+        var json = JObject.Parse(File.ReadAllText(filePath));
+        foreach (var property in json.Descendants().OfType<JProperty>().Where(property => property.Name == "taskState").ToArray())
         {
             property.Remove();
         }

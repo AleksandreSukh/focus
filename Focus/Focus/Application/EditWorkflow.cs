@@ -162,11 +162,14 @@ internal sealed class EditWorkflow
             .Union(_nodeOptions.SelectMany(option => childNodes.Values.Select(value => $"{option} {value}")));
     }
 
-    public void Save()
+    public void Save(string commitMessage)
     {
+        if (string.IsNullOrWhiteSpace(commitMessage))
+            throw new ArgumentException("Sync commit message is required.", nameof(commitMessage));
+
         _appContext.MapRepository.SaveMap(_filePath, _map);
         _appContext.RefreshLinkIndex();
-        _appContext.MapsStorage.Sync();
+        _appContext.MapsStorage.Sync(commitMessage);
     }
 
     private string BuildCurrentSubtreeString()
@@ -224,7 +227,7 @@ internal sealed class EditWorkflow
         var addNoteDialog = new AddNoteDialog(_map);
         addNoteDialog.Show();
         return addNoteDialog.DidAddNodes
-            ? CommandExecutionResult.SuccessAndPersist()
+            ? PersistMapChange("Add note")
             : CommandExecutionResult.Success();
     }
 
@@ -233,7 +236,7 @@ internal sealed class EditWorkflow
         var addNoteDialog = new AddNoteDialog(_map);
         addNoteDialog.ShowWithInitialInput(input.InputString);
         return addNoteDialog.DidAddNodes
-            ? CommandExecutionResult.SuccessAndPersist()
+            ? PersistMapChange("Add note")
             : CommandExecutionResult.Success();
     }
 
@@ -250,7 +253,7 @@ internal sealed class EditWorkflow
         }
 
         return dialog.DidAddIdeas
-            ? CommandExecutionResult.SuccessAndPersist()
+            ? PersistMapChange("Add idea")
             : CommandExecutionResult.Success();
     }
 
@@ -259,7 +262,7 @@ internal sealed class EditWorkflow
         var attachMode = new AttachMode(_map, _appContext);
         attachMode.Show();
         return attachMode.DidAttachMap
-            ? CommandExecutionResult.SuccessAndPersist()
+            ? PersistMapChange("Attach map", relation: "into")
             : CommandExecutionResult.Success();
     }
 
@@ -284,7 +287,7 @@ internal sealed class EditWorkflow
                 return CommandExecutionResult.Error("Cancelled!");
 
             return _map.DeleteNodeIdeaTags(parameters)
-                ? CommandExecutionResult.SuccessAndPersist()
+                ? PersistMapChange("Clear ideas")
                 : CommandExecutionResult.Error($"Couldn't remove \"{parameters}\"");
         }
 
@@ -292,7 +295,7 @@ internal sealed class EditWorkflow
             return CommandExecutionResult.Error("Cancelled!");
 
         return _map.DeleteCurrentNodeIdeaTags()
-            ? CommandExecutionResult.SuccessAndPersist()
+            ? PersistMapChange("Clear ideas")
             : CommandExecutionResult.Error("Can't delete current node (report a bug)");
     }
 
@@ -308,7 +311,7 @@ internal sealed class EditWorkflow
                 return CommandExecutionResult.Error("Cancelled!");
 
             return _map.DeleteChildNode(parameters)
-                ? CommandExecutionResult.SuccessAndPersist()
+                ? PersistMapChange("Delete node")
                 : CommandExecutionResult.Error($"Couldn't remove \"{parameters}\"");
         }
 
@@ -321,7 +324,7 @@ internal sealed class EditWorkflow
             return CommandExecutionResult.Error("Cancelled!");
 
         return _map.DeleteChildNode(nodeToDelete)
-            ? CommandExecutionResult.SuccessAndPersist()
+            ? PersistMapChange("Delete node")
             : CommandExecutionResult.Error("Can't delete current node (report a bug)");
     }
 
@@ -351,7 +354,7 @@ internal sealed class EditWorkflow
                 return CommandExecutionResult.Error("Can't detach root node");
 
             _appContext.Navigator.OpenCreateMap(detachedMap.RootNode.Name, detachedMap);
-            return CommandExecutionResult.SuccessAndPersist();
+            return PersistMapChange("Detach node", relation: "from");
         }
 
         if (!_map.HasNode(parameters))
@@ -362,7 +365,7 @@ internal sealed class EditWorkflow
             return CommandExecutionResult.Error($"Couldn't detach \"{parameters}\"");
 
         _appContext.Navigator.OpenCreateMap(mapToDetach.RootNode.Name, mapToDetach);
-        return CommandExecutionResult.SuccessAndPersist();
+        return PersistMapChange("Detach node", relation: "from");
     }
 
     private CommandExecutionResult ProcessEdit(string parameters)
@@ -370,7 +373,7 @@ internal sealed class EditWorkflow
         var editDialog = new EditDialog(_map, parameters);
         editDialog.Show();
         return editDialog.DidEdit
-            ? CommandExecutionResult.SuccessAndPersist()
+            ? PersistMapChange("Edit node")
             : CommandExecutionResult.Success();
     }
 
@@ -417,7 +420,7 @@ internal sealed class EditWorkflow
             if (exportedFilePath == null)
                 return CommandExecutionResult.Success("Export cancelled");
 
-            _appContext.MapsStorage.Sync();
+            _appContext.MapsStorage.Sync(BuildExportSyncCommitMessage(exportRequest.Format));
             var collapsedSuffix = exportRequest.SkipCollapsedDescendants ? " (collapsed descendants skipped)" : string.Empty;
             return CommandExecutionResult.Success(
                 $"Exported {exportRequest.Format.ToExportVerb()} to \"{Path.GetFileName(exportedFilePath)}\"{collapsedSuffix}");
@@ -459,7 +462,7 @@ internal sealed class EditWorkflow
     private CommandExecutionResult ProcessHide(string parameters)
     {
         return _map.HideNode(parameters)
-            ? CommandExecutionResult.SuccessAndPersist()
+            ? PersistMapChange("Hide node")
             : CommandExecutionResult.Error($"Can't find \"{parameters}\"");
     }
 
@@ -499,7 +502,7 @@ internal sealed class EditWorkflow
             return CommandExecutionResult.Error($"Unexpected result while linking \"{parameters}\"");
 
         _appContext.LinkIndex.PopQueuedLinkSource();
-        return CommandExecutionResult.SuccessAndPersist();
+        return PersistMapChange("Link nodes");
     }
 
     private CommandExecutionResult ProcessOpenLink()
@@ -537,7 +540,14 @@ internal sealed class EditWorkflow
             : _map.SetTaskState(parameters, taskState, out errorMessage);
 
         return success
-            ? CommandExecutionResult.SuccessAndPersist()
+            ? PersistMapChange(taskState switch
+            {
+                TaskState.Todo => "Mark task as todo",
+                TaskState.Doing => "Mark task as doing",
+                TaskState.Done => "Mark task as done",
+                TaskState.None => "Clear task state",
+                _ => "Update task state"
+            })
             : CommandExecutionResult.Error(errorMessage);
     }
 
@@ -556,7 +566,7 @@ internal sealed class EditWorkflow
     private CommandExecutionResult ProcessUnhide(string parameters)
     {
         return _map.UnhideNode(parameters)
-            ? CommandExecutionResult.SuccessAndPersist()
+            ? PersistMapChange("Unhide node")
             : CommandExecutionResult.Error($"Can't find \"{parameters}\"");
     }
 
@@ -591,9 +601,26 @@ internal sealed class EditWorkflow
             : _map.ToggleTaskState(parameters, out errorMessage);
 
         return success
-            ? CommandExecutionResult.SuccessAndPersist()
+            ? PersistMapChange("Toggle task state")
             : CommandExecutionResult.Error(errorMessage);
     }
+
+    private string BuildExportSyncCommitMessage(ExportFormat format) =>
+        format == ExportFormat.Html
+            ? BuildMapCommitMessage("Export HTML", "from")
+            : BuildMapCommitMessage("Export markdown", "from");
+
+    private string BuildMapCommitMessage(string action, string relation = "in")
+    {
+        var mapName = Path.GetFileNameWithoutExtension(_filePath);
+        if (string.IsNullOrWhiteSpace(mapName))
+            mapName = Path.GetFileName(_filePath);
+
+        return $"{action} {relation} {mapName ?? "map"}";
+    }
+
+    private CommandExecutionResult PersistMapChange(string action, string relation = "in", string? message = null) =>
+        CommandExecutionResult.SuccessAndPersist(message, BuildMapCommitMessage(action, relation));
 
     private static bool InvokeLocalized(Func<string, bool> action, string parameters)
     {

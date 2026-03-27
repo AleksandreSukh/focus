@@ -184,7 +184,7 @@ public class StartupSynchronizationTests
             return _pullLatestAtStartup();
         }
 
-        public void Synchronize()
+        public void Synchronize(string commitMessage)
         {
         }
     }

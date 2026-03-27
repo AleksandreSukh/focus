@@ -36,8 +36,10 @@ public class EditWorkflowTests
 
         Assert.True(hideResult.IsSuccess);
         Assert.True(hideResult.ShouldPersist);
+        Assert.Equal("Hide node in workflow-map", hideResult.SyncCommitMessage);
         Assert.True(unhideResult.IsSuccess);
         Assert.True(unhideResult.ShouldPersist);
+        Assert.Equal("Unhide node in workflow-map", unhideResult.SyncCommitMessage);
     }
 
     [Fact]
@@ -68,24 +70,26 @@ public class EditWorkflowTests
         Assert.True(workflow.Execute(new ConsoleInput("cd 1")).IsSuccess);
 
         var todoResult = workflow.Execute(new ConsoleInput("todo"));
-        workflow.Save();
+        workflow.Save(todoResult.SyncCommitMessage!);
 
         var todoMap = workspace.MapsStorage.OpenMap(filePath);
 
         Assert.True(todoResult.IsSuccess);
         Assert.True(todoResult.ShouldPersist);
+        Assert.Equal("Mark task as todo in workflow-map", todoResult.SyncCommitMessage);
         Assert.Equal(TaskState.Todo, todoMap.GetNode("1")!.TaskState);
 
         var clearWorkflow = new EditWorkflow(filePath, workspace.AppContext);
         Assert.True(clearWorkflow.Execute(new ConsoleInput("cd 1")).IsSuccess);
 
         var clearResult = clearWorkflow.Execute(new ConsoleInput("notask"));
-        clearWorkflow.Save();
+        clearWorkflow.Save(clearResult.SyncCommitMessage!);
 
         var clearedMap = workspace.MapsStorage.OpenMap(filePath);
 
         Assert.True(clearResult.IsSuccess);
         Assert.True(clearResult.ShouldPersist);
+        Assert.Equal("Clear task state in workflow-map", clearResult.SyncCommitMessage);
         Assert.Equal(TaskState.None, clearedMap.GetNode("1")!.TaskState);
     }
 
@@ -100,19 +104,21 @@ public class EditWorkflowTests
         var workflow = new EditWorkflow(filePath, workspace.AppContext);
 
         var doneResult = workflow.Execute(new ConsoleInput("dn 1"));
-        workflow.Save();
+        workflow.Save(doneResult.SyncCommitMessage!);
         var doneMap = workspace.MapsStorage.OpenMap(filePath);
 
         var toggleWorkflow = new EditWorkflow(filePath, workspace.AppContext);
         var toggleResult = toggleWorkflow.Execute(new ConsoleInput("tg 1"));
-        toggleWorkflow.Save();
+        toggleWorkflow.Save(toggleResult.SyncCommitMessage!);
         var toggledMap = workspace.MapsStorage.OpenMap(filePath);
 
         Assert.True(doneResult.IsSuccess);
         Assert.True(doneResult.ShouldPersist);
+        Assert.Equal("Mark task as done in workflow-map", doneResult.SyncCommitMessage);
         Assert.Equal(TaskState.Done, doneMap.GetNode("1")!.TaskState);
         Assert.True(toggleResult.IsSuccess);
         Assert.True(toggleResult.ShouldPersist);
+        Assert.Equal("Toggle task state in workflow-map", toggleResult.SyncCommitMessage);
         Assert.Equal(TaskState.Todo, toggledMap.GetNode("1")!.TaskState);
     }
 

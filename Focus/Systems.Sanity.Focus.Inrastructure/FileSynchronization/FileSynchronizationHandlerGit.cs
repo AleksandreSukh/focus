@@ -11,7 +11,7 @@ public class FileSynchronizationHandlerGit : IFileSynchronizationHandler
         _gitHelper = gitHelper;
     }
 
-    public void Synchronize() => _gitHelper.SynchronizeToRemote();
+    public void Synchronize(string commitMessage) => _gitHelper.SynchronizeToRemote(commitMessage);
 
     public StartupSyncResult PullLatestAtStartup() => _gitHelper.PullLatestAtStartup();
 }

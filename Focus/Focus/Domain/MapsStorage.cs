@@ -73,9 +73,12 @@ namespace Systems.Sanity.Focus.Domain
             MapFile.Save(filePath, map);
         }
 
-        public void Sync()
+        public void Sync(string commitMessage)
         {
-            _fileSynchronizationHandler.Synchronize();
+            if (string.IsNullOrWhiteSpace(commitMessage))
+                throw new ArgumentException("Sync commit message is required.", nameof(commitMessage));
+
+            _fileSynchronizationHandler.Synchronize(commitMessage);
         }
 
         public StartupSyncResult PullLatestAtStartup()

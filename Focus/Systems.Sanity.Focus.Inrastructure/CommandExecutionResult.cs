@@ -14,6 +14,8 @@ public sealed class CommandExecutionResult
 
     public string? Message { get; private init; }
 
+    public string? SyncCommitMessage { get; private init; }
+
     public static CommandExecutionResult ExitCommand { get; } = new() { ShouldExit = true };
 
     public static CommandExecutionResult Error(string errorString) => new() { ErrorString = errorString };
@@ -21,6 +23,6 @@ public sealed class CommandExecutionResult
     public static CommandExecutionResult Success(string? message = null) =>
         new() { IsSuccess = true, Message = message };
 
-    public static CommandExecutionResult SuccessAndPersist(string? message = null) =>
-        new() { IsSuccess = true, ShouldPersist = true, Message = message };
+    public static CommandExecutionResult SuccessAndPersist(string? message = null, string? syncCommitMessage = null) =>
+        new() { IsSuccess = true, ShouldPersist = true, Message = message, SyncCommitMessage = syncCommitMessage };
 }

@@ -2,7 +2,7 @@
 
 public interface IFileSynchronizationHandler
 {
-    void Synchronize();
+    void Synchronize(string commitMessage);
 
     StartupSyncResult PullLatestAtStartup();
 }

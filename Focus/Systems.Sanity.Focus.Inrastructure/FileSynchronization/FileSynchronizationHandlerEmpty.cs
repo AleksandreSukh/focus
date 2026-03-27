@@ -2,7 +2,7 @@
 
 public class FileSynchronizationHandlerEmpty : IFileSynchronizationHandler
 {
-    public void Synchronize()
+    public void Synchronize(string commitMessage)
     {
         // Git synchronization is unavailable for the current configuration.
     }
