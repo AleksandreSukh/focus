@@ -44,7 +44,8 @@ internal static class MindMapSearchService
             mapFilePath,
             mapName,
             GetScore(node.Name, nodePath, fullQuery),
-            NodeDisplayHelper.GetDepth(node));
+            NodeDisplayHelper.GetDepth(node),
+            TaskState: node.TaskState);
     }
 
     private static IEnumerable<Node> Traverse(Node node)

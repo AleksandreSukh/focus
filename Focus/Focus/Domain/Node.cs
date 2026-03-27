@@ -39,6 +39,8 @@ public class Node
 
     public bool Collapsed { get; set; }
 
+    public TaskState TaskState { get; set; }
+
     public bool IsCollapsed() => Collapsed && _parentNode != null;
 
     public Node? GetParent() => _parentNode;

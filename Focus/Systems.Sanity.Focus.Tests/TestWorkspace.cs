@@ -5,7 +5,7 @@ namespace Systems.Sanity.Focus.Tests;
 
 internal sealed class TestWorkspace : IDisposable
 {
-    public TestWorkspace()
+    public TestWorkspace(IPageNavigator? navigator = null)
     {
         RootDirectory = Path.Combine(Path.GetTempPath(), "focus-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(RootDirectory);
@@ -17,7 +17,7 @@ internal sealed class TestWorkspace : IDisposable
         });
 
         Directory.CreateDirectory(MapsStorage.UserMindMapsDirectory);
-        AppContext = new FocusAppContext(MapsStorage);
+        AppContext = new FocusAppContext(MapsStorage, navigator);
     }
 
     public string RootDirectory { get; }

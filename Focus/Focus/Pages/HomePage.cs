@@ -20,6 +20,8 @@ internal sealed class HomePage : PageWithExclusiveOptions
     public const string OptionRefresh = "ls";
     public const string OptionUpdateApp = "update";
     public const string OptionSearch = "search";
+    public const string OptionTasks = "tasks";
+    internal const string OptionTasksAlias = "ts";
 
     private static readonly string[] FileOptions = { OptionRen, OptionDel };
 
@@ -63,8 +65,14 @@ internal sealed class HomePage : PageWithExclusiveOptions
 
     protected override string[] GetCommandOptions()
     {
-        var optionsWhenFileExists = new[] { OptionNew, OptionRen, OptionDel, OptionRefresh, OptionSearch, OptionExit, OptionUpdateApp };
-        var optionsWhenNoFileExists = new[] { OptionNew, OptionRefresh, OptionSearch, OptionExit, OptionUpdateApp };
+        var optionsWhenFileExists = new[]
+        {
+            OptionNew, OptionRen, OptionDel, OptionRefresh, OptionSearch, OptionTasks, OptionTasksAlias, OptionExit, OptionUpdateApp
+        };
+        var optionsWhenNoFileExists = new[]
+        {
+            OptionNew, OptionRefresh, OptionSearch, OptionTasks, OptionTasksAlias, OptionExit, OptionUpdateApp
+        };
 
         return _fileSelection.Any()
             ? _fileSelection.Keys.Select(k => k.ToString())
@@ -77,10 +85,12 @@ internal sealed class HomePage : PageWithExclusiveOptions
     protected override IEnumerable<string> GetPageSpecificSuggestions(string text, int index)
     {
         if (!_fileSelection.Any())
-            return GetCommandOptions();
+            return GetCommandOptions()
+                .Union(TaskCommandHelper.GetTaskListSuggestions(OptionTasks, OptionTasksAlias));
 
         return GetCommandOptions()
             .Union(_fileSelection.Values.Select(file => $"{OptionSearch} {file.NameWithoutExtension()}"))
+            .Union(TaskCommandHelper.GetTaskListSuggestions(OptionTasks, OptionTasksAlias))
             .Union(FileOptions.SelectMany(option => _fileSelection.Keys.Select(key => $"{option} {key}")))
             .Union(FileOptions.SelectMany(option => _fileSelection.Keys.Select(key => $"{option} {AccessibleKeyNumbering.GetStringFor(key)}")));
     }

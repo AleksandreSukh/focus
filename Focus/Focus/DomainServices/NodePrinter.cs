@@ -32,7 +32,7 @@ internal static class NodePrinter
             : isEvenLevel ? "* " : "• ";
 
         var content = new StringBuilder(numberString);
-        content.Append(node.Name);
+        content.Append(NodeDisplayHelper.BuildDisplayName(node));
 
         if (node.IsCollapsed() && level > 0)
         {

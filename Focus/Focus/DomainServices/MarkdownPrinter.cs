@@ -14,7 +14,7 @@ namespace Systems.Sanity.Focus.DomainServices
             options ??= new NodeExportOptions();
 
             sb.Append("# ");
-            sb.AppendLine(FormatNodeName(node.Name));
+            sb.AppendLine(FormatNodeName(node));
 
             var visibleChildren = NodeExportHelpers.GetVisibleChildren(node).ToArray();
             if (!visibleChildren.Any())
@@ -50,7 +50,7 @@ namespace Systems.Sanity.Focus.DomainServices
 
             sb.Append(indent);
             sb.Append(prefix);
-            sb.AppendLine(FormatNodeName(node.Name));
+            sb.AppendLine(FormatNodeName(node));
 
             var visibleChildren = NodeExportHelpers.GetVisibleChildren(node).ToArray();
             if (!visibleChildren.Any())
@@ -62,7 +62,7 @@ namespace Systems.Sanity.Focus.DomainServices
             PrintChildren(visibleChildren, level + 1, sb, options);
         }
 
-        private static string FormatNodeName(string nodeName) =>
-            PlainTextInlineFormatter.ToPlainText(NodeExportHelpers.NormalizeNodeName(nodeName));
+        private static string FormatNodeName(Node node) =>
+            PlainTextInlineFormatter.ToPlainText(NodeExportHelpers.FormatNodeName(node));
     }
 }

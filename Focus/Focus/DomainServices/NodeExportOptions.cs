@@ -21,4 +21,7 @@ internal static class NodeExportHelpers
 
         return nodeName.ReplaceLineEndings(" ").Trim();
     }
+
+    public static string FormatNodeName(Node node) =>
+        node.TaskState.WithDisplayMarker(NormalizeNodeName(node.Name));
 }

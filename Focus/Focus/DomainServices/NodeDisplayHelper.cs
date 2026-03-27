@@ -5,6 +5,9 @@ namespace Systems.Sanity.Focus.DomainServices;
 
 internal static class NodeDisplayHelper
 {
+    public static string BuildDisplayName(Node node) =>
+        PrefixTaskMarker(node.Name, node.TaskState);
+
     public static string BuildNodePath(Node node)
     {
         var pathSegments = new Stack<string>();
@@ -34,4 +37,7 @@ internal static class NodeDisplayHelper
 
         return depth;
     }
+
+    public static string PrefixTaskMarker(string text, TaskState taskState) =>
+        taskState.WithDisplayMarker(text);
 }

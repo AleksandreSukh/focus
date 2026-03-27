@@ -15,7 +15,7 @@ internal static class HtmlPrinter
     {
         options ??= new NodeExportOptions();
 
-        var documentTitle = HtmlInlineFormatter.ToPlainText(node.Name);
+        var documentTitle = HtmlInlineFormatter.ToPlainText(NodeExportHelpers.FormatNodeName(node));
 
         AppendLine(sb, 0, "<!DOCTYPE html>");
         AppendLine(sb, 0, "<html lang=\"en\">");
@@ -27,7 +27,7 @@ internal static class HtmlPrinter
         AppendLine(sb, 1, "</head>");
         AppendLine(sb, 1, "<body>");
         AppendLine(sb, 2, "<article class=\"mindmap-export\">");
-        AppendLine(sb, 3, $"<h1>{HtmlInlineFormatter.ToHtml(node.Name)}</h1>");
+        AppendLine(sb, 3, $"<h1>{HtmlInlineFormatter.ToHtml(NodeExportHelpers.FormatNodeName(node))}</h1>");
 
         var visibleChildren = NodeExportHelpers.GetVisibleChildren(node).ToArray();
         if (visibleChildren.Any())
@@ -54,7 +54,7 @@ internal static class HtmlPrinter
         int indentationLevel)
     {
         AppendLine(sb, indentationLevel, "<li>");
-        AppendLine(sb, indentationLevel + 1, HtmlInlineFormatter.ToHtml(node.Name));
+        AppendLine(sb, indentationLevel + 1, HtmlInlineFormatter.ToHtml(NodeExportHelpers.FormatNodeName(node)));
 
         var visibleChildren = NodeExportHelpers.GetVisibleChildren(node).ToArray();
         if (visibleChildren.Any() && !(options.SkipCollapsedDescendants && node.IsCollapsed()))

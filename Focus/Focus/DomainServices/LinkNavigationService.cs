@@ -78,6 +78,7 @@ internal sealed class LinkNavigationService
             mapName,
             Score: 0,
             Depth: NodeDisplayHelper.GetDepth(linkedNode),
-            ContextLabel: contextLabel);
+            ContextLabel: contextLabel,
+            TaskState: linkedNode.TaskState);
     }
 }

@@ -39,12 +39,37 @@ internal sealed class EditWorkflow
     private const string HideOption = "min";
     private const string UnhideOption = "max";
     private const string SearchOption = "search";
+    private const string TodoOption = "todo";
+    private const string TodoAliasOption = "td";
+    private const string DoingOption = "doing";
+    private const string DoneOption = "done";
+    private const string DoneAliasOption = "dn";
+    private const string NoTaskOption = "notask";
+    private const string ToggleTaskOption = "toggle";
+    private const string ToggleTaskAliasOption = "tg";
+    private const string TasksOption = "tasks";
+    private const string TasksAliasOption = "ts";
     private const string ExportOption = "export";
     private const string ExitOption = "exit";
 
     private readonly string[] _nodeOptions =
     {
-        GoToOption, EditOption, DelOption, HideOption, UnhideOption, SliceOption, LinkFromOption, LinkToOption
+        GoToOption,
+        EditOption,
+        DelOption,
+        HideOption,
+        UnhideOption,
+        SliceOption,
+        LinkFromOption,
+        LinkToOption,
+        TodoOption,
+        TodoAliasOption,
+        DoingOption,
+        DoneOption,
+        DoneAliasOption,
+        NoTaskOption,
+        ToggleTaskOption,
+        ToggleTaskAliasOption
     };
 
     private readonly FocusAppContext _appContext;
@@ -108,6 +133,12 @@ internal sealed class EditWorkflow
             HideOption => ProcessHide(parameters),
             UnhideOption => ProcessUnhide(parameters),
             SearchOption => ProcessSearch(parameters),
+            TodoOption or TodoAliasOption => ProcessSetTaskState(parameters, TaskState.Todo),
+            DoingOption => ProcessSetTaskState(parameters, TaskState.Doing),
+            DoneOption or DoneAliasOption => ProcessSetTaskState(parameters, TaskState.Done),
+            NoTaskOption => ProcessSetTaskState(parameters, TaskState.None),
+            ToggleTaskOption or ToggleTaskAliasOption => ProcessToggleTaskState(parameters),
+            TasksOption or TasksAliasOption => ProcessTasks(parameters),
             ExportOption => ProcessExport(),
             GoToOption => ProcessGoTo(parameters),
             DelOption => ProcessCommandDel(parameters),
@@ -121,10 +152,12 @@ internal sealed class EditWorkflow
     {
         var childNodes = _map.GetChildren();
         if (!childNodes.Any())
-            return GetCommandOptions();
+            return GetCommandOptions()
+                .Union(TaskCommandHelper.GetTaskListSuggestions(TasksOption, TasksAliasOption));
 
         return GetCommandOptions()
             .Union(childNodes.Values.Select(value => $"{SearchOption} {value}"))
+            .Union(TaskCommandHelper.GetTaskListSuggestions(TasksOption, TasksAliasOption))
             .Union(_nodeOptions.SelectMany(option => childNodes.Keys.Select(key => $"{option} {key}")))
             .Union(_nodeOptions.SelectMany(option => childNodes.Values.Select(value => $"{option} {value}")));
     }
@@ -164,6 +197,16 @@ internal sealed class EditWorkflow
                 HideOption,
                 UnhideOption,
                 SearchOption,
+                TodoOption,
+                TodoAliasOption,
+                DoingOption,
+                DoneOption,
+                DoneAliasOption,
+                NoTaskOption,
+                ToggleTaskOption,
+                ToggleTaskAliasOption,
+                TasksOption,
+                TasksAliasOption,
                 ExportOption,
                 ExitOption,
                 GoToOption,
@@ -486,6 +529,18 @@ internal sealed class EditWorkflow
             : CommandExecutionResult.Error("Couldn't open selected result");
     }
 
+    private CommandExecutionResult ProcessSetTaskState(string parameters, TaskState taskState)
+    {
+        string errorMessage;
+        var success = string.IsNullOrWhiteSpace(parameters)
+            ? _map.SetTaskState(taskState, out errorMessage)
+            : _map.SetTaskState(parameters, taskState, out errorMessage);
+
+        return success
+            ? CommandExecutionResult.SuccessAndPersist()
+            : CommandExecutionResult.Error(errorMessage);
+    }
+
     private CommandExecutionResult ProcessSlice(string parameters)
     {
         var selectionMenu = new SelectionMenu(new List<string> { InOption, OutOption });
@@ -503,6 +558,41 @@ internal sealed class EditWorkflow
         return _map.UnhideNode(parameters)
             ? CommandExecutionResult.SuccessAndPersist()
             : CommandExecutionResult.Error($"Can't find \"{parameters}\"");
+    }
+
+    private CommandExecutionResult ProcessTasks(string parameters)
+    {
+        if (!TaskCommandHelper.TryParseFilter(parameters, out var filter, out var errorMessage))
+            return CommandExecutionResult.Error(errorMessage ?? "Unsupported task filter");
+
+        var tasks = TaskQueryService.GetTasks(_map, _filePath, filter);
+        if (!tasks.Any())
+            return CommandExecutionResult.Error(TaskCommandHelper.BuildEmptyTasksMessage(filter, acrossAllMaps: false));
+
+        var selectedResult = new SearchResultsPage(
+            tasks,
+            TaskCommandHelper.GetTasksTitle(filter, acrossAllMaps: false),
+            includeMapName: false)
+            .SelectResult();
+
+        if (selectedResult == null)
+            return CommandExecutionResult.Success();
+
+        return _map.ChangeCurrentNodeById(selectedResult.NodeId)
+            ? CommandExecutionResult.Success()
+            : CommandExecutionResult.Error("Couldn't open selected task");
+    }
+
+    private CommandExecutionResult ProcessToggleTaskState(string parameters)
+    {
+        string errorMessage;
+        var success = string.IsNullOrWhiteSpace(parameters)
+            ? _map.ToggleTaskState(out errorMessage)
+            : _map.ToggleTaskState(parameters, out errorMessage);
+
+        return success
+            ? CommandExecutionResult.SuccessAndPersist()
+            : CommandExecutionResult.Error(errorMessage);
     }
 
     private static bool InvokeLocalized(Func<string, bool> action, string parameters)

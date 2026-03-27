@@ -175,6 +175,36 @@ namespace Systems.Sanity.Focus.Domain
 
         public bool IsAtRootNode() => _currentNode == RootNode;
 
+        public bool SetTaskState(TaskState taskState, out string errorMessage) =>
+            SetTaskState(_currentNode, taskState, out errorMessage);
+
+        public bool SetTaskState(string nodeIdentifier, TaskState taskState, out string errorMessage)
+        {
+            var node = FindNode(nodeIdentifier);
+            if (node == null)
+            {
+                errorMessage = $"Can't find \"{nodeIdentifier}\"";
+                return false;
+            }
+
+            return SetTaskState(node, taskState, out errorMessage);
+        }
+
+        public bool ToggleTaskState(out string errorMessage) =>
+            ToggleTaskState(_currentNode, out errorMessage);
+
+        public bool ToggleTaskState(string nodeIdentifier, out string errorMessage)
+        {
+            var node = FindNode(nodeIdentifier);
+            if (node == null)
+            {
+                errorMessage = $"Can't find \"{nodeIdentifier}\"";
+                return false;
+            }
+
+            return ToggleTaskState(node, out errorMessage);
+        }
+
         public void ResetCurrentNodeToRoot()
         {
             _currentNode = RootNode;
@@ -226,6 +256,28 @@ namespace Systems.Sanity.Focus.Domain
                 ? detachedMap
                 : null;
         }
+
+        private static bool SetTaskState(Node node, TaskState taskState, out string errorMessage)
+        {
+            if (node.GetParent() == null)
+            {
+                errorMessage = "Can't change task state for root node";
+                return false;
+            }
+
+            if (node.NodeType == NodeType.IdeaBagItem)
+            {
+                errorMessage = "Task mode is not supported for idea tags";
+                return false;
+            }
+
+            node.TaskState = taskState;
+            errorMessage = string.Empty;
+            return true;
+        }
+
+        private static bool ToggleTaskState(Node node, out string errorMessage) =>
+            SetTaskState(node, node.TaskState.Toggle(), out errorMessage);
 
         private Node? FindNode(string parameter)
         {

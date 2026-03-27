@@ -60,6 +60,7 @@ internal sealed class HomeWorkflow
         }
 
         homePageMenuTextBuilder.AppendLine($"\"[{commandColor}]{HomePage.OptionSearch} <query>[!]\"\t - to search across all maps");
+        homePageMenuTextBuilder.AppendLine($"\"[{commandColor}]{HomePage.OptionTasks} [todo|doing|done|all][!]\"\t - to browse tasks across all maps");
         homePageMenuTextBuilder.AppendLine($"\"[{commandColor}]{HomePage.OptionRefresh}[!]\" \t\t\t - to refresh list");
         homePageMenuTextBuilder.AppendLine($"\"[{commandColor}]{HomePage.OptionExit}[!]\"\t\t\t - to exit app");
 
@@ -83,6 +84,7 @@ internal sealed class HomeWorkflow
             HomePage.OptionDel => HandleDeleteFile(input, fileSelection),
             HomePage.OptionUpdateApp => HandleUpdateApp(),
             HomePage.OptionSearch => HandleSearch(input),
+            HomePage.OptionTasks or HomePage.OptionTasksAlias => HandleTasks(input),
             _ => HandleOpenFile(input, fileSelection)
         };
     }
@@ -153,6 +155,31 @@ internal sealed class HomeWorkflow
             _appContext.Navigator.OpenEditMap(
                 searchResult.SelectedResult.MapFilePath,
                 searchResult.SelectedResult.NodeId);
+        }
+
+        return HomeWorkflowResult.Continue;
+    }
+
+    private HomeWorkflowResult HandleTasks(ConsoleInput input)
+    {
+        if (!TaskCommandHelper.TryParseFilter(input.Parameters, out var filter, out var errorMessage))
+            return HomeWorkflowResult.Error(errorMessage!);
+
+        var tasks = TaskQueryService.GetTasks(_appContext.MapRepository, filter);
+        if (!tasks.Any())
+            return HomeWorkflowResult.Error(TaskCommandHelper.BuildEmptyTasksMessage(filter, acrossAllMaps: true));
+
+        var selectedResult = new SearchResultsPage(
+            tasks,
+            TaskCommandHelper.GetTasksTitle(filter, acrossAllMaps: true),
+            includeMapName: true)
+            .SelectResult();
+
+        if (selectedResult != null)
+        {
+            _appContext.Navigator.OpenEditMap(
+                selectedResult.MapFilePath,
+                selectedResult.NodeId);
         }
 
         return HomeWorkflowResult.Continue;

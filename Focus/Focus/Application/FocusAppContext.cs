@@ -1,3 +1,5 @@
+#nullable enable
+
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.DomainServices;
 
@@ -6,13 +8,18 @@ namespace Systems.Sanity.Focus.Application;
 internal sealed class FocusAppContext
 {
     public FocusAppContext(MapsStorage mapsStorage)
+        : this(mapsStorage, navigator: null)
+    {
+    }
+
+    internal FocusAppContext(MapsStorage mapsStorage, IPageNavigator? navigator)
     {
         MapsStorage = mapsStorage;
         StartupSyncNotificationState = new StartupSyncNotificationState();
         LinkIndex = new LinkIndex();
         LinkNavigationService = new LinkNavigationService(LinkIndex);
         MapSelectionService = new MapSelectionService(mapsStorage);
-        Navigator = new PageNavigator(this);
+        Navigator = navigator ?? new PageNavigator(this);
     }
 
     public MapsStorage MapsStorage { get; }

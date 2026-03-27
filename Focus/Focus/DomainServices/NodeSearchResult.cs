@@ -1,4 +1,5 @@
 using System;
+using Systems.Sanity.Focus.Domain;
 
 namespace Systems.Sanity.Focus.DomainServices;
 
@@ -10,7 +11,8 @@ internal sealed record NodeSearchResult(
     string MapName,
     int Score,
     int Depth,
-    string ContextLabel = null)
+    string ContextLabel = null,
+    TaskState TaskState = TaskState.None)
 {
     public string ToDisplayString(bool includeMapName)
     {
@@ -18,7 +20,8 @@ internal sealed record NodeSearchResult(
         var contextSuffix = string.IsNullOrWhiteSpace(ContextLabel)
             ? string.Empty
             : $" [{ContextLabel}]";
+        var displayPath = NodeDisplayHelper.PrefixTaskMarker(NodePath, TaskState);
 
-        return locationPrefix + NodePath + contextSuffix;
+        return locationPrefix + displayPath + contextSuffix;
     }
 }

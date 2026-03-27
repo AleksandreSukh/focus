@@ -58,4 +58,55 @@ public class MindMapTests
         Assert.Single(map.GetChildren());
         Assert.Equal("Sibling", map.GetChildren()[1]);
     }
+
+    [Fact]
+    public void ToggleTaskState_FollowsExpectedTransitions()
+    {
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("Task");
+        Assert.True(map.ChangeCurrentNode("1"));
+
+        Assert.True(map.ToggleTaskState(out var firstToggleError));
+        Assert.Equal(string.Empty, firstToggleError);
+        Assert.Equal(TaskState.Todo, map.GetCurrentNode().TaskState);
+
+        Assert.True(map.ToggleTaskState(out _));
+        Assert.Equal(TaskState.Done, map.GetCurrentNode().TaskState);
+
+        Assert.True(map.SetTaskState(TaskState.Doing, out _));
+        Assert.Equal(TaskState.Doing, map.GetCurrentNode().TaskState);
+
+        Assert.True(map.ToggleTaskState(out _));
+        Assert.Equal(TaskState.Done, map.GetCurrentNode().TaskState);
+    }
+
+    [Fact]
+    public void SetTaskState_RejectsRootAndIdeaTags()
+    {
+        var map = new MindMap("Root");
+
+        var rootResult = map.SetTaskState(TaskState.Todo, out var rootError);
+
+        map.AddIdeaAtCurrentNode("Idea");
+        var ideaResult = map.SetTaskState("1", TaskState.Todo, out var ideaError);
+
+        Assert.False(rootResult);
+        Assert.Equal("Can't change task state for root node", rootError);
+        Assert.False(ideaResult);
+        Assert.Equal("Task mode is not supported for idea tags", ideaError);
+    }
+
+    [Fact]
+    public void DetachCurrentNodeAsNewMap_PreservesTaskState()
+    {
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("Child");
+        Assert.True(map.SetTaskState("1", TaskState.Todo, out _));
+        Assert.True(map.ChangeCurrentNode("1"));
+
+        var detached = map.DetachCurrentNodeAsNewMap();
+
+        Assert.NotNull(detached);
+        Assert.Equal(TaskState.Todo, detached!.RootNode.TaskState);
+    }
 }

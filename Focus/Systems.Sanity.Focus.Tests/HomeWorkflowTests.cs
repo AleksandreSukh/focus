@@ -36,4 +36,32 @@ public class HomeWorkflowTests
         Assert.True(result.ShouldExit);
         Assert.False(result.IsError);
     }
+
+    [Fact]
+    public void Execute_Tasks_OpensSelectedMapAndNode()
+    {
+        var navigator = new RecordingPageNavigator();
+        using var workspace = new TestWorkspace(navigator);
+
+        var alphaMap = new MindMap("Alpha");
+        alphaMap.AddAtCurrentNode("Todo task");
+        Assert.True(alphaMap.SetTaskState("1", TaskState.Todo, out _));
+        workspace.SaveMap("alpha", alphaMap);
+
+        var betaMap = new MindMap("Beta");
+        betaMap.AddAtCurrentNode("Doing task");
+        Assert.True(betaMap.SetTaskState("1", TaskState.Doing, out _));
+        var betaFilePath = workspace.SaveMap("beta", betaMap);
+        var betaTaskId = betaMap.GetNode("1")!.UniqueIdentifier;
+
+        using var consoleScope = new AppConsoleScope(new ScriptedConsoleSession("1"));
+        var workflow = new HomeWorkflow(workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("tasks doing"), workflow.GetFileSelection());
+
+        Assert.False(result.ShouldExit);
+        Assert.False(result.IsError);
+        Assert.Equal(betaFilePath, navigator.OpenedEditMapFilePath);
+        Assert.Equal(betaTaskId, navigator.OpenedEditMapNodeIdentifier);
+    }
 }
