@@ -159,6 +159,25 @@ public class StartupSynchronizationTests
         Assert.Equal("Welcome", notificationState.BuildTitle("Welcome"));
     }
 
+    [Fact]
+    public void GetCurrentTitle_UsesApplicationTitle_WhenNoFileIsOpen()
+    {
+        var notificationState = new StartupSyncNotificationState();
+
+        Assert.Equal(ApplicationInfo.DefaultConsoleTitle, notificationState.GetCurrentTitle());
+    }
+
+    [Fact]
+    public void GetCurrentTitle_UsesApplicationTitleWithUpdateSuffix_WhenNoFileIsOpenAndUpdatesAreAvailable()
+    {
+        var notificationState = new StartupSyncNotificationState();
+        notificationState.ApplyRepositoryUpdates([@"C:\maps\alpha.json"]);
+
+        Assert.Equal(
+            $"{ApplicationInfo.DefaultConsoleTitle} (updates available)",
+            notificationState.GetCurrentTitle());
+    }
+
     private static MapsStorage CreateMapsStorage(string dataFolder, Func<StartupSyncResult> pullLatestAtStartup)
     {
         return new MapsStorage(

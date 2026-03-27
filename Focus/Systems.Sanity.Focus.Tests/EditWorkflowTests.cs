@@ -176,4 +176,50 @@ public class EditWorkflowTests
         Assert.True(result.IsSuccess);
         Assert.Contains("[x] Done task", workflow.BuildScreen());
     }
+
+    [Fact]
+    public void BuildScreen_ShowsGroupedHelpLines()
+    {
+        using var workspace = new TestWorkspace();
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("Child");
+        var filePath = workspace.SaveMap("workflow-map", map);
+
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+        var screen = workflow.BuildScreen();
+
+        Assert.Contains("Go to: ", screen);
+        Assert.Contains("To Do: ", screen);
+        Assert.Contains("Navigate: ", screen);
+    }
+
+    [Fact]
+    public void BuildScreen_OmitsGoToLineWhenThereAreNoChildren()
+    {
+        using var workspace = new TestWorkspace();
+        var filePath = workspace.SaveMap("workflow-map", new MindMap("Root"));
+
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+        var screen = workflow.BuildScreen();
+
+        Assert.DoesNotContain("Go to: ", screen);
+        Assert.Contains("To Do: ", screen);
+    }
+
+    [Fact]
+    public void BuildScreen_KeepsQueuedLinkNoticeAlongsideGroupedHelp()
+    {
+        using var workspace = new TestWorkspace();
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("First");
+        var filePath = workspace.SaveMap("workflow-map", map);
+
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+        Assert.True(workflow.Execute(new ConsoleInput("linkfrom 1")).IsSuccess);
+
+        var screen = workflow.BuildScreen();
+
+        Assert.Contains(":Nodes to be linked>", screen);
+        Assert.Contains("Links: ", screen);
+    }
 }

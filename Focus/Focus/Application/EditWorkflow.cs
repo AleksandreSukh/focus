@@ -100,14 +100,76 @@ internal sealed class EditWorkflow
             screenBuilder.Append($"{messagePrefix} {message}{Environment.NewLine}{Environment.NewLine}");
         }
 
-        screenBuilder.Append($":> {string.Join("; ", GetCommandOptions())}{Environment.NewLine}");
         if (_appContext.LinkIndex.HasQueuedLinkSources)
         {
             screenBuilder.Append(
                 $":Nodes to be linked> {string.Join("; ", _appContext.LinkIndex.QueuedLinkSources.Select(node => node.Name))}{Environment.NewLine}");
         }
 
+        screenBuilder.Append(BuildCommandHelpText());
+
         return screenBuilder.ToString();
+    }
+
+    private string BuildCommandHelpText()
+    {
+        var childNodes = _map.GetChildren()
+            .OrderBy(node => node.Key)
+            .ToArray();
+        var helpGroups = new List<CommandHelpGroup>();
+        if (childNodes.Any())
+        {
+            helpGroups.Add(new CommandHelpGroup(
+                "Go to",
+                childNodes
+                    .Select(node => $"{AccessibleKeyNumbering.GetStringFor(node.Key)}/{node.Key}")
+                    .ToArray()));
+        }
+
+        helpGroups.Add(new CommandHelpGroup("Navigate", new[]
+        {
+            $"{GoToOption} <child>",
+            UpOption,
+            RootOption
+        }));
+        helpGroups.Add(new CommandHelpGroup("Edit", new[]
+        {
+            AddOption,
+            AddIdeaOption,
+            $"{EditOption} [child]",
+            $"{DelOption} [child]",
+            $"{ClearIdeasOption} [child]",
+            $"{SliceOption} [child]",
+            $"{HideOption} <child>",
+            $"{UnhideOption} <child>"
+        }));
+        helpGroups.Add(new CommandHelpGroup("To Do", new[]
+        {
+            $"{TodoOption}/{TodoAliasOption} [child]",
+            $"{DoingOption} [child]",
+            $"{DoneOption}/{DoneAliasOption} [child]",
+            $"{NoTaskOption} [child]",
+            $"{ToggleTaskOption}/{ToggleTaskAliasOption} [child]",
+            $"{TasksOption}/{TasksAliasOption} [todo|doing|done|all]"
+        }));
+        helpGroups.Add(new CommandHelpGroup("Links", new[]
+        {
+            $"{LinkFromOption} <child>",
+            $"{LinkToOption} <child>",
+            OpenLinkOption,
+            BacklinksOption
+        }));
+        helpGroups.Add(new CommandHelpGroup("Search/Export", new[]
+        {
+            $"{SearchOption} <query>",
+            ExportOption
+        }));
+        helpGroups.Add(new CommandHelpGroup("System", new[]
+        {
+            ExitOption
+        }));
+
+        return CommandHelpFormatter.BuildGroupedLines(helpGroups);
     }
 
     public CommandExecutionResult Execute(ConsoleInput input)
