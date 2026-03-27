@@ -8,6 +8,7 @@ internal sealed class FocusAppContext
     public FocusAppContext(MapsStorage mapsStorage)
     {
         MapsStorage = mapsStorage;
+        StartupSyncNotificationState = new StartupSyncNotificationState();
         LinkIndex = new LinkIndex();
         LinkNavigationService = new LinkNavigationService(LinkIndex);
         MapSelectionService = new MapSelectionService(mapsStorage);
@@ -25,6 +26,8 @@ internal sealed class FocusAppContext
     public MapSelectionService MapSelectionService { get; }
 
     public IPageNavigator Navigator { get; }
+
+    public StartupSyncNotificationState StartupSyncNotificationState { get; }
 
     public void RefreshLinkIndex()
     {

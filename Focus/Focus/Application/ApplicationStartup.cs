@@ -1,6 +1,11 @@
+using System;
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.Infrastructure.FileSynchronization;
 using Systems.Sanity.Focus.Pages;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace Systems.Sanity.Focus.Application;
 
@@ -13,24 +18,61 @@ internal static class ApplicationStartup
 
     internal static HomePage CreateHomePage(MapsStorage mapsStorage)
     {
-        var startupSyncResult = mapsStorage.PullLatestAtStartup();
         var appContext = new FocusAppContext(mapsStorage);
-        var startupMessage = BuildStartupMessage(startupSyncResult);
-
-        return new HomePage(
-            appContext,
-            startupMessage,
-            startupSyncResult.Status == StartupSyncStatus.Failed);
+        _ = StartStartupSyncInBackground(appContext);
+        return new HomePage(appContext);
     }
 
-    internal static string BuildStartupMessage(StartupSyncResult startupSyncResult)
+    internal static Task StartStartupSyncInBackground(FocusAppContext appContext)
     {
-        if (startupSyncResult.Status != StartupSyncStatus.Failed)
-            return string.Empty;
-
-        if (string.IsNullOrWhiteSpace(startupSyncResult.ErrorMessage))
-            return "Startup sync failed. Showing local maps.";
-
-        return $"Startup sync failed. Showing local maps. {startupSyncResult.ErrorMessage}";
+        var initialSnapshot = CaptureMapSnapshot(appContext.MapsStorage);
+        return Task.Run(() => RunStartupSync(appContext, initialSnapshot));
     }
+
+    internal static IReadOnlyCollection<string> DetectChangedMapFiles(
+        IReadOnlyDictionary<string, MapFileSnapshot> initialSnapshot,
+        IReadOnlyDictionary<string, MapFileSnapshot> currentSnapshot)
+    {
+        var changedFiles = new List<string>();
+
+        foreach (var filePath in initialSnapshot.Keys.Union(currentSnapshot.Keys, StringComparer.OrdinalIgnoreCase))
+        {
+            if (!initialSnapshot.TryGetValue(filePath, out var initialFile) ||
+                !currentSnapshot.TryGetValue(filePath, out var currentFile) ||
+                initialFile != currentFile)
+            {
+                changedFiles.Add(filePath);
+            }
+        }
+
+        return changedFiles;
+    }
+
+    private static void RunStartupSync(
+        FocusAppContext appContext,
+        IReadOnlyDictionary<string, MapFileSnapshot> initialSnapshot)
+    {
+        var startupSyncResult = appContext.MapsStorage.PullLatestAtStartup();
+        if (startupSyncResult.Status != StartupSyncStatus.Succeeded)
+            return;
+
+        var currentSnapshot = CaptureMapSnapshot(appContext.MapsStorage);
+        var changedFiles = DetectChangedMapFiles(initialSnapshot, currentSnapshot);
+        if (changedFiles.Count == 0)
+            return;
+
+        appContext.StartupSyncNotificationState.ApplyRepositoryUpdates(changedFiles);
+        AppConsole.Current.SetTitle(appContext.StartupSyncNotificationState.GetCurrentTitle());
+    }
+
+    private static IReadOnlyDictionary<string, MapFileSnapshot> CaptureMapSnapshot(MapsStorage mapsStorage)
+    {
+        return mapsStorage.GetAll()
+            .ToDictionary(
+                file => Path.GetFullPath(file.FullName),
+                file => new MapFileSnapshot(file.LastWriteTimeUtc, file.Length),
+                StringComparer.OrdinalIgnoreCase);
+    }
+
+    internal readonly record struct MapFileSnapshot(DateTime LastWriteTimeUtc, long Length);
 }

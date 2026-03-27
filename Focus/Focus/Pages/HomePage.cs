@@ -23,16 +23,14 @@ internal sealed class HomePage : PageWithExclusiveOptions
 
     private static readonly string[] FileOptions = { OptionRen, OptionDel };
 
+    private readonly FocusAppContext _appContext;
     private readonly HomeWorkflow _workflow;
-    private readonly bool _initialBannerIsError;
     private Dictionary<int, FileInfo> _fileSelection = new();
-    private string _initialBannerMessage;
 
-    public HomePage(FocusAppContext appContext, string initialBannerMessage = "", bool initialBannerIsError = false)
+    public HomePage(FocusAppContext appContext)
     {
+        _appContext = appContext;
         _workflow = new HomeWorkflow(appContext);
-        _initialBannerMessage = initialBannerMessage;
-        _initialBannerIsError = initialBannerIsError;
     }
 
     public override void Show()
@@ -42,15 +40,11 @@ internal sealed class HomePage : PageWithExclusiveOptions
         while (!shouldExit)
         {
             AppConsole.Current.Clear();
-            AppConsole.Current.SetTitle("Welcome");
+            AppConsole.Current.SetTitle(_appContext.StartupSyncNotificationState.BuildTitle("Welcome"));
             ColorfulConsole.WriteLine(GetHeaderRibbonString("Welcome"));
 
             _fileSelection = _workflow.GetFileSelection();
-            var initialBanner = ConsumeInitialBannerText();
-            if (!string.IsNullOrWhiteSpace(initialBanner))
-            {
-                ColorfulConsole.Write(initialBanner);
-            }
+            _appContext.StartupSyncNotificationState.AcknowledgeHomePageRefresh();
 
             var input = GetCommand(_workflow.BuildHomePageText(_fileSelection));
 
@@ -65,17 +59,6 @@ internal sealed class HomePage : PageWithExclusiveOptions
 
             shouldExit = result.ShouldExit;
         }
-    }
-
-    internal string ConsumeInitialBannerText()
-    {
-        if (string.IsNullOrWhiteSpace(_initialBannerMessage))
-            return string.Empty;
-
-        var prefix = _initialBannerIsError ? ":!" : ":i";
-        var bannerText = $"{prefix} {_initialBannerMessage}{Environment.NewLine}{Environment.NewLine}";
-        _initialBannerMessage = string.Empty;
-        return bannerText;
     }
 
     protected override string[] GetCommandOptions()

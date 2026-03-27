@@ -1,3 +1,6 @@
+using System.Diagnostics;
+using System.IO;
+using System.Threading;
 using Systems.Sanity.Focus.Application;
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.Infrastructure.FileSynchronization;
@@ -63,57 +66,100 @@ public class StartupSynchronizationTests
     }
 
     [Fact]
-    public void CreateHomePage_ShowsStartupFailureBanner_OnlyOnce()
+    public void CreateHomePage_DoesNotWaitForStartupSyncToFinish()
     {
         using var workspace = new TestWorkspace();
+        using var releasePull = new ManualResetEventSlim(false);
+        using var pullStarted = new ManualResetEventSlim(false);
         var mapsStorage = CreateMapsStorage(
             workspace.RootDirectory,
-            StartupSyncResult.Failed("git pull failed with exit code 1"));
+            () =>
+            {
+                pullStarted.Set();
+                releasePull.Wait(TimeSpan.FromSeconds(5));
+                return StartupSyncResult.Succeeded;
+            });
 
+        var stopwatch = Stopwatch.StartNew();
         var homePage = ApplicationStartup.CreateHomePage(mapsStorage);
-        var firstBanner = homePage.ConsumeInitialBannerText();
-        var secondBanner = homePage.ConsumeInitialBannerText();
+        stopwatch.Stop();
 
-        Assert.Contains("Startup sync failed. Showing local maps.", firstBanner);
-        Assert.Contains("git pull failed", firstBanner);
-        Assert.True(string.IsNullOrWhiteSpace(secondBanner));
-    }
+        Assert.NotNull(homePage);
+        Assert.True(pullStarted.Wait(TimeSpan.FromSeconds(2)));
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(1));
 
-    [Theory]
-    [InlineData(StartupSyncStatus.Skipped)]
-    [InlineData(StartupSyncStatus.Succeeded)]
-    public void CreateHomePage_DoesNotShowStartupBanner_WhenSyncDidNotFail(StartupSyncStatus startupSyncStatus)
-    {
-        using var workspace = new TestWorkspace();
-        var startupSyncResult = startupSyncStatus == StartupSyncStatus.Succeeded
-            ? StartupSyncResult.Succeeded
-            : StartupSyncResult.Skipped;
-        var mapsStorage = CreateMapsStorage(workspace.RootDirectory, startupSyncResult);
-
-        var homePage = ApplicationStartup.CreateHomePage(mapsStorage);
-
-        Assert.True(string.IsNullOrWhiteSpace(homePage.ConsumeInitialBannerText()));
+        releasePull.Set();
     }
 
     [Fact]
-    public void CreateHomePage_InvokesStartupSyncBeforeReturning()
+    public async Task StartStartupSyncInBackground_MarksCurrentFileForReload_WhenCurrentFileChanges()
     {
         using var workspace = new TestWorkspace();
-        var fileSynchronizationHandler = new RecordingFileSynchronizationHandler(StartupSyncResult.Succeeded);
-        var mapsStorage = new MapsStorage(
-            new UserConfig
+        var changedFilePath = workspace.SaveMap("alpha", new MindMap("Alpha"));
+        var mapsStorage = CreateMapsStorage(
+            workspace.RootDirectory,
+            () =>
             {
-                DataFolder = workspace.RootDirectory,
-                GitRepository = string.Empty
-            },
-            fileSynchronizationHandler);
+                File.AppendAllText(changedFilePath, Environment.NewLine);
+                return StartupSyncResult.Succeeded;
+            });
+        var appContext = new FocusAppContext(mapsStorage);
+        appContext.StartupSyncNotificationState.SetCurrentOpenFile(changedFilePath);
 
-        _ = ApplicationStartup.CreateHomePage(mapsStorage);
+        await ApplicationStartup.StartStartupSyncInBackground(appContext);
 
-        Assert.Equal(1, fileSynchronizationHandler.PullLatestAtStartupCallCount);
+        Assert.Equal(
+            $"{Path.GetFileName(changedFilePath)} (update required)",
+            appContext.StartupSyncNotificationState.GetCurrentTitle());
+        Assert.True(appContext.StartupSyncNotificationState.TryConsumeCurrentFileUpdateWarning(
+            changedFilePath,
+            out var warningMessage));
+        Assert.Contains("Return to HomePage and reopen it", warningMessage);
+        Assert.False(appContext.StartupSyncNotificationState.TryConsumeCurrentFileUpdateWarning(
+            changedFilePath,
+            out _));
     }
 
-    private static MapsStorage CreateMapsStorage(string dataFolder, StartupSyncResult startupSyncResult)
+    [Fact]
+    public async Task StartStartupSyncInBackground_SetsUpdatesAvailableTitle_WhenDifferentFileChanges()
+    {
+        using var workspace = new TestWorkspace();
+        var openFilePath = workspace.SaveMap("alpha", new MindMap("Alpha"));
+        var changedFilePath = workspace.SaveMap("beta", new MindMap("Beta"));
+        var mapsStorage = CreateMapsStorage(
+            workspace.RootDirectory,
+            () =>
+            {
+                File.AppendAllText(changedFilePath, Environment.NewLine);
+                return StartupSyncResult.Succeeded;
+            });
+        var appContext = new FocusAppContext(mapsStorage);
+        appContext.StartupSyncNotificationState.SetCurrentOpenFile(openFilePath);
+
+        await ApplicationStartup.StartStartupSyncInBackground(appContext);
+
+        Assert.Equal(
+            $"{Path.GetFileName(openFilePath)} (updates available)",
+            appContext.StartupSyncNotificationState.GetCurrentTitle());
+        Assert.False(appContext.StartupSyncNotificationState.TryConsumeCurrentFileUpdateWarning(
+            openFilePath,
+            out _));
+    }
+
+    [Fact]
+    public void HomePageRefresh_AcknowledgesPendingUpdates()
+    {
+        var notificationState = new StartupSyncNotificationState();
+        notificationState.ApplyRepositoryUpdates([@"C:\maps\alpha.json"]);
+
+        Assert.Equal("Welcome (updates available)", notificationState.BuildTitle("Welcome"));
+
+        notificationState.AcknowledgeHomePageRefresh();
+
+        Assert.Equal("Welcome", notificationState.BuildTitle("Welcome"));
+    }
+
+    private static MapsStorage CreateMapsStorage(string dataFolder, Func<StartupSyncResult> pullLatestAtStartup)
     {
         return new MapsStorage(
             new UserConfig
@@ -121,24 +167,21 @@ public class StartupSynchronizationTests
                 DataFolder = dataFolder,
                 GitRepository = string.Empty
             },
-            new RecordingFileSynchronizationHandler(startupSyncResult));
+            new RecordingFileSynchronizationHandler(pullLatestAtStartup));
     }
 
     private sealed class RecordingFileSynchronizationHandler : IFileSynchronizationHandler
     {
-        private readonly StartupSyncResult _startupSyncResult;
+        private readonly Func<StartupSyncResult> _pullLatestAtStartup;
 
-        public RecordingFileSynchronizationHandler(StartupSyncResult startupSyncResult)
+        public RecordingFileSynchronizationHandler(Func<StartupSyncResult> pullLatestAtStartup)
         {
-            _startupSyncResult = startupSyncResult;
+            _pullLatestAtStartup = pullLatestAtStartup;
         }
-
-        public int PullLatestAtStartupCallCount { get; private set; }
 
         public StartupSyncResult PullLatestAtStartup()
         {
-            PullLatestAtStartupCallCount++;
-            return _startupSyncResult;
+            return _pullLatestAtStartup();
         }
 
         public void Synchronize()

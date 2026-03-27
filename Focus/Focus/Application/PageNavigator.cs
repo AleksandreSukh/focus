@@ -21,6 +21,14 @@ internal sealed class PageNavigator : IPageNavigator
 
     public void OpenEditMap(string filePath, Guid? initialNodeIdentifier = null)
     {
-        new EditMapPage(filePath, _appContext, initialNodeIdentifier).Show();
+        _appContext.StartupSyncNotificationState.SetCurrentOpenFile(filePath);
+        try
+        {
+            new EditMapPage(filePath, _appContext, initialNodeIdentifier).Show();
+        }
+        finally
+        {
+            _appContext.StartupSyncNotificationState.ClearCurrentOpenFile(filePath);
+        }
     }
 }
