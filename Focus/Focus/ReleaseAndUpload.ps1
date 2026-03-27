@@ -423,6 +423,7 @@ function Get-ReleaseSyncPlan
         [Parameter(Mandatory = $true)]
         [System.IO.FileInfo[]]$LocalReleaseFiles,
         [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
         [string[]]$RemoteFileNames
     )
 
@@ -824,6 +825,7 @@ function Invoke-RemoteReleaseChanges
         [Parameter(Mandatory = $true)]
         [System.IO.FileInfo[]]$UploadFiles,
         [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
         [string[]]$DeleteFileNames,
         [ValidateSet("Explicit", "Implicit")]
         [string]$FtpsMode = "Explicit",
