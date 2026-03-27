@@ -15,10 +15,15 @@ namespace Systems.Sanity.Focus.Domain
         private readonly IFileSynchronizationHandler _fileSynchronizationHandler;
 
         public MapsStorage(UserConfig userConfig)
+            : this(userConfig, CreateFileSyncHandler(userConfig.GitRepository))
+        {
+        }
+
+        internal MapsStorage(UserConfig userConfig, IFileSynchronizationHandler fileSynchronizationHandler)
         {
             UserMindMapsDirectory = Path.Combine(userConfig.DataFolder, ConfigurationConstants.MindMapDirectoryName);
             GitRepositoryPath = userConfig.GitRepository;
-            _fileSynchronizationHandler = InitFileSyncHandler(GitRepositoryPath);
+            _fileSynchronizationHandler = fileSynchronizationHandler;
         }
 
         public string UserMindMapsDirectory { get; }
@@ -73,7 +78,12 @@ namespace Systems.Sanity.Focus.Domain
             _fileSynchronizationHandler.Synchronize();
         }
 
-        private IFileSynchronizationHandler InitFileSyncHandler(string gitRepositoryPath)
+        public StartupSyncResult PullLatestAtStartup()
+        {
+            return _fileSynchronizationHandler.PullLatestAtStartup();
+        }
+
+        private static IFileSynchronizationHandler CreateFileSyncHandler(string gitRepositoryPath)
         {
             if (GitHelper.IsRepositoryAvailable(gitRepositoryPath))
             {

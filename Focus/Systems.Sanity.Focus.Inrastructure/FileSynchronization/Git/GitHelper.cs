@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using Systems.Sanity.Focus.Infrastructure.FileSynchronization;
 
 namespace Systems.Sanity.Focus.Infrastructure.FileSynchronization.Git;
 
@@ -10,10 +11,19 @@ public class GitHelper
 
     private readonly object _gitSyncLock = new();
     private readonly string _gitRepositoryPath;
+    private readonly Func<string, bool, bool, string[], (int ExitCode, string StandardOutput, string StandardError)> _executeGitCommand;
 
     public GitHelper(string gitRepositoryPath)
+        : this(gitRepositoryPath, ExecuteGitCommand)
+    {
+    }
+
+    internal GitHelper(
+        string gitRepositoryPath,
+        Func<string, bool, bool, string[], (int ExitCode, string StandardOutput, string StandardError)> executeGitCommand)
     {
         _gitRepositoryPath = gitRepositoryPath;
+        _executeGitCommand = executeGitCommand;
     }
 
     public static bool IsRepositoryAvailable(string gitRepositoryPath)
@@ -41,6 +51,30 @@ public class GitHelper
     public void SynchronizeToRemote()
     {
         RunOnlyOneAtATime(CommitPullAndPush);
+    }
+
+    public StartupSyncResult PullLatestAtStartup()
+    {
+        lock (_gitSyncLock)
+        {
+            var consoleOldTitle = TryGetConsoleTitle();
+
+            try
+            {
+                TrySetConsoleTitle("Syncing (git pull)");
+                RunGitCommand("pull", "--no-rebase", "--quiet");
+                return StartupSyncResult.Succeeded;
+            }
+            catch (Exception e)
+            {
+                return StartupSyncResult.Failed(e.Message);
+            }
+            finally
+            {
+                if (!string.IsNullOrEmpty(consoleOldTitle))
+                    TrySetConsoleTitle(consoleOldTitle);
+            }
+        }
     }
 
     private void CommitPullAndPush()
@@ -91,25 +125,16 @@ public class GitHelper
 
     private bool HasPendingChanges()
     {
-        var result = ExecuteGitCommand(
-            _gitRepositoryPath,
-            captureOutput: true,
-            throwOnFailure: true,
-            "status",
-            "--porcelain");
+        var result = _executeGitCommand(_gitRepositoryPath, true, true, ["status", "--porcelain"]);
         return !string.IsNullOrWhiteSpace(result.StandardOutput);
     }
 
     private void RunGitCommand(params string[] arguments)
     {
-        ExecuteGitCommand(
-            _gitRepositoryPath,
-            captureOutput: false,
-            throwOnFailure: true,
-            arguments);
+        _executeGitCommand(_gitRepositoryPath, false, true, arguments);
     }
 
-    private static GitCommandResult ExecuteGitCommand(
+    private static (int ExitCode, string StandardOutput, string StandardError) ExecuteGitCommand(
         string workingDirectory,
         bool captureOutput,
         bool throwOnFailure,
@@ -149,7 +174,7 @@ public class GitHelper
 
             process.WaitForExit();
 
-            var result = new GitCommandResult(process.ExitCode, standardOutput, standardError);
+            var result = (process.ExitCode, standardOutput, standardError);
             if (throwOnFailure && result.ExitCode != 0)
                 throw CreateCommandException(arguments, result);
 
@@ -163,7 +188,9 @@ public class GitHelper
         }
     }
 
-    private static InvalidOperationException CreateCommandException(string[] arguments, GitCommandResult result)
+    private static InvalidOperationException CreateCommandException(
+        string[] arguments,
+        (int ExitCode, string StandardOutput, string StandardError) result)
     {
         var errorMessage = string.IsNullOrWhiteSpace(result.StandardError)
             ? result.StandardOutput.Trim()
@@ -217,6 +244,4 @@ public class GitHelper
         {
         }
     }
-
-    private readonly record struct GitCommandResult(int ExitCode, string StandardOutput, string StandardError);
 }

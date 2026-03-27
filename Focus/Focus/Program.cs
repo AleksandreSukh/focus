@@ -31,9 +31,7 @@ internal static class Program
         var configFile = Path.Combine(userDirectory, "focus-config.json");
 
         var userConfig = ParseUserConfig(configFile);
-        var mapsStorage = new MapsStorage(userConfig);
-        var appContext = new FocusAppContext(mapsStorage);
-        var startPage = new HomePage(appContext);
+        var startPage = ApplicationStartup.CreateHomePage(userConfig);
         startPage.Show();
     }
 

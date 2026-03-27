@@ -3,4 +3,6 @@
 public interface IFileSynchronizationHandler
 {
     void Synchronize();
+
+    StartupSyncResult PullLatestAtStartup();
 }

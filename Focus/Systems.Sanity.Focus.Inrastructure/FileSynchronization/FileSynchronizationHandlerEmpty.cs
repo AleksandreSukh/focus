@@ -6,4 +6,9 @@ public class FileSynchronizationHandlerEmpty : IFileSynchronizationHandler
     {
         // Git synchronization is unavailable for the current configuration.
     }
+
+    public StartupSyncResult PullLatestAtStartup()
+    {
+        return StartupSyncResult.Skipped;
+    }
 }
