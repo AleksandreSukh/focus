@@ -22,7 +22,8 @@ namespace Systems.Sanity.Focus.Infrastructure.Input.ReadLine
             string @default = "",
             Action<string>? beforeEachSuggestionWordWrite = null,
             Action<string>? afterEachSuggestionWordWrite = null,
-            Func<ConsoleKeyInfo, string, bool>? previewKeyHandler = null)
+            Func<ConsoleKeyInfo, string, bool>? previewKeyHandler = null,
+            ConsoleKeyInfo? initialKeyInfo = null)
         {
             Console.Write(prompt);
             KeyHandler keyHandler = new KeyHandler(
@@ -32,7 +33,7 @@ namespace Systems.Sanity.Focus.Infrastructure.Input.ReadLine
                 beforeEachSuggestionWordWrite,
                 afterEachSuggestionWordWrite,
                 previewKeyHandler);
-            string text = GetText(keyHandler);
+            string text = GetText(keyHandler, initialKeyInfo);
 
             if (string.IsNullOrWhiteSpace(text) && !string.IsNullOrWhiteSpace(@default))
             {
@@ -54,8 +55,13 @@ namespace Systems.Sanity.Focus.Infrastructure.Input.ReadLine
             return GetText(keyHandler);
         }
 
-        private static string GetText(KeyHandler keyHandler)
+        private static string GetText(KeyHandler keyHandler, ConsoleKeyInfo? initialKeyInfo = null)
         {
+            if (initialKeyInfo.HasValue && initialKeyInfo.Value.Key != ConsoleKey.Enter)
+            {
+                keyHandler.Handle(initialKeyInfo.Value);
+            }
+
             ConsoleKeyInfo keyInfo = Console.ReadKey(true);
             while (keyInfo.Key != ConsoleKey.Enter)
             {

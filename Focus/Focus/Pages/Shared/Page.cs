@@ -33,19 +33,32 @@ namespace Systems.Sanity.Focus.Pages.Shared
 
         public abstract void Show();
 
-        protected ConsoleInput GetInput(string prompt = "", string defaultInput = null)
+        protected ConsoleInput GetInput(
+            string prompt = "",
+            string defaultInput = null,
+            ConsoleKeyInfo? initialKeyInfo = null)
         {
             ColorfulConsole.WriteLine(prompt);
             prompt = string.Empty;
             if (defaultInput != null)
             {
                 return new(AppConsole.Current.CommandLineEditor
-                    .Read(prompt, defaultInput, BeforeEachAutoComplete, AfterEachAutoComplete)
+                    .Read(
+                        prompt,
+                        defaultInput,
+                        BeforeEachAutoComplete,
+                        AfterEachAutoComplete,
+                        initialKeyInfo: initialKeyInfo)
                     .Trim());
             }
 
             return new(AppConsole.Current.CommandLineEditor
-                .Read(prompt, "", BeforeEachAutoComplete, AfterEachAutoComplete)
+                .Read(
+                    prompt,
+                    "",
+                    BeforeEachAutoComplete,
+                    AfterEachAutoComplete,
+                    initialKeyInfo: initialKeyInfo)
                 .Trim());
         }
 

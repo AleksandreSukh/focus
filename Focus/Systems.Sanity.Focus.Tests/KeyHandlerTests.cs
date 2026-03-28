@@ -78,6 +78,17 @@ public class KeyHandlerTests
         Assert.Equal(string.Empty, handler.Text);
     }
 
+    [Fact]
+    public void Handle_SeededPrintableKeyBehavesLikeNormalTypedInput()
+    {
+        var handler = new KeyHandler(new FakeConsole(), new List<string>(), autoCompleteHandler: null);
+
+        handler.Handle(Key('x'));
+        handler.Handle(Key('y'));
+
+        Assert.Equal("xy", handler.Text);
+    }
+
     private static ConsoleKeyInfo Key(char character) => new(character, 0, false, false, false);
 
     private static ConsoleKeyInfo Special(ConsoleKey key) => new('\0', key, false, false, false);

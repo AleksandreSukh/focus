@@ -23,10 +23,11 @@ internal sealed class AppConsoleScope : IDisposable
 
 internal sealed class ScriptedConsoleSession : IConsoleAppSession
 {
+    private readonly Queue<ConsoleKeyInfo> _readKeys;
     private readonly int _windowWidth;
 
     public ScriptedConsoleSession(params string[] inputs)
-        : this(new ScriptedCommandLineEditor(inputs), 120)
+        : this(new ScriptedCommandLineEditor(inputs), windowWidth: 120)
     {
     }
 
@@ -35,9 +36,13 @@ internal sealed class ScriptedConsoleSession : IConsoleAppSession
     {
     }
 
-    public ScriptedConsoleSession(ICommandLineEditor commandLineEditor, int windowWidth = 120)
+    public ScriptedConsoleSession(
+        ICommandLineEditor commandLineEditor,
+        int windowWidth = 120,
+        IEnumerable<ConsoleKeyInfo>? readKeys = null)
     {
         _windowWidth = windowWidth;
+        _readKeys = new Queue<ConsoleKeyInfo>(readKeys ?? Array.Empty<ConsoleKeyInfo>());
         CommandLineEditor = commandLineEditor;
     }
 
@@ -66,7 +71,9 @@ internal sealed class ScriptedConsoleSession : IConsoleAppSession
     }
 
     public ConsoleKeyInfo ReadKey(bool intercept = true) =>
-        new('\r', ConsoleKey.Enter, shift: false, alt: false, control: false);
+        _readKeys.Count > 0
+            ? _readKeys.Dequeue()
+            : new('\r', ConsoleKey.Enter, shift: false, alt: false, control: false);
 
     public void Beep()
     {
@@ -116,7 +123,8 @@ internal sealed class ScriptedCommandLineEditor : ICommandLineEditor
         string defaultInput = "",
         Action<string>? beforeEachAutoCompleteSuggestionWrite = null,
         Action<string>? afterEachAutoCompleteSuggestionWrite = null,
-        Func<ConsoleKeyInfo, string, bool>? previewKeyHandler = null)
+        Func<ConsoleKeyInfo, string, bool>? previewKeyHandler = null,
+        ConsoleKeyInfo? initialKeyInfo = null)
     {
         return _inputs.Count > 0
             ? _inputs.Dequeue()
@@ -152,7 +160,8 @@ internal sealed class PreviewKeyCommandLineEditor : ICommandLineEditor
         string defaultInput = "",
         Action<string>? beforeEachAutoCompleteSuggestionWrite = null,
         Action<string>? afterEachAutoCompleteSuggestionWrite = null,
-        Func<ConsoleKeyInfo, string, bool>? previewKeyHandler = null)
+        Func<ConsoleKeyInfo, string, bool>? previewKeyHandler = null,
+        ConsoleKeyInfo? initialKeyInfo = null)
     {
         PreviewKeyHandled = previewKeyHandler?.Invoke(_previewKeyInfo, _currentText) == true;
         return _input;
@@ -215,4 +224,42 @@ internal sealed class RecordingClipboardCommandRunner : IClipboardCommandRunner
         Calls.Add((fileName, arguments, outputFilePath));
         return _responses.Dequeue().Invoke(fileName, arguments, outputFilePath);
     }
+}
+
+internal sealed class InitialKeyAwareCommandLineEditor : ICommandLineEditor
+{
+    private readonly Queue<string> _typedInputSuffixes;
+
+    public InitialKeyAwareCommandLineEditor(IEnumerable<string> typedInputSuffixes)
+    {
+        _typedInputSuffixes = new Queue<string>(typedInputSuffixes);
+    }
+
+    public bool HistoryEnabled { get; set; }
+
+    public List<ConsoleKeyInfo?> ReceivedInitialKeys { get; } = new();
+
+    public void SetAutoCompletionHandler(IAutoCompleteHandler handler)
+    {
+    }
+
+    public string Read(
+        string prompt,
+        string defaultInput = "",
+        Action<string>? beforeEachAutoCompleteSuggestionWrite = null,
+        Action<string>? afterEachAutoCompleteSuggestionWrite = null,
+        Func<ConsoleKeyInfo, string, bool>? previewKeyHandler = null,
+        ConsoleKeyInfo? initialKeyInfo = null)
+    {
+        ReceivedInitialKeys.Add(initialKeyInfo);
+        var typedSuffix = _typedInputSuffixes.Count > 0
+            ? _typedInputSuffixes.Dequeue()
+            : string.Empty;
+
+        return initialKeyInfo.HasValue
+            ? $"{initialKeyInfo.Value.KeyChar}{typedSuffix}"
+            : typedSuffix;
+    }
+
+    public IReadOnlyList<string> GetHistory() => Array.Empty<string>();
 }

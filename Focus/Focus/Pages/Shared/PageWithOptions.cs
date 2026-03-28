@@ -20,14 +20,19 @@ namespace Systems.Sanity.Focus.Pages.Shared
 
         protected ConsoleInput GetCommand(string prompt = "")
         {
+            ConsoleKeyInfo? pendingInitialKeyInfo = null;
+
             while (true)
             {
-                var input = GetInput(prompt);
+                var input = GetInput(prompt, initialKeyInfo: pendingInitialKeyInfo);
+                pendingInitialKeyInfo = null;
                 if (IsValidOption(input.FirstWord))
                     return input;
 
                 ColorfulConsole.WriteLine(BuildInputErrorMessageDialogText(GetCommandOptions().WithLocalizations()));
-                AppConsole.Current.ReadKey();
+                var dismissKeyInfo = AppConsole.Current.ReadKey();
+                if (ShouldReplayDismissKey(dismissKeyInfo))
+                    pendingInitialKeyInfo = dismissKeyInfo;
             }
         }
 
@@ -49,6 +54,14 @@ namespace Systems.Sanity.Focus.Pages.Shared
             messageBuilder.AppendLineCentered("Press any key to continue");
             messageBuilder.AppendLine();
             return messageBuilder.ToString();
+        }
+
+        private static bool ShouldReplayDismissKey(ConsoleKeyInfo keyInfo)
+        {
+            return keyInfo.KeyChar != default
+                   && !char.IsControl(keyInfo.KeyChar)
+                   && !char.IsWhiteSpace(keyInfo.KeyChar)
+                   && (keyInfo.Modifiers & (ConsoleModifiers.Control | ConsoleModifiers.Alt)) == 0;
         }
     }
 }
