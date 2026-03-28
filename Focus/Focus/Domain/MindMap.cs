@@ -23,7 +23,9 @@ namespace Systems.Sanity.Focus.Domain
 
         public MindMap(Node nodeToCopyFrom)
         {
-            var node = JsonConvert.DeserializeObject<Node>(JsonConvert.SerializeObject(nodeToCopyFrom))!;
+            var node = JsonConvert.DeserializeObject<Node>(
+                JsonConvert.SerializeObject(nodeToCopyFrom, JsonSerialization.CreateDefaultSettings()),
+                JsonSerialization.CreateDefaultSettings())!;
             node.Number = 1;
             RootNode = node;
             _currentNode = RootNode;
@@ -33,16 +35,22 @@ namespace Systems.Sanity.Focus.Domain
 
         public override string ToString()
         {
-            return JsonConvert.SerializeObject(this);
+            return JsonConvert.SerializeObject(this, JsonSerialization.CreateDefaultSettings());
         }
 
-        public void AddAtCurrentNode(string input) => _currentNode.Add(input);
+        public Node AddAtCurrentNode(
+            string input,
+            string source = NodeMetadataSources.Manual,
+            string? device = null) => _currentNode.Add(input, NodeType.TextItem, source, device);
 
-        public void AddIdeaAtCurrentNode(string input) => _currentNode.Add(input, NodeType.IdeaBagItem);
+        public Node AddIdeaAtCurrentNode(
+            string input,
+            string source = NodeMetadataSources.Manual,
+            string? device = null) => _currentNode.Add(input, NodeType.IdeaBagItem, source, device);
 
         public void EditCurrentNode(string newString) => _currentNode.EditNode(newString);
 
-        public void LoadAtCurrentNode(MindMap anotherMap) => _currentNode.Add(anotherMap.RootNode);
+        public Node LoadAtCurrentNode(MindMap anotherMap) => _currentNode.Add(anotherMap.RootNode);
 
         public void LinkToCurrentNode(
             Node linkedNode,
@@ -232,6 +240,7 @@ namespace Systems.Sanity.Focus.Domain
             }
 
             nodeToClear.RenumberChildNodes();
+            nodeToClear.TouchMetadata();
             return true;
         }
 
@@ -242,6 +251,8 @@ namespace Systems.Sanity.Focus.Domain
 
             var removeResult = parentNode.Children.Remove(nodeToDelete);
             parentNode.RenumberChildNodes();
+            if (removeResult)
+                parentNode.TouchMetadata();
             return removeResult;
         }
 
@@ -272,6 +283,7 @@ namespace Systems.Sanity.Focus.Domain
             }
 
             node.TaskState = taskState;
+            node.TouchMetadata();
             errorMessage = string.Empty;
             return true;
         }

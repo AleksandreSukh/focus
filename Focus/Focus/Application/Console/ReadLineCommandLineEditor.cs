@@ -20,13 +20,15 @@ internal sealed class ReadLineCommandLineEditor : ICommandLineEditor
         string prompt,
         string defaultInput = "",
         Action<string>? beforeEachAutoCompleteSuggestionWrite = null,
-        Action<string>? afterEachAutoCompleteSuggestionWrite = null)
+        Action<string>? afterEachAutoCompleteSuggestionWrite = null,
+        Func<ConsoleKeyInfo, string, bool>? previewKeyHandler = null)
     {
         return ReadLine.Read(
             prompt,
             defaultInput,
             beforeEachAutoCompleteSuggestionWrite,
-            afterEachAutoCompleteSuggestionWrite);
+            afterEachAutoCompleteSuggestionWrite,
+            previewKeyHandler);
     }
 
     public void SetAutoCompletionHandler(IAutoCompleteHandler handler)

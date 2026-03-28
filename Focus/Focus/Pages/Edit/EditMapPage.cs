@@ -14,6 +14,7 @@ internal sealed class EditMapPage : PageWithSuggestedOptions
     private readonly FocusAppContext _appContext;
     private readonly string _filePath;
     private readonly EditWorkflow _workflow;
+    private bool _showCommands = true;
 
     public EditMapPage(string filePath, FocusAppContext appContext, Guid? initialNodeIdentifier = null)
     {
@@ -33,13 +34,9 @@ internal sealed class EditMapPage : PageWithSuggestedOptions
             if (ShouldReturnToHomePageForUpdatedFile())
                 return;
 
-            AppConsole.Current.SetTitle(
-                _appContext.StartupSyncNotificationState.BuildTitle(_workflow.FileTitle, _filePath));
-            AppConsole.Current.Clear();
-            AppConsole.Current.ClearScrollback();
-            ColorfulConsole.Write(_workflow.BuildScreen(message, isError));
+            RenderScreen(message, isError);
 
-            var commandResult = _workflow.Execute(GetCommand());
+            var commandResult = _workflow.Execute(ReadCommand(() => RenderScreen(message, isError)));
             shouldExit = commandResult.ShouldExit;
             if (shouldExit)
                 continue;
@@ -59,6 +56,39 @@ internal sealed class EditMapPage : PageWithSuggestedOptions
                 isError = true;
             }
         }
+    }
+
+    private void RenderScreen(string? message, bool isError)
+    {
+        AppConsole.Current.SetTitle(
+            _appContext.StartupSyncNotificationState.BuildTitle(_workflow.FileTitle, _filePath));
+        AppConsole.Current.Clear();
+        AppConsole.Current.ClearScrollback();
+        ColorfulConsole.Write(_workflow.BuildScreen(message, isError, _showCommands));
+    }
+
+    private ConsoleInput ReadCommand(Action rerender)
+    {
+        ColorfulConsole.WriteLine(string.Empty);
+        return new ConsoleInput(AppConsole.Current.CommandLineEditor
+            .Read(
+                string.Empty,
+                string.Empty,
+                BeforeEachAutoComplete,
+                AfterEachAutoComplete,
+                (keyInfo, currentText) => HandlePreviewKey(keyInfo, currentText, rerender))
+            .Trim());
+    }
+
+    private bool HandlePreviewKey(ConsoleKeyInfo keyInfo, string currentText, Action rerender)
+    {
+        if (!string.IsNullOrEmpty(currentText) || keyInfo.KeyChar != '~')
+            return false;
+
+        _showCommands = !_showCommands;
+        rerender();
+        ColorfulConsole.WriteLine(string.Empty);
+        return true;
     }
 
     private bool ShouldReturnToHomePageForUpdatedFile()

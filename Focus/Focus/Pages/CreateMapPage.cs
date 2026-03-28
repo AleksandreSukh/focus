@@ -12,12 +12,14 @@ internal sealed class CreateMapPage : Page
     private readonly FocusAppContext _appContext;
     private readonly string _fileName;
     private readonly MindMap _mindMap;
+    private readonly string? _sourceMapFilePath;
 
-    public CreateMapPage(FocusAppContext appContext, string fileName, MindMap mindMap)
+    public CreateMapPage(FocusAppContext appContext, string fileName, MindMap mindMap, string? sourceMapFilePath = null)
     {
         _appContext = appContext;
         _fileName = fileName.Trim().Trim('\0');
         _mindMap = mindMap;
+        _sourceMapFilePath = sourceMapFilePath;
     }
 
     public override void Show()
@@ -30,6 +32,14 @@ internal sealed class CreateMapPage : Page
             _fileName,
             filePath =>
             {
+                if (!string.IsNullOrWhiteSpace(_sourceMapFilePath))
+                {
+                    _appContext.MapsStorage.AttachmentStore.MoveReferencedAttachments(
+                        _mindMap.RootNode,
+                        _sourceMapFilePath,
+                        filePath);
+                }
+
                 _appContext.MapRepository.SaveMap(filePath, _mindMap);
                 filePathDetermined = filePath;
             }).Show();

@@ -1,3 +1,5 @@
+#nullable enable
+
 using System;
 using System.Collections.Generic;
 using Systems.Sanity.Focus.Domain;
@@ -6,15 +8,25 @@ namespace Systems.Sanity.Focus.DomainServices;
 
 internal static class MapNormalizer
 {
-    public static MapNormalizationResult Normalize(MindMap map, ISet<Guid> usedIdentifiers = null)
+    public static MapNormalizationResult Normalize(
+        MindMap map,
+        ISet<Guid>? usedIdentifiers = null,
+        DateTimeOffset? legacyTimestampUtc = null)
     {
         usedIdentifiers ??= new HashSet<Guid>();
+        legacyTimestampUtc ??= DateTimeOffset.UtcNow;
 
         var normalizationResult = new MapNormalizationResult();
         var remappedIdentifiers = new Dictionary<Guid, Guid>();
         var currentNodeIdentifier = map.GetCurrentNodeIdentifier();
 
-        NormalizeNode(map.RootNode, null, usedIdentifiers, remappedIdentifiers, normalizationResult);
+        NormalizeNode(
+            map.RootNode,
+            null,
+            usedIdentifiers,
+            remappedIdentifiers,
+            normalizationResult,
+            legacyTimestampUtc.Value.ToUniversalTime());
         RewriteLinkTargets(map.RootNode, remappedIdentifiers, normalizationResult);
 
         if (currentNodeIdentifier.HasValue &&
@@ -33,10 +45,11 @@ internal static class MapNormalizer
 
     private static void NormalizeNode(
         Node node,
-        Node parentNode,
+        Node? parentNode,
         ISet<Guid> usedIdentifiers,
         IDictionary<Guid, Guid> remappedIdentifiers,
-        MapNormalizationResult normalizationResult)
+        MapNormalizationResult normalizationResult,
+        DateTimeOffset legacyTimestampUtc)
     {
         node.SetParent(parentNode);
 
@@ -59,9 +72,21 @@ internal static class MapNormalizer
             normalizationResult.RepairedDuplicateIdentifiersCount++;
         }
 
+        if (node.Metadata == null)
+        {
+            node.BackfillMetadata(legacyTimestampUtc, NodeMetadataSources.LegacyImport);
+            normalizationResult.BackfilledMetadataCount++;
+        }
+
         foreach (var childNode in node.Children)
         {
-            NormalizeNode(childNode, node, usedIdentifiers, remappedIdentifiers, normalizationResult);
+            NormalizeNode(
+                childNode,
+                node,
+                usedIdentifiers,
+                remappedIdentifiers,
+                normalizationResult,
+                legacyTimestampUtc);
         }
     }
 

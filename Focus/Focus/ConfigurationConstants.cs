@@ -8,6 +8,7 @@ public class ConfigurationConstants
     public const string RequiredFileNameExtension = ".json";
     public const string MarkdownFileNameExtension = ".md";
     public const string HtmlFileNameExtension = ".html";
+    public const string AttachmentDirectorySuffix = "_attachments";
     public static class NodePrinting
     {
         public const string LeftBorder = "| ";

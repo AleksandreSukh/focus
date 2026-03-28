@@ -64,6 +64,20 @@ public class KeyHandlerTests
         Assert.Equal("attach", handler.Text);
     }
 
+    [Fact]
+    public void Handle_PreviewKeyHandlerCanConsumeInputWithoutWritingCharacter()
+    {
+        var handler = new KeyHandler(
+            new FakeConsole(),
+            new List<string>(),
+            autoCompleteHandler: null,
+            previewKeyHandler: (keyInfo, currentText) => keyInfo.KeyChar == '~' && currentText.Length == 0);
+
+        handler.Handle(Key('~'));
+
+        Assert.Equal(string.Empty, handler.Text);
+    }
+
     private static ConsoleKeyInfo Key(char character) => new(character, 0, false, false, false);
 
     private static ConsoleKeyInfo Special(ConsoleKey key) => new('\0', key, false, false, false);

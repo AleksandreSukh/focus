@@ -24,14 +24,18 @@ namespace Systems.Sanity.Focus.Domain
             UserMindMapsDirectory = Path.Combine(userConfig.DataFolder, ConfigurationConstants.MindMapDirectoryName);
             GitRepositoryPath = userConfig.GitRepository;
             _fileSynchronizationHandler = fileSynchronizationHandler;
+            AttachmentStore = new MapAttachmentStore();
         }
 
         public string UserMindMapsDirectory { get; }
 
         public string GitRepositoryPath { get; }
 
+        internal MapAttachmentStore AttachmentStore { get; }
+
         public void DeleteMap(FileInfo file)
         {
+            AttachmentStore.DeleteAttachmentDirectory(file.FullName);
             file.Delete();
         }
 
@@ -61,6 +65,7 @@ namespace Systems.Sanity.Focus.Domain
         public void MoveMap(string existingFilePath, string newFilePath)
         {
             File.Move(existingFilePath, newFilePath);
+            AttachmentStore.RenameAttachmentDirectory(existingFilePath, newFilePath);
         }
 
         public MindMap OpenMap(string filePath, ISet<Guid>? usedIdentifiers = null)

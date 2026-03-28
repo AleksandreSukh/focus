@@ -49,6 +49,9 @@ internal sealed class EditWorkflow
     private const string ToggleTaskAliasOption = "tg";
     private const string TasksOption = "tasks";
     private const string TasksAliasOption = "ts";
+    private const string CaptureOption = "capture";
+    private const string MetaOption = "meta";
+    private const string AttachmentsOption = "attachments";
     private const string ExportOption = "export";
     private const string ExitOption = "exit";
 
@@ -69,7 +72,9 @@ internal sealed class EditWorkflow
         DoneAliasOption,
         NoTaskOption,
         ToggleTaskOption,
-        ToggleTaskAliasOption
+        ToggleTaskAliasOption,
+        MetaOption,
+        AttachmentsOption
     };
 
     private readonly FocusAppContext _appContext;
@@ -90,7 +95,7 @@ internal sealed class EditWorkflow
 
     public string FileTitle => Path.GetFileName(_filePath) ?? string.Empty;
 
-    public string BuildScreen(string? message = null, bool isError = false)
+    public string BuildScreen(string? message = null, bool isError = false, bool showCommands = true)
     {
         var screenBuilder = new StringBuilder(BuildCurrentSubtreeString());
 
@@ -106,7 +111,14 @@ internal sealed class EditWorkflow
                 $":Nodes to be linked> {string.Join("; ", _appContext.LinkIndex.QueuedLinkSources.Select(node => node.Name))}{Environment.NewLine}");
         }
 
-        screenBuilder.Append(BuildCommandHelpText());
+        if (showCommands)
+        {
+            screenBuilder.Append(BuildCommandHelpText());
+        }
+        else
+        {
+            screenBuilder.Append($":i Commands hidden. Press \"~\" to show.{Environment.NewLine}");
+        }
 
         return screenBuilder.ToString();
     }
@@ -139,7 +151,8 @@ internal sealed class EditWorkflow
             $"{ClearIdeasOption} [child]",
             $"{SliceOption} [child]",
             $"{HideOption} <child>",
-            $"{UnhideOption} <child>"
+            $"{UnhideOption} <child>",
+            CaptureOption
         }));
         helpGroups.Add(new CommandHelpGroup("To Do", new[]
         {
@@ -160,7 +173,9 @@ internal sealed class EditWorkflow
         helpGroups.Add(new CommandHelpGroup("Search/Export", new[]
         {
             $"{SearchOption} <query>",
-            ExportOption
+            ExportOption,
+            $"{MetaOption} [child]",
+            $"{AttachmentsOption} [child]"
         }));
         helpGroups.Add(new CommandHelpGroup("System", new[]
         {
@@ -226,6 +241,9 @@ internal sealed class EditWorkflow
             NoTaskOption => ProcessSetTaskState(parameters, TaskState.None),
             ToggleTaskOption or ToggleTaskAliasOption => ProcessToggleTaskState(parameters),
             TasksOption or TasksAliasOption => ProcessTasks(parameters),
+            CaptureOption => ProcessCapture(),
+            MetaOption => ProcessMeta(parameters),
+            AttachmentsOption => ProcessAttachments(parameters),
             ExportOption => ProcessExport(),
             GoToOption => ProcessGoTo(parameters),
             DelOption => ProcessCommandDel(parameters),
@@ -297,6 +315,9 @@ internal sealed class EditWorkflow
                 ToggleTaskAliasOption,
                 TasksOption,
                 TasksAliasOption,
+                CaptureOption,
+                MetaOption,
+                AttachmentsOption,
                 ExportOption,
                 ExitOption,
                 GoToOption,
@@ -346,11 +367,38 @@ internal sealed class EditWorkflow
 
     private CommandExecutionResult ProcessAttach()
     {
-        var attachMode = new AttachMode(_map, _appContext);
+        var attachMode = new AttachMode(_map, _appContext, _filePath);
         attachMode.Show();
         return attachMode.DidAttachMap
             ? PersistMapChange("Attach map", relation: "into")
             : CommandExecutionResult.Success();
+    }
+
+    private CommandExecutionResult ProcessAttachments(string parameters)
+    {
+        if (!TryResolveNodeForMetadataCommand(parameters, out var node, out var errorMessage))
+            return CommandExecutionResult.Error(errorMessage!);
+
+        var attachments = node!.Metadata?.Attachments ?? new List<NodeAttachment>();
+        if (attachments.Count == 0)
+            return CommandExecutionResult.Error("Selected node has no attachments");
+
+        var selectedAttachment = new AttachmentSelectionPage(
+            attachments,
+            $"Attachments for {node.Name.GetContentPeek()}")
+            .SelectAttachment();
+        if (selectedAttachment == null)
+            return CommandExecutionResult.Success();
+
+        var attachmentPath = _appContext.MapsStorage.AttachmentStore.ResolveAttachmentPath(
+            _filePath,
+            selectedAttachment.RelativePath);
+        if (!File.Exists(attachmentPath))
+            return CommandExecutionResult.Error($"Attachment \"{selectedAttachment.DisplayName}\" is missing");
+
+        return _appContext.FileOpener.TryOpen(attachmentPath, out var openErrorMessage)
+            ? CommandExecutionResult.Success($"Opened attachment \"{selectedAttachment.DisplayName}\"")
+            : CommandExecutionResult.Error(openErrorMessage ?? "The attachment could not be opened.");
     }
 
     private CommandExecutionResult ProcessBacklinks()
@@ -440,7 +488,7 @@ internal sealed class EditWorkflow
             if (detachedMap == null)
                 return CommandExecutionResult.Error("Can't detach root node");
 
-            _appContext.Navigator.OpenCreateMap(detachedMap.RootNode.Name, detachedMap);
+            _appContext.Navigator.OpenCreateMap(detachedMap.RootNode.Name, detachedMap, _filePath);
             return PersistMapChange("Detach node", relation: "from");
         }
 
@@ -451,7 +499,7 @@ internal sealed class EditWorkflow
         if (mapToDetach == null)
             return CommandExecutionResult.Error($"Couldn't detach \"{parameters}\"");
 
-        _appContext.Navigator.OpenCreateMap(mapToDetach.RootNode.Name, mapToDetach);
+        _appContext.Navigator.OpenCreateMap(mapToDetach.RootNode.Name, mapToDetach, _filePath);
         return PersistMapChange("Detach node", relation: "from");
     }
 
@@ -523,6 +571,37 @@ internal sealed class EditWorkflow
         return parameters == GoToOptionSubOptionUp
             ? ProcessCommandGoUp()
             : ProcessCommandGoToChild(parameters);
+    }
+
+    private CommandExecutionResult ProcessCapture()
+    {
+        var captureResult = _appContext.ClipboardCaptureService.Capture();
+        if (!captureResult.IsSuccess)
+            return CommandExecutionResult.Error(captureResult.ErrorMessage ?? "Clipboard capture failed");
+
+        if (captureResult.Kind == ClipboardCaptureKind.Image)
+        {
+            var timestampUtc = DateTimeOffset.UtcNow;
+            var nodeName = $"Screenshot {timestampUtc:yyyy-MM-dd HH:mm}";
+            var attachment = _appContext.MapsStorage.AttachmentStore.SavePngAttachment(
+                _filePath,
+                captureResult.ImageBytes ?? Array.Empty<byte>(),
+                $"{nodeName}.png",
+                timestampUtc);
+            var node = _map.AddAtCurrentNode(nodeName, NodeMetadataSources.ClipboardImage);
+            node.AddAttachment(attachment, timestampUtc);
+
+            return PersistMapChange(
+                "Capture clipboard",
+                message: $"Captured clipboard image into \"{nodeName}\"");
+        }
+
+        var addedNode = _map.AddAtCurrentNode(
+            captureResult.Text ?? string.Empty,
+            NodeMetadataSources.ClipboardText);
+        return PersistMapChange(
+            "Capture clipboard",
+            message: $"Captured clipboard text into \"{addedNode.Name.GetContentPeek()}\"");
     }
 
     private CommandExecutionResult ProcessGoToChildOrAddCommandBasedOnTheContent(string command, ConsoleInput input)
@@ -657,6 +736,16 @@ internal sealed class EditWorkflow
             : CommandExecutionResult.Error($"Can't find \"{parameters}\"");
     }
 
+    private CommandExecutionResult ProcessMeta(string parameters)
+    {
+        if (!TryResolveNodeForMetadataCommand(parameters, out var node, out var errorMessage))
+            return CommandExecutionResult.Error(errorMessage!);
+
+        var resolvedNode = node!;
+        new NodeMetadataPage(resolvedNode, $"Metadata for {resolvedNode.Name.GetContentPeek()}").Show();
+        return CommandExecutionResult.Success();
+    }
+
     private CommandExecutionResult ProcessTasks(string parameters)
     {
         if (!TaskCommandHelper.TryParseFilter(parameters, out var filter, out var errorMessage))
@@ -699,6 +788,22 @@ internal sealed class EditWorkflow
         format == ExportFormat.Html
             ? BuildMapCommitMessage("Export HTML", "from")
             : BuildMapCommitMessage("Export markdown", "from");
+
+    private bool TryResolveNodeForMetadataCommand(string parameters, out Node? node, out string? errorMessage)
+    {
+        if (string.IsNullOrWhiteSpace(parameters))
+        {
+            node = _map.GetCurrentNode();
+            errorMessage = null;
+            return true;
+        }
+
+        node = _map.GetNode(parameters);
+        errorMessage = node == null
+            ? $"Can't find \"{parameters}\""
+            : null;
+        return node != null;
+    }
 
     private string BuildMapCommitMessage(string action, string relation = "in")
     {

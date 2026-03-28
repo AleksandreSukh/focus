@@ -14,9 +14,15 @@ namespace Systems.Sanity.Focus
         public static MindMap OpenFile(string filePath, ISet<Guid>? usedIdentifiers = null)
         {
             var mindMapParsedFromJson =
-                JsonConvert.DeserializeObject<MindMap>(File.ReadAllText(filePath)) ?? new MindMap();
-            var normalizationResult = MapNormalizer.Normalize(mindMapParsedFromJson, usedIdentifiers);
-            if (normalizationResult.WasChanged)
+                JsonConvert.DeserializeObject<MindMap>(
+                    File.ReadAllText(filePath),
+                    JsonSerialization.CreateDefaultSettings()) ?? new MindMap();
+            var fileTimestampUtc = File.GetLastWriteTimeUtc(filePath);
+            var normalizationResult = MapNormalizer.Normalize(
+                mindMapParsedFromJson,
+                usedIdentifiers,
+                new DateTimeOffset(fileTimestampUtc, TimeSpan.Zero));
+            if (normalizationResult.RequiresImmediateSave)
             {
                 Save(filePath, mindMapParsedFromJson, normalizeMap: false);
             }
@@ -36,7 +42,9 @@ namespace Systems.Sanity.Focus
                 MapNormalizer.Normalize(map);
             }
 
-            File.WriteAllText(filePath, JsonConvert.SerializeObject(map));
+            File.WriteAllText(
+                filePath,
+                JsonConvert.SerializeObject(map, JsonSerialization.CreateDefaultSettings()));
         }
     }
 }

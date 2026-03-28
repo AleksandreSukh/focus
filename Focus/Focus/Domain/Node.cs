@@ -23,6 +23,7 @@ public class Node
         Name = SanitizeText(name);
         NodeType = nodeType;
         Number = number;
+        Metadata = NodeMetadata.Create(NodeMetadataSources.Manual, Environment.MachineName);
     }
 
     public NodeType NodeType { get; }
@@ -41,26 +42,36 @@ public class Node
 
     public TaskState TaskState { get; set; }
 
+    public NodeMetadata? Metadata { get; set; }
+
     public bool IsCollapsed() => Collapsed && _parentNode != null;
 
     public Node? GetParent() => _parentNode;
 
-    public void SetParent(Node parent)
+    public void SetParent(Node? parent)
     {
         _parentNode = parent;
     }
 
-    public void Add(string input, NodeType nodeType = NodeType.TextItem)
+    public Node Add(
+        string input,
+        NodeType nodeType = NodeType.TextItem,
+        string source = NodeMetadataSources.Manual,
+        string? device = null)
     {
         var number = Children.Count(node => node.NodeType == nodeType) + 1;
-        AddNode(new Node(input, nodeType, number));
+        var childNode = new Node(input, nodeType, number);
+        childNode.Metadata = NodeMetadata.Create(source, device ?? Environment.MachineName);
+        AddNode(childNode);
+        return childNode;
     }
 
-    public void Add(Node childNode)
+    public Node Add(Node childNode)
     {
         var number = Children.Count + 1;
         childNode.Number = number;
         AddNode(childNode);
+        return childNode;
     }
 
     public void AddLink(
@@ -71,11 +82,13 @@ public class Node
         linkedNode.UniqueIdentifier ??= Guid.NewGuid();
         Links[linkedNode.UniqueIdentifier.Value] =
             new Link(linkedNode.UniqueIdentifier.Value, relationType, metadata);
+        TouchMetadata();
     }
 
     public void EditNode(string newString)
     {
         Name = SanitizeText(newString);
+        TouchMetadata();
     }
 
     public int GetTotalSize()
@@ -105,19 +118,49 @@ public class Node
     internal void Collapse()
     {
         Collapsed = true;
+        TouchMetadata();
     }
 
     internal void Expand()
     {
         Collapsed = false;
+        TouchMetadata();
+    }
+
+    internal void EnsureMetadata(
+        string source = NodeMetadataSources.Manual,
+        string? device = null,
+        DateTimeOffset? timestampUtc = null)
+    {
+        Metadata ??= NodeMetadata.Create(source, device ?? Environment.MachineName, timestampUtc);
+    }
+
+    internal void BackfillMetadata(DateTimeOffset timestampUtc, string source)
+    {
+        Metadata ??= NodeMetadata.Create(source, device: null, timestampUtc);
+    }
+
+    internal void TouchMetadata(DateTimeOffset? timestampUtc = null)
+    {
+        EnsureMetadata(timestampUtc: timestampUtc);
+        Metadata!.Touch(timestampUtc);
+    }
+
+    internal void AddAttachment(NodeAttachment attachment, DateTimeOffset? timestampUtc = null)
+    {
+        EnsureMetadata(timestampUtc: timestampUtc);
+        Metadata!.Attachments.Add(attachment);
+        Metadata.Touch(timestampUtc);
     }
 
     private void AddNode(Node childNode)
     {
         childNode.UniqueIdentifier ??= Guid.NewGuid();
         childNode.Name = SanitizeText(childNode.Name);
+        childNode.EnsureMetadata();
         childNode.SetParent(this);
         Children.Add(childNode);
+        TouchMetadata();
     }
 
     private static string SanitizeText(string? input)
@@ -129,6 +172,14 @@ public class Node
             .Where(character => !char.IsControl(character) || character == '\r' || character == '\n' || character == '\t')
             .ToArray());
     }
+}
+
+public static class NodeMetadataSources
+{
+    public const string Manual = "manual";
+    public const string ClipboardText = "clipboard-text";
+    public const string ClipboardImage = "clipboard-image";
+    public const string LegacyImport = "legacy-import";
 }
 
 public enum NodeType

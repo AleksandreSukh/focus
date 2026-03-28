@@ -16,6 +16,7 @@ namespace Systems.Sanity.Focus.Infrastructure.Input.ReadLine
         private int _completionStart;
         private int _completionsIndex;
         private IConsole Console2;
+        private readonly Func<ConsoleKeyInfo, string, bool>? _previewKeyHandler;
 
         private Action<string>? beforeEachAutoCompleteSuggestionWrite = null;
         private Action<string>? afterEachAutoCompleteSuggestionWrite = null;
@@ -259,11 +260,18 @@ namespace Systems.Sanity.Focus.Infrastructure.Input.ReadLine
             get { return _text.ToString(); }
         }
 
-        public KeyHandler(IConsole console, List<string> history, IAutoCompleteHandler? autoCompleteHandler, Action<string>? beforeEachAutoCompleteSuggestionWrite = null, Action<string>? afterEachAutoCompleteSuggestionWrite = null)
+        public KeyHandler(
+            IConsole console,
+            List<string> history,
+            IAutoCompleteHandler? autoCompleteHandler,
+            Action<string>? beforeEachAutoCompleteSuggestionWrite = null,
+            Action<string>? afterEachAutoCompleteSuggestionWrite = null,
+            Func<ConsoleKeyInfo, string, bool>? previewKeyHandler = null)
         {
             this.beforeEachAutoCompleteSuggestionWrite = beforeEachAutoCompleteSuggestionWrite;
             this.afterEachAutoCompleteSuggestionWrite = afterEachAutoCompleteSuggestionWrite;
             Console2 = console;
+            _previewKeyHandler = previewKeyHandler;
 
             _history = history ?? new List<string>();
             _historyIndex = _history.Count;
@@ -352,6 +360,9 @@ namespace Systems.Sanity.Focus.Infrastructure.Input.ReadLine
         public void Handle(ConsoleKeyInfo keyInfo)
         {
             _keyInfo = keyInfo;
+
+            if (_previewKeyHandler?.Invoke(_keyInfo, Text) == true)
+                return;
 
             // If in auto complete mode and Tab wasn't pressed
             if (IsInAutoCompleteMode() && _keyInfo.Key != ConsoleKey.Tab)

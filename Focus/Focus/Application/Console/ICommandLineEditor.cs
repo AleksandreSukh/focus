@@ -16,7 +16,8 @@ public interface ICommandLineEditor
         string prompt,
         string defaultInput = "",
         Action<string>? beforeEachAutoCompleteSuggestionWrite = null,
-        Action<string>? afterEachAutoCompleteSuggestionWrite = null);
+        Action<string>? afterEachAutoCompleteSuggestionWrite = null,
+        Func<ConsoleKeyInfo, string, bool>? previewKeyHandler = null);
 
     IReadOnlyList<string> GetHistory();
 }

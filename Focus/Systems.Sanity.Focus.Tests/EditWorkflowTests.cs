@@ -200,6 +200,22 @@ public class EditWorkflowTests
     }
 
     [Fact]
+    public void BuildScreen_WhenCommandsAreHidden_ShowsHintInsteadOfGroupedHelp()
+    {
+        using var workspace = new TestWorkspace();
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("Child");
+        var filePath = workspace.SaveMap("workflow-map", map);
+
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+        var screen = workflow.BuildScreen(showCommands: false);
+
+        Assert.DoesNotContain(ColorLabel("Go to"), screen);
+        Assert.DoesNotContain(ColorLabel("Navigate"), screen);
+        Assert.Contains(":i Commands hidden. Press \"~\" to show.", screen);
+    }
+
+    [Fact]
     public void BuildScreen_ShowsGoToShortcutListsWithoutEllipsis_WhenThereAreAtMostFiveChildren()
     {
         using var workspace = new TestWorkspace();

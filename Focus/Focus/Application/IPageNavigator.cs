@@ -1,3 +1,5 @@
+#nullable enable
+
 using System;
 using Systems.Sanity.Focus.Domain;
 
@@ -7,5 +9,5 @@ internal interface IPageNavigator
 {
     void OpenEditMap(string filePath, Guid? initialNodeIdentifier = null);
 
-    void OpenCreateMap(string fileName, MindMap mindMap);
+    void OpenCreateMap(string fileName, MindMap mindMap, string? sourceMapFilePath = null);
 }

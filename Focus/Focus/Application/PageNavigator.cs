@@ -1,3 +1,5 @@
+#nullable enable
+
 using System;
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.Pages;
@@ -14,9 +16,9 @@ internal sealed class PageNavigator : IPageNavigator
         _appContext = appContext;
     }
 
-    public void OpenCreateMap(string fileName, MindMap mindMap)
+    public void OpenCreateMap(string fileName, MindMap mindMap, string? sourceMapFilePath = null)
     {
-        new CreateMapPage(_appContext, fileName, mindMap).Show();
+        new CreateMapPage(_appContext, fileName, mindMap, sourceMapFilePath).Show();
     }
 
     public void OpenEditMap(string filePath, Guid? initialNodeIdentifier = null)

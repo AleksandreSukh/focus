@@ -1,4 +1,5 @@
 using Systems.Sanity.Focus.Domain;
+using System.Threading;
 
 namespace Systems.Sanity.Focus.Tests;
 
@@ -108,5 +109,48 @@ public class MindMapTests
 
         Assert.NotNull(detached);
         Assert.Equal(TaskState.Todo, detached!.RootNode.TaskState);
+    }
+
+    [Fact]
+    public void Mutations_UpdateNodeMetadataTimestamps()
+    {
+        var map = new MindMap("Root");
+        var child = map.AddAtCurrentNode("Child");
+        var initialUpdatedAt = child.Metadata!.UpdatedAtUtc;
+
+        PauseForTimestampResolution();
+        Assert.True(map.ChangeCurrentNode("1"));
+        map.EditCurrentNode("Child updated");
+        var editedUpdatedAt = map.GetCurrentNode().Metadata!.UpdatedAtUtc;
+
+        PauseForTimestampResolution();
+        Assert.True(map.SetTaskState(TaskState.Todo, out _));
+        var taskUpdatedAt = map.GetCurrentNode().Metadata!.UpdatedAtUtc;
+
+        Assert.True(editedUpdatedAt > initialUpdatedAt);
+        Assert.True(taskUpdatedAt > editedUpdatedAt);
+    }
+
+    [Fact]
+    public void ChildListMutations_UpdateParentMetadataTimestamp()
+    {
+        var map = new MindMap("Root");
+        var rootUpdatedAt = map.RootNode.Metadata!.UpdatedAtUtc;
+
+        PauseForTimestampResolution();
+        map.AddAtCurrentNode("Child");
+        var afterAddUpdatedAt = map.RootNode.Metadata!.UpdatedAtUtc;
+
+        PauseForTimestampResolution();
+        Assert.True(map.DeleteChildNode("1"));
+        var afterDeleteUpdatedAt = map.RootNode.Metadata!.UpdatedAtUtc;
+
+        Assert.True(afterAddUpdatedAt > rootUpdatedAt);
+        Assert.True(afterDeleteUpdatedAt > afterAddUpdatedAt);
+    }
+
+    private static void PauseForTimestampResolution()
+    {
+        Thread.Sleep(20);
     }
 }
