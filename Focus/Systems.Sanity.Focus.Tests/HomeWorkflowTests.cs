@@ -39,6 +39,22 @@ public class HomeWorkflowTests
     }
 
     [Fact]
+    public void Execute_LocalizedShortcut_OpensSelectedMap()
+    {
+        var navigator = new RecordingPageNavigator();
+        using var workspace = new TestWorkspace(navigator);
+        var filePath = workspace.SaveMap("alpha", new MindMap("Alpha"));
+        var workflow = new HomeWorkflow(workspace.AppContext);
+        var localizedShortcut = AccessibleKeyNumbering.GetStringFor(1).ToLocalLanguage();
+
+        var result = workflow.Execute(new ConsoleInput(localizedShortcut), workflow.GetFileSelection());
+
+        Assert.False(result.ShouldExit);
+        Assert.False(result.IsError);
+        Assert.Equal(filePath, navigator.OpenedEditMapFilePath);
+    }
+
+    [Fact]
     public void Execute_Tasks_OpensSelectedMapAndNode()
     {
         var navigator = new RecordingPageNavigator();

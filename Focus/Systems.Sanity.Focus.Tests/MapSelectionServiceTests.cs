@@ -25,4 +25,20 @@ public class MapSelectionServiceTests
         Assert.Equal(fileByNumber.FullName, fileByShortcut!.FullName);
         Assert.Equal(fileByNumber.FullName, fileByName!.FullName);
     }
+
+    [Fact]
+    public void FindFile_ResolvesByLocalizedShortcut()
+    {
+        using var workspace = new TestWorkspace();
+        workspace.SaveMap("alpha", new MindMap("Alpha"));
+
+        var service = new MapSelectionService(workspace.MapsStorage);
+        var selection = service.GetTopSelection();
+        var localizedShortcut = AccessibleKeyNumbering.GetStringFor(1).ToLocalLanguage();
+
+        var file = service.FindFile(selection, localizedShortcut);
+
+        Assert.NotNull(file);
+        Assert.Equal("alpha", file!.NameWithoutExtension());
+    }
 }
