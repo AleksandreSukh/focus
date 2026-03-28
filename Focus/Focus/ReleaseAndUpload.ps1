@@ -24,124 +24,14 @@ if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction Sile
     $PSNativeCommandUseErrorActionPreference = $true
 }
 
-function Get-DefaultBuildVersion
+. (Join-Path $PSScriptRoot "ReleaseAndUpload.Shared.ps1")
+
+function Get-WindowsPublishDirectoryPath
 {
-    return [Version]"1.0.27"
+    return Join-Path $PSScriptRoot "publish"
 }
 
-function Get-ReleasesDirectoryPath
-{
-    return Join-Path $PSScriptRoot "Releases"
-}
-
-function ConvertTo-ReleaseVersion
-{
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Value
-    )
-
-    try
-    {
-        return [Version]$Value
-    }
-    catch
-    {
-        throw "Version '$Value' is not valid. Expected a value like 1.0.28."
-    }
-}
-
-function Get-LatestArtifactReleaseVersion
-{
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$ReleaseDirectoryPath
-    )
-
-    if (-not (Test-Path -LiteralPath $ReleaseDirectoryPath -PathType Container))
-    {
-        return $null
-    }
-
-    $versions = @(
-        Get-ChildItem -LiteralPath $ReleaseDirectoryPath -Filter "Focus-*-full.nupkg" -File |
-            ForEach-Object {
-                if ($_.BaseName -match '^Focus-(?<Version>\d+\.\d+\.\d+)-full$')
-                {
-                    [Version]$Matches.Version
-                }
-            } |
-            Sort-Object -Descending
-    )
-
-    if ($versions.Count -eq 0)
-    {
-        return $null
-    }
-
-    return $versions[0]
-}
-
-function Get-IncrementedReleaseVersion
-{
-    param(
-        [Parameter(Mandatory = $true)]
-        [Version]$CurrentVersion,
-        [ValidateSet("Patch", "Minor", "Major")]
-        [string]$Increment = "Patch"
-    )
-
-    $currentPatch = if ($CurrentVersion.Build -lt 0) { 0 } else { $CurrentVersion.Build }
-
-    switch ($Increment)
-    {
-        "Major" { return [Version]::new($CurrentVersion.Major + 1, 0, 0) }
-        "Minor" { return [Version]::new($CurrentVersion.Major, $CurrentVersion.Minor + 1, 0) }
-        default { return [Version]::new($CurrentVersion.Major, $CurrentVersion.Minor, $currentPatch + 1) }
-    }
-}
-
-function Resolve-ReleaseVersionString
-{
-    param(
-        [string]$Version,
-        [ValidateSet("Patch", "Minor", "Major")]
-        [string]$Increment,
-        [switch]$SkipBuild
-    )
-
-    if (-not [string]::IsNullOrWhiteSpace($Version))
-    {
-        return (ConvertTo-ReleaseVersion -Value $Version).ToString(3)
-    }
-
-    $latestArtifactVersion = Get-LatestArtifactReleaseVersion -ReleaseDirectoryPath (Get-ReleasesDirectoryPath)
-    if ($SkipBuild)
-    {
-        if ($null -eq $latestArtifactVersion)
-        {
-            throw "Cannot determine which release to upload with -SkipBuild because no local release artifacts were found."
-        }
-
-        return $latestArtifactVersion.ToString(3)
-    }
-
-    $currentVersion = $latestArtifactVersion
-    $defaultBuildVersion = Get-DefaultBuildVersion
-    if ($null -eq $currentVersion -or $defaultBuildVersion -gt $currentVersion)
-    {
-        $currentVersion = $defaultBuildVersion
-    }
-
-    if ($null -eq $currentVersion)
-    {
-        $currentVersion = [Version]"1.0.0"
-    }
-
-    return (Get-IncrementedReleaseVersion -CurrentVersion $currentVersion -Increment $Increment).ToString(3)
-}
-
-function Invoke-BuildAndPublish
+function Invoke-WindowsBuildAndPublish
 {
     param(
         [Parameter(Mandatory = $true)]
@@ -156,7 +46,7 @@ function Invoke-BuildAndPublish
     Push-Location -LiteralPath $PSScriptRoot
     try
     {
-        Write-Host "Publishing Focus $Version..."
+        Write-Host "Publishing Focus $Version for win-x64..."
 
         & dotnet publish Systems.Sanity.Focus.csproj -c Release --self-contained -r win-x64 -o .\publish
         if ($LASTEXITCODE)
@@ -164,7 +54,7 @@ function Invoke-BuildAndPublish
             throw "dotnet publish failed with exit code $LASTEXITCODE."
         }
 
-        & vpk pack -u Focus -v $Version -p .\publish -e Systems.Sanity.Focus.exe
+        & vpk pack -u Focus -v $Version -p .\publish -r win-x64 -e Systems.Sanity.Focus.exe --packTitle Focus
         if ($LASTEXITCODE)
         {
             throw "vpk pack failed with exit code $LASTEXITCODE."
@@ -224,62 +114,6 @@ function Resolve-WinScpExecutablePath
     return $executablePath
 }
 
-function Resolve-RemoteEndpoint
-{
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$BaseUrl
-    )
-
-    $normalizedBaseUrl = $BaseUrl.Trim()
-    if ([string]::IsNullOrWhiteSpace($normalizedBaseUrl))
-    {
-        throw "Remote base URL cannot be empty."
-    }
-
-    if (-not [Uri]::TryCreate($normalizedBaseUrl, [UriKind]::Absolute, [ref]$null))
-    {
-        throw "Remote base URL '$normalizedBaseUrl' is not a valid absolute URL."
-    }
-
-    $uri = [Uri]$normalizedBaseUrl
-    if (-not [string]::IsNullOrWhiteSpace($uri.UserInfo))
-    {
-        throw "Do not include credentials in '$normalizedBaseUrl'. Use the credential file instead."
-    }
-
-    $scheme = $uri.Scheme.ToLowerInvariant()
-    if ($scheme -notin @("ftp", "ftps", "ftpes", "sftp"))
-    {
-        throw "Remote base URL must use ftp://, ftps://, ftpes://, or sftp://."
-    }
-
-    $remoteDirectory = [Uri]::UnescapeDataString($uri.AbsolutePath)
-    if ([string]::IsNullOrWhiteSpace($remoteDirectory))
-    {
-        $remoteDirectory = "/"
-    }
-    else
-    {
-        $remoteDirectory = $remoteDirectory.TrimEnd('/')
-        if ([string]::IsNullOrWhiteSpace($remoteDirectory))
-        {
-            $remoteDirectory = "/"
-        }
-        elseif (-not $remoteDirectory.StartsWith("/"))
-        {
-            $remoteDirectory = "/$remoteDirectory"
-        }
-    }
-
-    return [PSCustomObject]@{
-        BaseUrl         = $normalizedBaseUrl
-        Uri             = $uri
-        Scheme          = $scheme
-        RemoteDirectory = $remoteDirectory
-    }
-}
-
 function Save-FocusReleaseCredential
 {
     param(
@@ -331,116 +165,6 @@ function Get-FocusReleaseCredential
     }
 
     return $credential
-}
-
-function Get-LocalReleaseFiles
-{
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$ReleaseDirectoryPath
-    )
-
-    if (-not (Test-Path -LiteralPath $ReleaseDirectoryPath -PathType Container))
-    {
-        throw "Releases directory '$ReleaseDirectoryPath' was not found."
-    }
-
-    $releaseFiles = Get-ChildItem -LiteralPath $ReleaseDirectoryPath -File | Sort-Object Name
-    if (-not $releaseFiles)
-    {
-        throw "Releases directory '$ReleaseDirectoryPath' does not contain any files."
-    }
-
-    $requiredExactNames = @(
-        "RELEASES",
-        "releases.win.json",
-        "assets.win.json"
-    )
-
-    foreach ($requiredExactName in $requiredExactNames)
-    {
-        if (-not ($releaseFiles.Name -contains $requiredExactName))
-        {
-            throw "Releases directory '$ReleaseDirectoryPath' is missing required artifact '$requiredExactName'."
-        }
-    }
-
-    if (-not ($releaseFiles.Name | Where-Object { $_ -like "*.nupkg" }))
-    {
-        throw "Releases directory '$ReleaseDirectoryPath' does not contain any .nupkg package."
-    }
-
-    if (-not ($releaseFiles.Name | Where-Object { $_ -like "*-Setup.exe" }))
-    {
-        throw "Releases directory '$ReleaseDirectoryPath' does not contain a setup executable."
-    }
-
-    if (-not ($releaseFiles.Name | Where-Object { $_ -like "*-Portable.zip" }))
-    {
-        throw "Releases directory '$ReleaseDirectoryPath' does not contain a portable zip."
-    }
-
-    return $releaseFiles
-}
-
-function Get-UploadOrderedReleaseFiles
-{
-    param(
-        [Parameter(Mandatory = $true)]
-        [System.IO.FileInfo[]]$LocalReleaseFiles
-    )
-
-    $metadataFileNames = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-    foreach ($metadataFileName in @("RELEASES", "releases.win.json"))
-    {
-        [void]$metadataFileNames.Add($metadataFileName)
-    }
-
-    $payloadFiles = @()
-    $metadataFiles = @()
-
-    foreach ($localReleaseFile in $LocalReleaseFiles)
-    {
-        if ($metadataFileNames.Contains($localReleaseFile.Name))
-        {
-            $metadataFiles += $localReleaseFile
-        }
-        else
-        {
-            $payloadFiles += $localReleaseFile
-        }
-    }
-
-    return @(
-        $payloadFiles | Sort-Object Name
-        $metadataFiles | Sort-Object Name
-    )
-}
-
-function Get-ReleaseSyncPlan
-{
-    param(
-        [Parameter(Mandatory = $true)]
-        [System.IO.FileInfo[]]$LocalReleaseFiles,
-        [Parameter(Mandatory = $true)]
-        [AllowEmptyCollection()]
-        [string[]]$RemoteFileNames
-    )
-
-    $localFileNames = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-    foreach ($localReleaseFile in $LocalReleaseFiles)
-    {
-        [void]$localFileNames.Add($localReleaseFile.Name)
-    }
-
-    $filesToDelete = $RemoteFileNames |
-        Where-Object { -not $localFileNames.Contains($_) } |
-        Sort-Object
-
-    [PSCustomObject]@{
-        UploadFiles     = @(Get-UploadOrderedReleaseFiles -LocalReleaseFiles $LocalReleaseFiles)
-        DeleteFileNames = @($filesToDelete)
-    }
 }
 
 function ConvertTo-WinScpQuotedValue
@@ -878,10 +602,10 @@ function Invoke-ReleaseAndUpload
         [switch]$DryRun
     )
 
-    $releaseVersion = Resolve-ReleaseVersionString -Version $Version -Increment $Increment -SkipBuild:$SkipBuild
+    $releaseVersion = Resolve-FocusReleaseVersionString -Platform Windows -Version $Version -Increment $Increment -SkipBuild:$SkipBuild
     Write-Host "Release version: $releaseVersion"
 
-    $remoteEndpoint = Resolve-RemoteEndpoint -BaseUrl $RemoteBaseUrl
+    $remoteEndpoint = Resolve-FocusRemoteEndpoint -BaseUrl $RemoteBaseUrl
     $winScpExecutablePath = Resolve-WinScpExecutablePath
 
     Push-Location -LiteralPath $PSScriptRoot
@@ -889,10 +613,10 @@ function Invoke-ReleaseAndUpload
     {
         if (-not $SkipBuild)
         {
-            Invoke-BuildAndPublish -Version $releaseVersion
+            Invoke-WindowsBuildAndPublish -Version $releaseVersion
         }
 
-        $localReleaseFiles = Get-LocalReleaseFiles -ReleaseDirectoryPath (Get-ReleasesDirectoryPath)
+        $localReleaseFiles = Get-FocusLocalReleaseFiles -Platform Windows -ReleaseDirectoryPath (Get-FocusReleasesDirectoryPath)
         $credential = Get-FocusReleaseCredential -CredentialFilePath $CredentialPath -UpdateCredential:$UpdateCredential
 
         if ($remoteEndpoint.Scheme -eq "sftp" -and [string]::IsNullOrWhiteSpace($SshHostKeyFingerprint))
@@ -909,28 +633,8 @@ function Invoke-ReleaseAndUpload
             -SshHostKeyFingerprint $SshHostKeyFingerprint `
             -TlsHostCertificateFingerprint $TlsHostCertificateFingerprint
 
-        $syncPlan = Get-ReleaseSyncPlan -LocalReleaseFiles $localReleaseFiles -RemoteFileNames $remoteFileNames
-
-        Write-Host ""
-        Write-Host "Upload plan:"
-        foreach ($uploadFile in $syncPlan.UploadFiles)
-        {
-            Write-Host "  upload $($uploadFile.Name)"
-        }
-
-        Write-Host ""
-        Write-Host "Delete plan:"
-        if ($syncPlan.DeleteFileNames.Count -eq 0)
-        {
-            Write-Host "  nothing to delete"
-        }
-        else
-        {
-            foreach ($deleteFileName in $syncPlan.DeleteFileNames)
-            {
-                Write-Host "  delete $deleteFileName"
-            }
-        }
+        $syncPlan = Get-FocusReleaseSyncPlan -Platform Windows -LocalReleaseFiles $localReleaseFiles -RemoteFileNames $remoteFileNames
+        Write-FocusReleaseSyncPlan -SyncPlan $syncPlan
 
         if ($DryRun)
         {

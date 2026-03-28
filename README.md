@@ -57,7 +57,7 @@ Notable implementation details:
 - The console input system is custom. It supports history navigation, inline editing, autocomplete, and password input.
 - Map rendering is text-based and color-aware through `ColorfulConsole`.
 - Git synchronization is enabled only when a Git repository is configured and the app is running on Windows.
-- Packaging is currently oriented toward `win-x64` publishing through `Velopack`.
+- Packaging supports `win-x64` and `linux-x64` publishing through `Velopack`.
 
 ## Build and run
 
@@ -70,11 +70,20 @@ dotnet run --project Focus/Focus/Systems.Sanity.Focus.csproj
 
 For local release deployment of build artifacts, the repository includes:
 
+- `Focus/Focus/ReleaseAndUpload.Shared.ps1`
+  Shared helper functions for release versioning, artifact validation, and platform-scoped sync planning across Windows and Linux publishing.
+
 - `Focus/Focus/ReleaseAndUpload.ps1`
-  Calculates the next release version automatically, builds and packages the app, prompts for upload credentials when needed, stores them as a DPAPI-encrypted `Export-Clixml` file under `%APPDATA%\Focus\Secrets\focus-ftps.clixml`, and mirrors the generated `Focus/Focus/Releases` directory to an FTP, FTPS, or SFTP target directory using WinSCP.
+  Calculates the next shared release version automatically, builds and packages the Windows app, prompts for upload credentials when needed, stores them as a DPAPI-encrypted `Export-Clixml` file under `%APPDATA%\Focus\Secrets\focus-ftps.clixml`, and mirrors only Windows-owned files from `Focus/Focus/Releases` to an FTP, FTPS, or SFTP target directory using WinSCP.
 
 - `Focus/Focus/ReleaseAndUploadLauncher.ps1`
   Convenience wrapper around `ReleaseAndUpload.ps1` that targets the project's current SFTP release endpoint.
+
+- `Focus/Focus/ReleaseAndUploadLinux.ps1`
+  Calculates the next shared release version automatically, builds and packages the Linux app for `linux-x64`, and mirrors only Linux-owned files from `Focus/Focus/Releases` to an SFTP target directory using `ssh` and `scp` with the current SSH key or agent configuration.
+
+- `Focus/Focus/ReleaseAndUploadLinuxLauncher.ps1`
+  Convenience wrapper around `ReleaseAndUploadLinux.ps1` that targets the project's current SFTP release endpoint.
 
 Example workflow:
 
@@ -83,17 +92,25 @@ pwsh -File Focus/Focus/ReleaseAndUpload.ps1 -RemoteBaseUrl sftp://example.com/va
 pwsh -File Focus/Focus/ReleaseAndUpload.ps1 -RemoteBaseUrl sftp://example.com/var/www/html/Releases
 pwsh -File Focus/Focus/ReleaseAndUploadLauncher.ps1 -DryRun
 pwsh -File Focus/Focus/ReleaseAndUploadLauncher.ps1
+pwsh -File Focus/Focus/ReleaseAndUploadLinux.ps1 -RemoteBaseUrl sftp://example.com/var/www/html/Releases -RemoteUser deploy -DryRun
+pwsh -File Focus/Focus/ReleaseAndUploadLinux.ps1 -RemoteBaseUrl sftp://example.com/var/www/html/Releases -RemoteUser deploy
+pwsh -File Focus/Focus/ReleaseAndUploadLinuxLauncher.ps1 -RemoteUser deploy -DryRun
+pwsh -File Focus/Focus/ReleaseAndUploadLinuxLauncher.ps1 -RemoteUser deploy
 ```
 
 Notes:
 
-- WinSCP must be installed locally. The release script uses `WinSCP.com`, so the standard WinSCP install works in `pwsh`.
-- Use `-UpdateCredential` when you want to overwrite the saved upload credential before running a release.
-- `-SkipBuild` uploads an already prepared local `Releases` folder without rerunning packaging.
+- Windows publishing requires WinSCP. The release script uses `WinSCP.com`, so the standard WinSCP install works in `pwsh`.
+- Linux publishing requires PowerShell 7, the .NET SDK, `vpk`, and the OpenSSH client tools (`ssh` and `scp`) to be available on the machine running the script.
+- Use `-UpdateCredential` when you want to overwrite the saved Windows upload credential before running a Windows release.
+- Linux publishing does not store credentials locally. It uses the active SSH key, agent, and `known_hosts` configuration.
+- `-SkipBuild` uploads an already prepared local `Releases` folder without rerunning packaging. Version resolution stays platform-specific for `-SkipBuild`.
 - `-DryRun` prints the planned upload and delete actions without changing the remote directory.
 - `-RemoteBaseUrl` accepts `ftp://...`, `ftps://...`, `ftpes://...`, and `sftp://...`. `-FtpsBaseUrl` still works as an alias for backwards compatibility.
+- `ReleaseAndUploadLinux.ps1` accepts only `sftp://...` endpoints and an optional `-RemoteUser`.
 - `ftps://...` uses the selected `-FtpsMode` and defaults to explicit TLS. `ftpes://...` always uses explicit TLS.
 - If you use SFTP and do not provide `-SshHostKeyFingerprint`, WinSCP will accept the server host key on first connection.
+- Windows and Linux scripts share one release version sequence and one remote `/Releases` feed, but each script uploads and deletes only its own platform artifacts.
 - The remote target directory should correspond to the HTTP-served `/Releases` endpoint used by `AutoUpdateManager`.
 
 ## Data and configuration
@@ -116,4 +133,4 @@ The user config currently supports:
 
 ## Summary
 
-Focus is a keyboard-driven personal knowledge tool for managing mind maps in plain JSON files. The codebase centers on a console-first editing experience, lightweight persistence, and optional Windows-oriented distribution and synchronization features.
+Focus is a keyboard-driven personal knowledge tool for managing mind maps in plain JSON files. The codebase centers on a console-first editing experience, lightweight persistence, and optional cross-platform distribution with Windows-oriented synchronization features.
