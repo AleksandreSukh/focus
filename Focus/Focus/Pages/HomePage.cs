@@ -77,6 +77,7 @@ internal sealed class HomePage : PageWithExclusiveOptions
         return _fileSelection.Any()
             ? _fileSelection.Keys.Select(k => k.ToString())
                 .Union(_fileSelection.Keys.Select(AccessibleKeyNumbering.GetStringFor))
+                .Union(_fileSelection.Values.Select(file => file.NameWithoutExtension()))
                 .Union(optionsWhenFileExists)
                 .ToArray()
             : optionsWhenNoFileExists;

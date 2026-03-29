@@ -43,11 +43,29 @@ public class HomeWorkflowTests
     {
         var navigator = new RecordingPageNavigator();
         using var workspace = new TestWorkspace(navigator);
+        using var translationScope = TranslationTestScope.UseGeorgian();
         var filePath = workspace.SaveMap("alpha", new MindMap("Alpha"));
         var workflow = new HomeWorkflow(workspace.AppContext);
         var localizedShortcut = AccessibleKeyNumbering.GetStringFor(1).ToLocalLanguage();
 
         var result = workflow.Execute(new ConsoleInput(localizedShortcut), workflow.GetFileSelection());
+
+        Assert.False(result.ShouldExit);
+        Assert.False(result.IsError);
+        Assert.Equal(filePath, navigator.OpenedEditMapFilePath);
+    }
+
+    [Fact]
+    public void Execute_LocalizedFileName_OpensSelectedMap()
+    {
+        var navigator = new RecordingPageNavigator();
+        using var workspace = new TestWorkspace(navigator);
+        using var translationScope = TranslationTestScope.UseGeorgian();
+        var filePath = workspace.SaveMap("alpha", new MindMap("Alpha"));
+        var workflow = new HomeWorkflow(workspace.AppContext);
+        var localizedFileName = "alpha".ToLocalLanguage();
+
+        var result = workflow.Execute(new ConsoleInput(localizedFileName), workflow.GetFileSelection());
 
         Assert.False(result.ShouldExit);
         Assert.False(result.IsError);

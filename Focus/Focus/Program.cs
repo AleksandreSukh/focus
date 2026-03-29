@@ -7,6 +7,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
 using Systems.Sanity.Focus.Application;
 using Systems.Sanity.Focus.Domain;
+using Systems.Sanity.Focus.Infrastructure.Input;
 using Systems.Sanity.Focus.Infrastructure.Input.ReadLine;
 using Systems.Sanity.Focus.Pages;
 using Velopack;
@@ -31,6 +32,7 @@ internal static class Program
         var configFile = Path.Combine(userDirectory, "focus-config.json");
 
         var userConfig = ParseUserConfig(configFile);
+        CommandLanguageExtensions.Configure(userConfig.Translations);
         var startPage = ApplicationStartup.CreateHomePage(userConfig);
         startPage.Show();
     }
@@ -39,6 +41,9 @@ internal static class Program
     {
         UserConfig? DeserializeConfigFile()
         {
+            if (!File.Exists(configFile))
+                return null;
+
             return JsonConvert.DeserializeObject<UserConfig>(File.ReadAllText(configFile));
         }
 

@@ -42,8 +42,11 @@ internal sealed class MapSelectionService
         if (TryFindFileByName(fileIdentifier, out var fileByName))
             return fileByName;
 
-        return TryFindLocalizedShortcut(selection, fileIdentifier, out var fileByLocalizedShortcut)
-            ? fileByLocalizedShortcut
+        if (TryFindLocalizedShortcut(selection, fileIdentifier, out var fileByLocalizedShortcut))
+            return fileByLocalizedShortcut;
+
+        return TryFindLocalizedFileByName(fileIdentifier, out var fileByLocalizedName)
+            ? fileByLocalizedName
             : null;
     }
 
@@ -88,6 +91,17 @@ internal sealed class MapSelectionService
         }
 
         return TryFindFileByShortcut(selection, fileIdentifier.ToCommandLanguage(), out file);
+    }
+
+    private bool TryFindLocalizedFileByName(string fileIdentifier, out FileInfo? file)
+    {
+        if (!CommandLanguageExtensions.IsOtherLanguage(fileIdentifier))
+        {
+            file = null;
+            return false;
+        }
+
+        return TryFindFileByName(fileIdentifier.ToCommandLanguage(), out file);
     }
 
     private static bool TryFindFileByNumber(

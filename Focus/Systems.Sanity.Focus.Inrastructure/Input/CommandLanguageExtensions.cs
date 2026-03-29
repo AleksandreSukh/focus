@@ -7,53 +7,110 @@ namespace Systems.Sanity.Focus.Infrastructure.Input;
 
 public static class CommandLanguageExtensions
 {
-    private static readonly Dictionary<char, char> GeorgianMappingDict;
-    private static readonly Dictionary<char, char> ReverseGeorgianMappingDict;
-    static CommandLanguageExtensions()
+    private static TranslationMapping[] _translations = Array.Empty<TranslationMapping>();
+
+    public static void Configure(IEnumerable<TranslationDto>? translations)
     {
-        var GeorgianAlphabetMapping = "აბცდეფგჰიჯკლმნოპქრსტუვწხყზ";
-        GeorgianMappingDict = new Dictionary<char, char>();
-        ReverseGeorgianMappingDict = new Dictionary<char, char>();
-        for (int i = 0; i < GeorgianAlphabetMapping.Length; i++)
-        {
-            var mapped = (char)('a' + i);
-            GeorgianMappingDict.Add(GeorgianAlphabetMapping[i], mapped);
-            ReverseGeorgianMappingDict.Add(mapped, GeorgianAlphabetMapping[i]);
-        }
+        _translations = translations?
+            .Select(CreateTranslationMapping)
+            .Where(mapping => mapping != null)
+            .Select(mapping => mapping!)
+            .ToArray()
+            ?? Array.Empty<TranslationMapping>();
     }
 
-    public static bool IsOtherLanguage(string input) => GeorgianMappingDict.ContainsKey(input.FirstOrDefault());
+    public static bool IsOtherLanguage(string input) => FindMatchingTranslation(input) != null;
 
     public static string ToCommandLanguage(this string maybeOtherLanguage)
     {
-        var resultStringBuilder = new StringBuilder(maybeOtherLanguage.Length);
-        for (var index = 0; index < maybeOtherLanguage.Length; index++)
-        {
-            var symbol = maybeOtherLanguage[index];
-            if (GeorgianMappingDict.ContainsKey(symbol))
-                symbol = GeorgianMappingDict[symbol];
-            resultStringBuilder.Append(symbol);
-        }
-
-        return resultStringBuilder.ToString();
+        var translation = FindMatchingTranslation(maybeOtherLanguage);
+        return translation == null
+            ? maybeOtherLanguage
+            : Translate(maybeOtherLanguage, translation.CommandDictionary);
     }
 
     public static string ToLocalLanguage(this string input)
+    {
+        var translation = _translations.FirstOrDefault();
+        return translation == null
+            ? input
+            : Translate(input, translation.LocalDictionary);
+    }
+
+    public static IEnumerable<string> WithLocalizations(this IEnumerable<string> source) =>
+        source.Select(option => new[] { option }.Concat(_translations.Select(translation => Translate(option, translation.LocalDictionary))))
+            .SelectMany(i => i)
+            .Distinct();
+
+    private static TranslationMapping? CreateTranslationMapping(TranslationDto? translation)
+    {
+        if (translation?.CharacterDictionary == null || translation.CharacterDictionary.Count == 0)
+            return null;
+
+        var commandDictionary = new Dictionary<char, char>();
+        var localDictionary = new Dictionary<char, char>();
+
+        foreach (var pair in translation.CharacterDictionary)
+        {
+            if (string.IsNullOrWhiteSpace(pair.Key) ||
+                string.IsNullOrWhiteSpace(pair.Value) ||
+                pair.Key.Length != 1 ||
+                pair.Value.Length != 1)
+            {
+                continue;
+            }
+
+            var sourceCharacter = pair.Key[0];
+            var targetCharacter = pair.Value[0];
+
+            if (!commandDictionary.ContainsKey(sourceCharacter))
+                commandDictionary.Add(sourceCharacter, targetCharacter);
+
+            if (!localDictionary.ContainsKey(targetCharacter))
+                localDictionary.Add(targetCharacter, sourceCharacter);
+        }
+
+        return commandDictionary.Count == 0
+            ? null
+            : new TranslationMapping(commandDictionary, localDictionary);
+    }
+
+    private static TranslationMapping? FindMatchingTranslation(string input)
+    {
+        if (string.IsNullOrEmpty(input))
+            return null;
+
+        var firstCharacter = input.FirstOrDefault();
+        return _translations.FirstOrDefault(translation => translation.CommandDictionary.ContainsKey(firstCharacter));
+    }
+
+    private static string Translate(string input, IReadOnlyDictionary<char, char> dictionary)
     {
         var resultStringBuilder = new StringBuilder(input.Length);
         for (var index = 0; index < input.Length; index++)
         {
             var symbol = input[index];
-            if (ReverseGeorgianMappingDict.ContainsKey(symbol))
-                symbol = ReverseGeorgianMappingDict[symbol];
+            if (dictionary.TryGetValue(symbol, out var translatedSymbol))
+                symbol = translatedSymbol;
+
             resultStringBuilder.Append(symbol);
         }
 
         return resultStringBuilder.ToString();
     }
 
-    public static IEnumerable<string> WithLocalizations(this IEnumerable<string> source) =>
-        source.Select(option => new[] { option, option.ToLocalLanguage() })
-            .SelectMany(i => i)
-            .Distinct();
+    private sealed class TranslationMapping
+    {
+        public TranslationMapping(
+            Dictionary<char, char> commandDictionary,
+            Dictionary<char, char> localDictionary)
+        {
+            CommandDictionary = commandDictionary;
+            LocalDictionary = localDictionary;
+        }
+
+        public Dictionary<char, char> CommandDictionary { get; }
+
+        public Dictionary<char, char> LocalDictionary { get; }
+    }
 }

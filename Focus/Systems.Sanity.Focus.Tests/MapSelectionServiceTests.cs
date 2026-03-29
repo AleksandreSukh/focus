@@ -30,6 +30,7 @@ public class MapSelectionServiceTests
     public void FindFile_ResolvesByLocalizedShortcut()
     {
         using var workspace = new TestWorkspace();
+        using var translationScope = TranslationTestScope.UseGeorgian();
         workspace.SaveMap("alpha", new MindMap("Alpha"));
 
         var service = new MapSelectionService(workspace.MapsStorage);
@@ -37,6 +38,23 @@ public class MapSelectionServiceTests
         var localizedShortcut = AccessibleKeyNumbering.GetStringFor(1).ToLocalLanguage();
 
         var file = service.FindFile(selection, localizedShortcut);
+
+        Assert.NotNull(file);
+        Assert.Equal("alpha", file!.NameWithoutExtension());
+    }
+
+    [Fact]
+    public void FindFile_ResolvesByLocalizedFileName()
+    {
+        using var workspace = new TestWorkspace();
+        using var translationScope = TranslationTestScope.UseGeorgian();
+        workspace.SaveMap("alpha", new MindMap("Alpha"));
+
+        var service = new MapSelectionService(workspace.MapsStorage);
+        var selection = service.GetTopSelection();
+        var localizedFileName = "alpha".ToLocalLanguage();
+
+        var file = service.FindFile(selection, localizedFileName);
 
         Assert.NotNull(file);
         Assert.Equal("alpha", file!.NameWithoutExtension());
