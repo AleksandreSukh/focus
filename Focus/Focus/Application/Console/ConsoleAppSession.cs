@@ -70,4 +70,9 @@ internal sealed class ConsoleAppSession : IConsoleAppSession
     {
         SysConsole.WriteLine(text);
     }
+
+    public void WriteBackgroundMessage(string text)
+    {
+        CommandLineEditor.WriteInterleavedMessage(text);
+    }
 }

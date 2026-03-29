@@ -11,12 +11,9 @@ internal abstract class TextEditPage : Page
 {
     public override void BeforeEachAutoComplete(string str)
     {
-        if (ColorfulConsole.ColorTagsToConsoleColorDict.TryGetValue(str, out ConsoleColor color))
+        if (ColorfulConsole.ColorTagsToConsoleColorDict.TryGetValue(str, out ConsoleColor color) && Console.BackgroundColor != color)
         {
-            if (Console.BackgroundColor != color)
-            {
-                Console.ForegroundColor = color;
-            }
+            Console.ForegroundColor = color;
         }
     }
 

@@ -12,6 +12,8 @@ public interface ICommandLineEditor
 
     void SetAutoCompletionHandler(IAutoCompleteHandler handler);
 
+    void WriteInterleavedMessage(string text);
+
     string Read(
         string prompt,
         string defaultInput = "",

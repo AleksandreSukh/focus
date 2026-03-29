@@ -16,22 +16,30 @@ public class GitHelper
     private readonly Queue<string> _pendingCommitMessages = new();
     private readonly string _gitRepositoryPath;
     private readonly Func<string, bool, bool, string[], (int ExitCode, string StandardOutput, string StandardError)> _executeGitCommand;
+    private readonly Action<string>? _writeBackgroundMessage;
     private readonly Action<TimeSpan> _waitForSynchronizationDelay;
     private bool _syncWorkerRunning;
 
     public GitHelper(string gitRepositoryPath)
-        : this(gitRepositoryPath, ExecuteGitCommand, Thread.Sleep)
+        : this(gitRepositoryPath, ExecuteGitCommand, Thread.Sleep, null)
+    {
+    }
+
+    public GitHelper(string gitRepositoryPath, Action<string>? writeBackgroundMessage)
+        : this(gitRepositoryPath, ExecuteGitCommand, Thread.Sleep, writeBackgroundMessage)
     {
     }
 
     internal GitHelper(
         string gitRepositoryPath,
         Func<string, bool, bool, string[], (int ExitCode, string StandardOutput, string StandardError)> executeGitCommand,
-        Action<TimeSpan>? waitForSynchronizationDelay = null)
+        Action<TimeSpan>? waitForSynchronizationDelay = null,
+        Action<string>? writeBackgroundMessage = null)
     {
         _gitRepositoryPath = gitRepositoryPath;
         _executeGitCommand = executeGitCommand;
         _waitForSynchronizationDelay = waitForSynchronizationDelay ?? Thread.Sleep;
+        _writeBackgroundMessage = writeBackgroundMessage;
     }
 
     public static bool IsRepositoryAvailable(string gitRepositoryPath)
@@ -104,13 +112,13 @@ public class GitHelper
         {
             var pendingMessageCount = GetPendingCommitMessageCount();
 
-            RunGitCommand("add", "--all");
+            RunBackgroundGitCommand("add", "--all");
 
             if (HasPendingChanges())
             {
                 var commitMessage = FormatCommitMessage(DrainPendingCommitMessages(pendingMessageCount));
                 TrySetConsoleTitle("Syncing (committing changes)");
-                RunGitCommand("commit", "-m", commitMessage);
+                RunBackgroundGitCommand("commit", "-m", commitMessage);
             }
             else
             {
@@ -118,10 +126,10 @@ public class GitHelper
             }
 
             TrySetConsoleTitle("Syncing (git pull)");
-            RunGitCommand("pull", "--no-rebase", "--quiet");
+            RunBackgroundGitCommand("pull", "--no-rebase", "--quiet");
 
             TrySetConsoleTitle("Syncing (git push)");
-            RunGitCommand("push", "--quiet");
+            RunBackgroundGitCommand("push", "--quiet");
         }
         finally
         {
@@ -145,7 +153,7 @@ public class GitHelper
             }
             catch (Exception e)
             {
-                ReportSyncFailure(e.Message);
+                ReportSyncFailure(e.Message, _writeBackgroundMessage);
                 lock (_syncStateLock)
                 {
                     _syncWorkerRunning = false;
@@ -223,6 +231,18 @@ public class GitHelper
         _executeGitCommand(_gitRepositoryPath, false, true, arguments);
     }
 
+    private void RunBackgroundGitCommand(params string[] arguments)
+    {
+        if (_writeBackgroundMessage == null)
+        {
+            RunGitCommand(arguments);
+            return;
+        }
+
+        var result = _executeGitCommand(_gitRepositoryPath, true, true, arguments);
+        ReportBackgroundCommandOutput(result, _writeBackgroundMessage);
+    }
+
     private static (int ExitCode, string StandardOutput, string StandardError) ExecuteGitCommand(
         string workingDirectory,
         bool captureOutput,
@@ -294,15 +314,31 @@ public class GitHelper
         return new InvalidOperationException(errorMessage);
     }
 
-    private static void ReportSyncFailure(string message)
+    private static void ReportBackgroundCommandOutput(
+        (int ExitCode, string StandardOutput, string StandardError) result,
+        Action<string> writeBackgroundMessage)
     {
+        if (!string.IsNullOrWhiteSpace(result.StandardOutput))
+            writeBackgroundMessage(result.StandardOutput.TrimEnd('\r', '\n'));
+
+        if (!string.IsNullOrWhiteSpace(result.StandardError))
+            writeBackgroundMessage(result.StandardError.TrimEnd('\r', '\n'));
+    }
+
+    private static void ReportSyncFailure(string message, Action<string>? writeBackgroundMessage)
+    {
+        var failureMessage = $"Git sync failed: {message}";
+
+        writeBackgroundMessage?.Invoke(failureMessage);
+
         if (OperatingSystem.IsWindows())
         {
             TrySetConsoleTitle($"Syncing failed - {message}");
             return;
         }
 
-        Console.Error.WriteLine($"Git sync failed: {message}");
+        if (writeBackgroundMessage == null)
+            Console.Error.WriteLine(failureMessage);
     }
 
     private static string? TryGetConsoleTitle()

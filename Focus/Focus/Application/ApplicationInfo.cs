@@ -34,7 +34,7 @@ internal static class ApplicationInfo
         return informationalVersion.Split('+', 2)[0];
     }
 
-    private static string? TryGetAssemblyVersion()
+    private static string TryGetAssemblyVersion()
     {
         return typeof(ApplicationInfo).Assembly.GetName().Version?.ToString(3);
     }

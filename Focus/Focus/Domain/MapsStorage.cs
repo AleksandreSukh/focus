@@ -95,7 +95,9 @@ namespace Systems.Sanity.Focus.Domain
         {
             if (GitHelper.IsRepositoryAvailable(gitRepositoryPath))
             {
-                var gitHelper = new GitHelper(gitRepositoryPath);
+                var gitHelper = new GitHelper(
+                    gitRepositoryPath,
+                    message => AppConsole.Current.WriteBackgroundMessage(message));
                 return new FileSynchronizationHandlerGit(gitHelper);
             }
 

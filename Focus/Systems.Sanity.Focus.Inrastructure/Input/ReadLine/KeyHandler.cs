@@ -12,7 +12,7 @@ namespace Systems.Sanity.Focus.Infrastructure.Input.ReadLine
         private int _historyIndex;
         private ConsoleKeyInfo _keyInfo;
         private Dictionary<string, Action> _keyActions;
-        private string[] _completions;
+        private string[]? _completions;
         private int _completionStart;
         private int _completionsIndex;
         private IConsole Console2;

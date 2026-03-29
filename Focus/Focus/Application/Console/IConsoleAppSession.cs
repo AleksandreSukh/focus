@@ -20,6 +20,8 @@ public interface IConsoleAppSession
 
     void WriteLine(string text);
 
+    void WriteBackgroundMessage(string text);
+
     ConsoleKeyInfo ReadKey(bool intercept = true);
 
     void Beep();

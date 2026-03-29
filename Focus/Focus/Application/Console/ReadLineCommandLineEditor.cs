@@ -33,6 +33,11 @@ internal sealed class ReadLineCommandLineEditor : ICommandLineEditor
             initialKeyInfo);
     }
 
+    public void WriteInterleavedMessage(string text)
+    {
+        ReadLine.WriteInterleavedMessage(text);
+    }
+
     public void SetAutoCompletionHandler(IAutoCompleteHandler handler)
     {
         ReadLine.AutoCompletionHandler = handler;

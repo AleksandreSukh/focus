@@ -50,6 +50,8 @@ internal sealed class ScriptedConsoleSession : IConsoleAppSession
 
     public int WindowWidth => _windowWidth;
 
+    public List<string> BackgroundMessages { get; } = new();
+
     public void SetTitle(string? title)
     {
     }
@@ -68,6 +70,11 @@ internal sealed class ScriptedConsoleSession : IConsoleAppSession
 
     public void WriteLine(string text)
     {
+    }
+
+    public void WriteBackgroundMessage(string text)
+    {
+        BackgroundMessages.Add(text);
     }
 
     public ConsoleKeyInfo ReadKey(bool intercept = true) =>
@@ -118,6 +125,10 @@ internal sealed class ScriptedCommandLineEditor : ICommandLineEditor
     {
     }
 
+    public void WriteInterleavedMessage(string text)
+    {
+    }
+
     public string Read(
         string prompt,
         string defaultInput = "",
@@ -152,6 +163,10 @@ internal sealed class PreviewKeyCommandLineEditor : ICommandLineEditor
     public bool PreviewKeyHandled { get; private set; }
 
     public void SetAutoCompletionHandler(IAutoCompleteHandler handler)
+    {
+    }
+
+    public void WriteInterleavedMessage(string text)
     {
     }
 
@@ -240,6 +255,10 @@ internal sealed class InitialKeyAwareCommandLineEditor : ICommandLineEditor
     public List<ConsoleKeyInfo?> ReceivedInitialKeys { get; } = new();
 
     public void SetAutoCompletionHandler(IAutoCompleteHandler handler)
+    {
+    }
+
+    public void WriteInterleavedMessage(string text)
     {
     }
 
