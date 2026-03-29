@@ -602,11 +602,49 @@ function Invoke-ReleaseAndUpload
         [switch]$DryRun
     )
 
-    $releaseVersion = Resolve-FocusReleaseVersionString -Platform Windows -Version $Version -Increment $Increment -SkipBuild:$SkipBuild
-    Write-Host "Release version: $releaseVersion"
+    $autoVersionRequested = Test-FocusAutoVersionRequested -Version $Version
+    if ($autoVersionRequested -and $SkipBuild)
+    {
+        throw "Cannot combine -Version Auto with -SkipBuild because -SkipBuild uploads existing artifacts without producing a new version."
+    }
 
     $remoteEndpoint = Resolve-FocusRemoteEndpoint -BaseUrl $RemoteBaseUrl
     $winScpExecutablePath = Resolve-WinScpExecutablePath
+    $credential = $null
+    $acceptNewHostKey = $remoteEndpoint.Scheme -eq "sftp" -and [string]::IsNullOrWhiteSpace($SshHostKeyFingerprint)
+
+    if ($autoVersionRequested)
+    {
+        $credential = Get-FocusReleaseCredential -CredentialFilePath $CredentialPath -UpdateCredential:$UpdateCredential
+
+        if ($acceptNewHostKey)
+        {
+            Write-Host "SFTP host keys will be accepted automatically on first connection by WinSCP."
+        }
+
+        Write-Host "Resolving -Version Auto from remote files in '$($remoteEndpoint.RemoteDirectory)'..."
+        $remoteVersionFileNames = Get-RemoteReleaseFileNames `
+            -ExecutablePath $winScpExecutablePath `
+            -RemoteEndpoint $remoteEndpoint `
+            -Credential $credential `
+            -FtpsMode $FtpsMode `
+            -SshHostKeyFingerprint $SshHostKeyFingerprint `
+            -TlsHostCertificateFingerprint $TlsHostCertificateFingerprint
+
+        $releaseVersion = Resolve-FocusReleaseVersionString `
+            -Platform Windows `
+            -Version $Version `
+            -Increment $Increment `
+            -SkipBuild:$SkipBuild `
+            -RemoteFileNames $remoteVersionFileNames `
+            -VersionSourceDescription "remote release directory '$($remoteEndpoint.RemoteDirectory)'"
+    }
+    else
+    {
+        $releaseVersion = Resolve-FocusReleaseVersionString -Platform Windows -Version $Version -Increment $Increment -SkipBuild:$SkipBuild
+    }
+
+    Write-Host "Release version: $releaseVersion"
 
     Push-Location -LiteralPath $PSScriptRoot
     try
@@ -617,9 +655,12 @@ function Invoke-ReleaseAndUpload
         }
 
         $localReleaseFiles = Get-FocusLocalReleaseFiles -Platform Windows -ReleaseDirectoryPath (Get-FocusReleasesDirectoryPath)
-        $credential = Get-FocusReleaseCredential -CredentialFilePath $CredentialPath -UpdateCredential:$UpdateCredential
+        if ($null -eq $credential)
+        {
+            $credential = Get-FocusReleaseCredential -CredentialFilePath $CredentialPath -UpdateCredential:$UpdateCredential
+        }
 
-        if ($remoteEndpoint.Scheme -eq "sftp" -and [string]::IsNullOrWhiteSpace($SshHostKeyFingerprint))
+        if ($acceptNewHostKey -and -not $autoVersionRequested)
         {
             Write-Host "SFTP host keys will be accepted automatically on first connection by WinSCP."
         }

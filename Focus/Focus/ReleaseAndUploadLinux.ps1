@@ -73,12 +73,38 @@ function Invoke-ReleaseAndUploadLinux
         [switch]$DryRun
     )
 
-    $releaseVersion = Resolve-FocusReleaseVersionString -Platform Linux -Version $Version -Increment $Increment -SkipBuild:$SkipBuild
-    Write-Host "Release version: $releaseVersion"
+    $autoVersionRequested = Test-FocusAutoVersionRequested -Version $Version
+    if ($autoVersionRequested -and $SkipBuild)
+    {
+        throw "Cannot combine -Version Auto with -SkipBuild because -SkipBuild uploads existing artifacts without producing a new version."
+    }
 
     $remoteEndpoint = Resolve-FocusRemoteEndpoint -BaseUrl $RemoteBaseUrl -AllowedSchemes @("sftp")
     $sshExecutablePath = Resolve-OpenSshExecutablePath -CommandName "ssh"
     $scpExecutablePath = Resolve-OpenSshExecutablePath -CommandName "scp"
+
+    if ($autoVersionRequested)
+    {
+        Write-Host "Resolving -Version Auto from remote files in '$($remoteEndpoint.RemoteDirectory)'..."
+        $remoteVersionFileNames = Get-SftpRemoteReleaseFileNames `
+            -SshExecutablePath $sshExecutablePath `
+            -RemoteEndpoint $remoteEndpoint `
+            -RemoteUser $RemoteUser
+
+        $releaseVersion = Resolve-FocusReleaseVersionString `
+            -Platform Linux `
+            -Version $Version `
+            -Increment $Increment `
+            -SkipBuild:$SkipBuild `
+            -RemoteFileNames $remoteVersionFileNames `
+            -VersionSourceDescription "remote release directory '$($remoteEndpoint.RemoteDirectory)'"
+    }
+    else
+    {
+        $releaseVersion = Resolve-FocusReleaseVersionString -Platform Linux -Version $Version -Increment $Increment -SkipBuild:$SkipBuild
+    }
+
+    Write-Host "Release version: $releaseVersion"
 
     Push-Location -LiteralPath $PSScriptRoot
     try

@@ -96,15 +96,21 @@ Example workflow:
 ```powershell
 pwsh -File Focus/Focus/ReleaseAndUpload.ps1 -RemoteBaseUrl sftp://example.com/var/www/html/Releases -UpdateCredential -DryRun
 pwsh -File Focus/Focus/ReleaseAndUpload.ps1 -RemoteBaseUrl sftp://example.com/var/www/html/Releases
+pwsh -File Focus/Focus/ReleaseAndUpload.ps1 -RemoteBaseUrl sftp://example.com/var/www/html/Releases -Version Auto
 pwsh -File Focus/Focus/ReleaseAndUploadLauncher.ps1 -DryRun
+pwsh -File Focus/Focus/ReleaseAndUploadLauncher.ps1 -Version Auto
 pwsh -File Focus/Focus/ReleaseAndUploadLauncher.ps1
 pwsh -File Focus/Focus/ReleaseAndUploadLinux.ps1 -RemoteBaseUrl sftp://example.com/var/www/html/Releases -RemoteUser deploy -DryRun
 pwsh -File Focus/Focus/ReleaseAndUploadLinux.ps1 -RemoteBaseUrl sftp://example.com/var/www/html/Releases -RemoteUser deploy
+pwsh -File Focus/Focus/ReleaseAndUploadLinux.ps1 -RemoteBaseUrl sftp://example.com/var/www/html/Releases -RemoteUser deploy -Version Auto
 pwsh -File Focus/Focus/ReleaseAndUploadLinuxLauncher.ps1 -RemoteUser deploy -DryRun
+pwsh -File Focus/Focus/ReleaseAndUploadLinuxLauncher.ps1 -RemoteUser deploy -Version Auto
 pwsh -File Focus/Focus/ReleaseAndUploadLinuxLauncher.ps1 -RemoteUser deploy
 pwsh -File Focus/Focus/ReleaseAndUploadMac.ps1 -RemoteBaseUrl sftp://example.com/var/www/html/Releases -RemoteUser deploy -BundleId com.example.focus -SignAppIdentity "Developer ID Application: Example" -SignInstallIdentity "Developer ID Installer: Example" -NotaryProfile focus-notary -DryRun
 pwsh -File Focus/Focus/ReleaseAndUploadMac.ps1 -RemoteBaseUrl sftp://example.com/var/www/html/Releases -RemoteUser deploy -BundleId com.example.focus -SignAppIdentity "Developer ID Application: Example" -SignInstallIdentity "Developer ID Installer: Example" -NotaryProfile focus-notary
+pwsh -File Focus/Focus/ReleaseAndUploadMac.ps1 -RemoteBaseUrl sftp://example.com/var/www/html/Releases -RemoteUser deploy -Version Auto -BundleId com.example.focus -SignAppIdentity "Developer ID Application: Example" -SignInstallIdentity "Developer ID Installer: Example" -NotaryProfile focus-notary
 pwsh -File Focus/Focus/ReleaseAndUploadMacLauncher.ps1 -RemoteUser deploy -BundleId com.example.focus -SignAppIdentity "Developer ID Application: Example" -SignInstallIdentity "Developer ID Installer: Example" -NotaryProfile focus-notary -DryRun
+pwsh -File Focus/Focus/ReleaseAndUploadMacLauncher.ps1 -RemoteUser deploy -Version Auto -BundleId com.example.focus -SignAppIdentity "Developer ID Application: Example" -SignInstallIdentity "Developer ID Installer: Example" -NotaryProfile focus-notary
 pwsh -File Focus/Focus/ReleaseAndUploadMacLauncher.ps1 -RemoteUser deploy -BundleId com.example.focus -SignAppIdentity "Developer ID Application: Example" -SignInstallIdentity "Developer ID Installer: Example" -NotaryProfile focus-notary
 ```
 
@@ -117,6 +123,8 @@ Notes:
 - Linux publishing does not store credentials locally. It uses the active SSH key, agent, and `known_hosts` configuration.
 - macOS publishing also uses the active SSH key, agent, and `known_hosts` configuration for uploads. It additionally requires a checked-in `.icns` file at `Focus/Focus/Packaging/mac/Focus.icns` unless you override `-IconPath`.
 - `-SkipBuild` uploads an already prepared local `Releases` folder without rerunning packaging. Version resolution stays platform-specific for `-SkipBuild`.
+- `-Version Auto` resolves the next shared release version from the current remote `/Releases` feed and always bumps the latest managed version by one patch/build.
+- `-Version Auto` requires remote connectivity and an already populated remote release directory, ignores `-Increment`, and cannot be combined with `-SkipBuild`.
 - `-DryRun` prints the planned upload and delete actions without changing the remote directory.
 - `-RemoteBaseUrl` accepts `ftp://...`, `ftps://...`, `ftpes://...`, and `sftp://...`. `-FtpsBaseUrl` still works as an alias for backwards compatibility.
 - `ReleaseAndUploadLinux.ps1` accepts only `sftp://...` endpoints and an optional `-RemoteUser`.

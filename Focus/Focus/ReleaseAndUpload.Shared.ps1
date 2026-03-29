@@ -49,6 +49,20 @@ function ConvertTo-FocusReleaseVersion
     }
 }
 
+function Test-FocusAutoVersionRequested
+{
+    param(
+        [string]$Version
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Version))
+    {
+        return $false
+    }
+
+    return $Version.Trim() -ieq "Auto"
+}
+
 function Get-FocusPlatformChannelName
 {
     param(
@@ -363,6 +377,38 @@ function Get-FocusLatestManagedReleaseVersion
     return $versions[0]
 }
 
+function Get-FocusLatestManagedReleaseVersionFromFileNames
+{
+    param(
+        [AllowEmptyCollection()]
+        [string[]]$FileNames
+    )
+
+    if ($null -eq $FileNames -or $FileNames.Count -eq 0)
+    {
+        return $null
+    }
+
+    $versions = @(
+        $FileNames |
+            ForEach-Object {
+                foreach ($platform in (Get-FocusSupportedPlatforms))
+                {
+                    Get-FocusVersionFromManagedFileName -Platform $platform -FileName $_
+                }
+            } |
+            Where-Object { $null -ne $_ } |
+            Sort-Object -Descending
+    )
+
+    if ($versions.Count -eq 0)
+    {
+        return $null
+    }
+
+    return $versions[0]
+}
+
 function Get-FocusIncrementedReleaseVersion
 {
     param(
@@ -391,8 +437,27 @@ function Resolve-FocusReleaseVersionString
         [string]$Version,
         [ValidateSet("Patch", "Minor", "Major")]
         [string]$Increment = "Patch",
-        [switch]$SkipBuild
+        [switch]$SkipBuild,
+        [AllowEmptyCollection()]
+        [string[]]$RemoteFileNames,
+        [string]$VersionSourceDescription = "remote release directory"
     )
+
+    if (Test-FocusAutoVersionRequested -Version $Version)
+    {
+        if ($SkipBuild)
+        {
+            throw "Cannot combine -Version Auto with -SkipBuild because -SkipBuild uploads existing artifacts without producing a new version."
+        }
+
+        $currentVersion = Get-FocusLatestManagedReleaseVersionFromFileNames -FileNames $RemoteFileNames
+        if ($null -eq $currentVersion)
+        {
+            throw "Cannot resolve -Version Auto because $VersionSourceDescription does not contain any managed release packages."
+        }
+
+        return (Get-FocusIncrementedReleaseVersion -CurrentVersion $currentVersion -Increment Patch).ToString(3)
+    }
 
     if (-not [string]::IsNullOrWhiteSpace($Version))
     {
