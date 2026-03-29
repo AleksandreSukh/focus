@@ -57,7 +57,7 @@ Notable implementation details:
 - The console input system is custom. It supports history navigation, inline editing, autocomplete, and password input.
 - Map rendering is text-based and color-aware through `ColorfulConsole`.
 - Git synchronization is enabled only when a Git repository is configured and the app is running on Windows.
-- Packaging supports `win-x64` and `linux-x64` publishing through `Velopack`.
+- Packaging supports `win-x64`, `linux-x64`, and `osx-arm64` publishing through `Velopack`.
 
 ## Build and run
 
@@ -71,7 +71,7 @@ dotnet run --project Focus/Focus/Systems.Sanity.Focus.csproj
 For local release deployment of build artifacts, the repository includes:
 
 - `Focus/Focus/ReleaseAndUpload.Shared.ps1`
-  Shared helper functions for release versioning, artifact validation, and platform-scoped sync planning across Windows and Linux publishing.
+  Shared helper functions for release versioning, artifact validation, and platform-scoped sync planning across Windows, Linux, and Mac publishing.
 
 - `Focus/Focus/ReleaseAndUpload.ps1`
   Calculates the next shared release version automatically, builds and packages the Windows app, prompts for upload credentials when needed, stores them as a DPAPI-encrypted `Export-Clixml` file under `%APPDATA%\Focus\Secrets\focus-ftps.clixml`, and mirrors only Windows-owned files from `Focus/Focus/Releases` to an FTP, FTPS, or SFTP target directory using WinSCP.
@@ -85,6 +85,12 @@ For local release deployment of build artifacts, the repository includes:
 - `Focus/Focus/ReleaseAndUploadLinuxLauncher.ps1`
   Convenience wrapper around `ReleaseAndUploadLinux.ps1` that targets the project's current SFTP release endpoint.
 
+- `Focus/Focus/ReleaseAndUploadMac.ps1`
+  Calculates the next shared release version automatically, builds and packages the macOS app for `osx-arm64`, requires Apple signing and notarization inputs for Velopack packaging, and mirrors only Mac-owned files from `Focus/Focus/Releases` to an SFTP target directory using `ssh` and `scp` with the current SSH key or agent configuration.
+
+- `Focus/Focus/ReleaseAndUploadMacLauncher.ps1`
+  Convenience wrapper around `ReleaseAndUploadMac.ps1` that targets the project's current SFTP release endpoint.
+
 Example workflow:
 
 ```powershell
@@ -96,21 +102,28 @@ pwsh -File Focus/Focus/ReleaseAndUploadLinux.ps1 -RemoteBaseUrl sftp://example.c
 pwsh -File Focus/Focus/ReleaseAndUploadLinux.ps1 -RemoteBaseUrl sftp://example.com/var/www/html/Releases -RemoteUser deploy
 pwsh -File Focus/Focus/ReleaseAndUploadLinuxLauncher.ps1 -RemoteUser deploy -DryRun
 pwsh -File Focus/Focus/ReleaseAndUploadLinuxLauncher.ps1 -RemoteUser deploy
+pwsh -File Focus/Focus/ReleaseAndUploadMac.ps1 -RemoteBaseUrl sftp://example.com/var/www/html/Releases -RemoteUser deploy -BundleId com.example.focus -SignAppIdentity "Developer ID Application: Example" -SignInstallIdentity "Developer ID Installer: Example" -NotaryProfile focus-notary -DryRun
+pwsh -File Focus/Focus/ReleaseAndUploadMac.ps1 -RemoteBaseUrl sftp://example.com/var/www/html/Releases -RemoteUser deploy -BundleId com.example.focus -SignAppIdentity "Developer ID Application: Example" -SignInstallIdentity "Developer ID Installer: Example" -NotaryProfile focus-notary
+pwsh -File Focus/Focus/ReleaseAndUploadMacLauncher.ps1 -RemoteUser deploy -BundleId com.example.focus -SignAppIdentity "Developer ID Application: Example" -SignInstallIdentity "Developer ID Installer: Example" -NotaryProfile focus-notary -DryRun
+pwsh -File Focus/Focus/ReleaseAndUploadMacLauncher.ps1 -RemoteUser deploy -BundleId com.example.focus -SignAppIdentity "Developer ID Application: Example" -SignInstallIdentity "Developer ID Installer: Example" -NotaryProfile focus-notary
 ```
 
 Notes:
 
 - Windows publishing requires WinSCP. The release script uses `WinSCP.com`, so the standard WinSCP install works in `pwsh`.
 - Linux publishing requires PowerShell 7, the .NET SDK, `vpk`, and the OpenSSH client tools (`ssh` and `scp`) to be available on the machine running the script.
+- macOS publishing requires PowerShell 7, the .NET SDK, `vpk`, the OpenSSH client tools (`ssh` and `scp`), and a macOS host with Apple Developer signing identities plus a configured `notarytool` profile.
 - Use `-UpdateCredential` when you want to overwrite the saved Windows upload credential before running a Windows release.
 - Linux publishing does not store credentials locally. It uses the active SSH key, agent, and `known_hosts` configuration.
+- macOS publishing also uses the active SSH key, agent, and `known_hosts` configuration for uploads. It additionally requires a checked-in `.icns` file at `Focus/Focus/Packaging/mac/Focus.icns` unless you override `-IconPath`.
 - `-SkipBuild` uploads an already prepared local `Releases` folder without rerunning packaging. Version resolution stays platform-specific for `-SkipBuild`.
 - `-DryRun` prints the planned upload and delete actions without changing the remote directory.
 - `-RemoteBaseUrl` accepts `ftp://...`, `ftps://...`, `ftpes://...`, and `sftp://...`. `-FtpsBaseUrl` still works as an alias for backwards compatibility.
 - `ReleaseAndUploadLinux.ps1` accepts only `sftp://...` endpoints and an optional `-RemoteUser`.
+- `ReleaseAndUploadMac.ps1` accepts only `sftp://...` endpoints, requires `-BundleId`, `-SignAppIdentity`, `-SignInstallIdentity`, and `-NotaryProfile`, and optionally accepts `-Keychain` plus `-SignEntitlements`.
 - `ftps://...` uses the selected `-FtpsMode` and defaults to explicit TLS. `ftpes://...` always uses explicit TLS.
 - If you use SFTP and do not provide `-SshHostKeyFingerprint`, WinSCP will accept the server host key on first connection.
-- Windows and Linux scripts share one release version sequence and one remote `/Releases` feed, but each script uploads and deletes only its own platform artifacts.
+- Windows, Linux, and Mac scripts share one release version sequence and one remote `/Releases` feed, but each script uploads and deletes only its own platform artifacts.
 - The remote target directory should correspond to the HTTP-served `/Releases` endpoint used by `AutoUpdateManager`.
 
 ## Data and configuration

@@ -1,5 +1,10 @@
 $script:FocusReleaseScriptRoot = $PSScriptRoot
 
+function Get-FocusSupportedPlatforms
+{
+    return @("Windows", "Linux", "Mac")
+}
+
 function Get-FocusDefaultBuildVersion
 {
     return [Version]"1.0.27"
@@ -44,18 +49,19 @@ function ConvertTo-FocusReleaseVersion
     }
 }
 
-function Get-FocusPlatformManagedExactFileNames
+function Get-FocusPlatformChannelName
 {
     param(
         [Parameter(Mandatory = $true)]
-        [ValidateSet("Windows", "Linux")]
+        [ValidateSet("Windows", "Linux", "Mac")]
         [string]$Platform
     )
 
     switch ($Platform)
     {
-        "Windows" { return @("RELEASES", "releases.win.json", "assets.win.json", "Focus-win-Setup.exe", "Focus-win-Portable.zip") }
-        "Linux" { return @("RELEASES-linux", "releases.linux.json", "assets.linux.json", "Focus.AppImage") }
+        "Windows" { return "win" }
+        "Linux" { return "linux" }
+        "Mac" { return "osx" }
     }
 }
 
@@ -63,33 +69,136 @@ function Get-FocusPlatformMetadataFileNames
 {
     param(
         [Parameter(Mandatory = $true)]
-        [ValidateSet("Windows", "Linux")]
+        [ValidateSet("Windows", "Linux", "Mac")]
         [string]$Platform
     )
 
-    switch ($Platform)
+    $channel = Get-FocusPlatformChannelName -Platform $Platform
+    $legacyReleasesFileName = if ($Platform -eq "Windows") { "RELEASES" } else { "RELEASES-$channel" }
+
+    return @(
+        "assets.$channel.json"
+        "releases.$channel.json"
+        $legacyReleasesFileName
+    )
+}
+
+function Get-FocusPlatformAssetsManifestPath
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("Windows", "Linux", "Mac")]
+        [string]$Platform,
+        [Parameter(Mandatory = $true)]
+        [string]$ReleaseDirectoryPath
+    )
+
+    return Join-Path $ReleaseDirectoryPath ("assets.{0}.json" -f (Get-FocusPlatformChannelName -Platform $Platform))
+}
+
+function Get-FocusPlatformAssetsManifestEntries
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("Windows", "Linux", "Mac")]
+        [string]$Platform,
+        [Parameter(Mandatory = $true)]
+        [string]$ReleaseDirectoryPath
+    )
+
+    $assetsManifestPath = Get-FocusPlatformAssetsManifestPath -Platform $Platform -ReleaseDirectoryPath $ReleaseDirectoryPath
+    if (-not (Test-Path -LiteralPath $assetsManifestPath -PathType Leaf))
     {
-        "Windows" { return @("assets.win.json", "releases.win.json", "RELEASES") }
-        "Linux" { return @("assets.linux.json", "releases.linux.json", "RELEASES-linux") }
+        return @()
     }
+
+    try
+    {
+        $manifest = Get-Content -LiteralPath $assetsManifestPath -Raw | ConvertFrom-Json
+    }
+    catch
+    {
+        throw "Assets manifest '$assetsManifestPath' is not valid JSON."
+    }
+
+    return @($manifest)
+}
+
+function Get-FocusPlatformAssetRelativeFileNames
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("Windows", "Linux", "Mac")]
+        [string]$Platform,
+        [Parameter(Mandatory = $true)]
+        [string]$ReleaseDirectoryPath
+    )
+
+    $assetsManifestPath = Get-FocusPlatformAssetsManifestPath -Platform $Platform -ReleaseDirectoryPath $ReleaseDirectoryPath
+    $assetEntries = @(Get-FocusPlatformAssetsManifestEntries -Platform $Platform -ReleaseDirectoryPath $ReleaseDirectoryPath)
+    if ($assetEntries.Count -eq 0)
+    {
+        return @()
+    }
+
+    $relativeFileNames = @(
+        $assetEntries |
+            ForEach-Object { $_.RelativeFileName } |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+            Sort-Object -Unique
+    )
+
+    if ($relativeFileNames.Count -eq 0)
+    {
+        throw "Assets manifest '$assetsManifestPath' does not contain any RelativeFileName entries."
+    }
+
+    return $relativeFileNames
+}
+
+function Get-FocusPlatformManagedExactFileNames
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("Windows", "Linux", "Mac")]
+        [string]$Platform,
+        [Parameter(Mandatory = $true)]
+        [string]$ReleaseDirectoryPath
+    )
+
+    $managedExactFileNames = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+
+    foreach ($fileName in (Get-FocusPlatformMetadataFileNames -Platform $Platform))
+    {
+        [void]$managedExactFileNames.Add($fileName)
+    }
+
+    foreach ($fileName in (Get-FocusPlatformAssetRelativeFileNames -Platform $Platform -ReleaseDirectoryPath $ReleaseDirectoryPath))
+    {
+        [void]$managedExactFileNames.Add($fileName)
+    }
+
+    return @($managedExactFileNames | Sort-Object)
 }
 
 function Get-FocusPlatformRequiredExactFileNames
 {
     param(
         [Parameter(Mandatory = $true)]
-        [ValidateSet("Windows", "Linux")]
-        [string]$Platform
+        [ValidateSet("Windows", "Linux", "Mac")]
+        [string]$Platform,
+        [Parameter(Mandatory = $true)]
+        [string]$ReleaseDirectoryPath
     )
 
-    return @(Get-FocusPlatformManagedExactFileNames -Platform $Platform)
+    return @(Get-FocusPlatformManagedExactFileNames -Platform $Platform -ReleaseDirectoryPath $ReleaseDirectoryPath)
 }
 
 function Get-FocusPlatformManagedRegexPatterns
 {
     param(
         [Parameter(Mandatory = $true)]
-        [ValidateSet("Windows", "Linux")]
+        [ValidateSet("Windows", "Linux", "Mac")]
         [string]$Platform
     )
 
@@ -97,6 +206,7 @@ function Get-FocusPlatformManagedRegexPatterns
     {
         "Windows" { return @('^Focus-\d+\.\d+\.\d+-(full|delta)\.nupkg$') }
         "Linux" { return @('^Focus-\d+\.\d+\.\d+-linux-(full|delta)\.nupkg$') }
+        "Mac" { return @('^Focus-\d+\.\d+\.\d+-osx-(full|delta)\.nupkg$') }
     }
 }
 
@@ -104,7 +214,7 @@ function Get-FocusPlatformFullPackageRegex
 {
     param(
         [Parameter(Mandatory = $true)]
-        [ValidateSet("Windows", "Linux")]
+        [ValidateSet("Windows", "Linux", "Mac")]
         [string]$Platform
     )
 
@@ -112,6 +222,7 @@ function Get-FocusPlatformFullPackageRegex
     {
         "Windows" { return '^Focus-\d+\.\d+\.\d+-full\.nupkg$' }
         "Linux" { return '^Focus-\d+\.\d+\.\d+-linux-full\.nupkg$' }
+        "Mac" { return '^Focus-\d+\.\d+\.\d+-osx-full\.nupkg$' }
     }
 }
 
@@ -119,14 +230,16 @@ function Test-FocusPlatformManagedFileName
 {
     param(
         [Parameter(Mandatory = $true)]
-        [ValidateSet("Windows", "Linux")]
+        [ValidateSet("Windows", "Linux", "Mac")]
         [string]$Platform,
         [Parameter(Mandatory = $true)]
-        [string]$FileName
+        [string]$FileName,
+        [Parameter(Mandatory = $true)]
+        [string]$ReleaseDirectoryPath
     )
 
     $managedExactFileNames = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-    foreach ($managedExactFileName in (Get-FocusPlatformManagedExactFileNames -Platform $Platform))
+    foreach ($managedExactFileName in (Get-FocusPlatformManagedExactFileNames -Platform $Platform -ReleaseDirectoryPath $ReleaseDirectoryPath))
     {
         [void]$managedExactFileNames.Add($managedExactFileName)
     }
@@ -151,7 +264,7 @@ function Get-FocusVersionFromManagedFileName
 {
     param(
         [Parameter(Mandatory = $true)]
-        [ValidateSet("Windows", "Linux")]
+        [ValidateSet("Windows", "Linux", "Mac")]
         [string]$Platform,
         [Parameter(Mandatory = $true)]
         [string]$FileName
@@ -175,6 +288,14 @@ function Get-FocusVersionFromManagedFileName
             }
             break
         }
+        "Mac"
+        {
+            if ($FileName -match '^Focus-(?<Version>\d+\.\d+\.\d+)-osx-full\.nupkg$')
+            {
+                return [Version]$Matches.Version
+            }
+            break
+        }
     }
 
     return $null
@@ -184,7 +305,7 @@ function Get-FocusLatestPlatformArtifactReleaseVersion
 {
     param(
         [Parameter(Mandatory = $true)]
-        [ValidateSet("Windows", "Linux")]
+        [ValidateSet("Windows", "Linux", "Mac")]
         [string]$Platform,
         [Parameter(Mandatory = $true)]
         [string]$ReleaseDirectoryPath
@@ -225,10 +346,10 @@ function Get-FocusLatestManagedReleaseVersion
     $versions = @(
         Get-ChildItem -LiteralPath $ReleaseDirectoryPath -File |
             ForEach-Object {
-                @(
-                    Get-FocusVersionFromManagedFileName -Platform Windows -FileName $_.Name
-                    Get-FocusVersionFromManagedFileName -Platform Linux -FileName $_.Name
-                )
+                foreach ($platform in (Get-FocusSupportedPlatforms))
+                {
+                    Get-FocusVersionFromManagedFileName -Platform $platform -FileName $_.Name
+                }
             } |
             Where-Object { $null -ne $_ } |
             Sort-Object -Descending
@@ -265,11 +386,11 @@ function Resolve-FocusReleaseVersionString
 {
     param(
         [Parameter(Mandatory = $true)]
-        [ValidateSet("Windows", "Linux")]
+        [ValidateSet("Windows", "Linux", "Mac")]
         [string]$Platform,
         [string]$Version,
         [ValidateSet("Patch", "Minor", "Major")]
-        [string]$Increment,
+        [string]$Increment = "Patch",
         [switch]$SkipBuild
     )
 
@@ -362,11 +483,193 @@ function Resolve-FocusRemoteEndpoint
     }
 }
 
+function Resolve-RequiredExecutablePath
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$CommandName,
+        [Parameter(Mandatory = $true)]
+        [string]$FailureMessage
+    )
+
+    $commandInfo = Get-Command $CommandName -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($null -eq $commandInfo -or [string]::IsNullOrWhiteSpace($commandInfo.Source))
+    {
+        throw $FailureMessage
+    }
+
+    return $commandInfo.Source
+}
+
+function Resolve-OpenSshExecutablePath
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$CommandName
+    )
+
+    return Resolve-RequiredExecutablePath `
+        -CommandName $CommandName `
+        -FailureMessage "$CommandName is required for SFTP release uploads. Make sure OpenSSH client tools are available."
+}
+
+function ConvertTo-PosixShellQuotedValue
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
+        [string]$Value
+    )
+
+    return "'" + $Value.Replace("'", "'""'""'") + "'"
+}
+
+function New-SftpConnectionTarget
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [psobject]$RemoteEndpoint,
+        [string]$RemoteUser
+    )
+
+    $hostName = $RemoteEndpoint.Uri.Host
+    if ($hostName.Contains(":") -and -not $hostName.StartsWith("["))
+    {
+        $hostName = "[$hostName]"
+    }
+
+    if ([string]::IsNullOrWhiteSpace($RemoteUser))
+    {
+        return $hostName
+    }
+
+    return "$RemoteUser@$hostName"
+}
+
+function Get-OpenSshPortArguments
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [psobject]$RemoteEndpoint,
+        [switch]$ForScp
+    )
+
+    if ($RemoteEndpoint.Uri.IsDefaultPort -or $RemoteEndpoint.Uri.Port -le 0)
+    {
+        return @()
+    }
+
+    if ($ForScp)
+    {
+        return @("-P", $RemoteEndpoint.Uri.Port.ToString())
+    }
+
+    return @("-p", $RemoteEndpoint.Uri.Port.ToString())
+}
+
+function Invoke-SftpSshCommand
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ExecutablePath,
+        [Parameter(Mandatory = $true)]
+        [psobject]$RemoteEndpoint,
+        [string]$RemoteUser,
+        [Parameter(Mandatory = $true)]
+        [string]$CommandText
+    )
+
+    $connectionTarget = New-SftpConnectionTarget -RemoteEndpoint $RemoteEndpoint -RemoteUser $RemoteUser
+    $output = & $ExecutablePath @(Get-OpenSshPortArguments -RemoteEndpoint $RemoteEndpoint) $connectionTarget $CommandText
+    if ($LASTEXITCODE)
+    {
+        throw "ssh failed with exit code $LASTEXITCODE while running remote command."
+    }
+
+    return @($output)
+}
+
+function Get-SftpRemoteReleaseFileNames
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SshExecutablePath,
+        [Parameter(Mandatory = $true)]
+        [psobject]$RemoteEndpoint,
+        [string]$RemoteUser
+    )
+
+    $quotedDirectory = ConvertTo-PosixShellQuotedValue -Value $RemoteEndpoint.RemoteDirectory
+    $commandText = "mkdir -p -- $quotedDirectory && find $quotedDirectory -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort -u"
+    $remoteOutput = Invoke-SftpSshCommand `
+        -ExecutablePath $SshExecutablePath `
+        -RemoteEndpoint $RemoteEndpoint `
+        -RemoteUser $RemoteUser `
+        -CommandText $commandText
+
+    return @(
+        $remoteOutput |
+            ForEach-Object { $_.Trim() } |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+            Sort-Object -Unique
+    )
+}
+
+function Invoke-SftpRemoteReleaseChanges
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SshExecutablePath,
+        [Parameter(Mandatory = $true)]
+        [string]$ScpExecutablePath,
+        [Parameter(Mandatory = $true)]
+        [psobject]$RemoteEndpoint,
+        [string]$RemoteUser,
+        [Parameter(Mandatory = $true)]
+        [System.IO.FileInfo[]]$UploadFiles,
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [string[]]$DeleteFileNames
+    )
+
+    $connectionTarget = New-SftpConnectionTarget -RemoteEndpoint $RemoteEndpoint -RemoteUser $RemoteUser
+    $quotedDirectory = ConvertTo-PosixShellQuotedValue -Value $RemoteEndpoint.RemoteDirectory
+    [void](Invoke-SftpSshCommand `
+        -ExecutablePath $SshExecutablePath `
+        -RemoteEndpoint $RemoteEndpoint `
+        -RemoteUser $RemoteUser `
+        -CommandText "mkdir -p -- $quotedDirectory")
+
+    $scpPortArguments = @(Get-OpenSshPortArguments -RemoteEndpoint $RemoteEndpoint -ForScp)
+
+    foreach ($uploadFile in $UploadFiles)
+    {
+        $remoteFilePath = Join-FocusRemotePosixPath -Directory $RemoteEndpoint.RemoteDirectory -Child $uploadFile.Name
+        $remoteTarget = '{0}:{1}' -f $connectionTarget, (ConvertTo-PosixShellQuotedValue -Value $remoteFilePath)
+        & $ScpExecutablePath @scpPortArguments $uploadFile.FullName $remoteTarget
+        if ($LASTEXITCODE)
+        {
+            throw "scp failed with exit code $LASTEXITCODE while uploading '$($uploadFile.Name)'."
+        }
+    }
+
+    foreach ($deleteFileName in $DeleteFileNames)
+    {
+        $remoteFilePath = Join-FocusRemotePosixPath -Directory $RemoteEndpoint.RemoteDirectory -Child $deleteFileName
+        $quotedRemoteFilePath = ConvertTo-PosixShellQuotedValue -Value $remoteFilePath
+        [void](Invoke-SftpSshCommand `
+            -ExecutablePath $SshExecutablePath `
+            -RemoteEndpoint $RemoteEndpoint `
+            -RemoteUser $RemoteUser `
+            -CommandText "rm -f -- $quotedRemoteFilePath")
+    }
+}
+
 function Get-FocusLocalReleaseFiles
 {
     param(
         [Parameter(Mandatory = $true)]
-        [ValidateSet("Windows", "Linux")]
+        [ValidateSet("Windows", "Linux", "Mac")]
         [string]$Platform,
         [Parameter(Mandatory = $true)]
         [string]$ReleaseDirectoryPath
@@ -379,7 +682,12 @@ function Get-FocusLocalReleaseFiles
 
     $managedReleaseFiles = @(
         Get-ChildItem -LiteralPath $ReleaseDirectoryPath -File |
-            Where-Object { Test-FocusPlatformManagedFileName -Platform $Platform -FileName $_.Name } |
+            Where-Object {
+                Test-FocusPlatformManagedFileName `
+                    -Platform $Platform `
+                    -FileName $_.Name `
+                    -ReleaseDirectoryPath $ReleaseDirectoryPath
+            } |
             Sort-Object Name
     )
 
@@ -388,7 +696,7 @@ function Get-FocusLocalReleaseFiles
         throw "Releases directory '$ReleaseDirectoryPath' does not contain any $($Platform.ToLowerInvariant()) release files."
     }
 
-    foreach ($requiredExactName in (Get-FocusPlatformRequiredExactFileNames -Platform $Platform))
+    foreach ($requiredExactName in (Get-FocusPlatformRequiredExactFileNames -Platform $Platform -ReleaseDirectoryPath $ReleaseDirectoryPath))
     {
         if (-not ($managedReleaseFiles.Name -contains $requiredExactName))
         {
@@ -409,7 +717,7 @@ function Get-FocusUploadOrderedReleaseFiles
 {
     param(
         [Parameter(Mandatory = $true)]
-        [ValidateSet("Windows", "Linux")]
+        [ValidateSet("Windows", "Linux", "Mac")]
         [string]$Platform,
         [Parameter(Mandatory = $true)]
         [System.IO.FileInfo[]]$LocalReleaseFiles
@@ -450,8 +758,10 @@ function Get-FocusManagedRemoteFileNames
 {
     param(
         [Parameter(Mandatory = $true)]
-        [ValidateSet("Windows", "Linux")]
+        [ValidateSet("Windows", "Linux", "Mac")]
         [string]$Platform,
+        [Parameter(Mandatory = $true)]
+        [string]$ReleaseDirectoryPath,
         [Parameter(Mandatory = $true)]
         [AllowEmptyCollection()]
         [string[]]$RemoteFileNames
@@ -459,7 +769,12 @@ function Get-FocusManagedRemoteFileNames
 
     return @(
         $RemoteFileNames |
-            Where-Object { Test-FocusPlatformManagedFileName -Platform $Platform -FileName $_ } |
+            Where-Object {
+                Test-FocusPlatformManagedFileName `
+                    -Platform $Platform `
+                    -FileName $_ `
+                    -ReleaseDirectoryPath $ReleaseDirectoryPath
+            } |
             Sort-Object -Unique
     )
 }
@@ -468,7 +783,7 @@ function Get-FocusReleaseSyncPlan
 {
     param(
         [Parameter(Mandatory = $true)]
-        [ValidateSet("Windows", "Linux")]
+        [ValidateSet("Windows", "Linux", "Mac")]
         [string]$Platform,
         [Parameter(Mandatory = $true)]
         [System.IO.FileInfo[]]$LocalReleaseFiles,
@@ -483,7 +798,11 @@ function Get-FocusReleaseSyncPlan
         [void]$localFileNames.Add($localReleaseFile.Name)
     }
 
-    $filesToDelete = Get-FocusManagedRemoteFileNames -Platform $Platform -RemoteFileNames $RemoteFileNames |
+    $releaseDirectoryPath = $LocalReleaseFiles[0].DirectoryName
+    $filesToDelete = Get-FocusManagedRemoteFileNames `
+        -Platform $Platform `
+        -ReleaseDirectoryPath $releaseDirectoryPath `
+        -RemoteFileNames $RemoteFileNames |
         Where-Object { -not $localFileNames.Contains($_) } |
         Sort-Object
 
