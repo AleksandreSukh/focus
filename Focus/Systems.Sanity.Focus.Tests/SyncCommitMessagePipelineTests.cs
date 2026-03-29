@@ -58,6 +58,27 @@ public class SyncCommitMessagePipelineTests
     }
 
     [Fact]
+    public void Execute_ExportHtmlWithBlackBackground_WritesDarkHtmlAndKeepsCommitMessage()
+    {
+        using var workspace = new TestWorkspace();
+        var handler = new RecordingFileSynchronizationHandler();
+        var mapsStorage = CreateMapsStorage(workspace.RootDirectory, handler);
+        var appContext = new FocusAppContext(mapsStorage);
+        var filePath = mapsStorage.SaveMapToStorage("alpha", new MindMap("Alpha"));
+        var workflow = new EditWorkflow(filePath, appContext);
+
+        using var consoleScope = new AppConsoleScope(new ScriptedConsoleSession("html", "blackbg", "save"));
+        var result = workflow.Execute(new ConsoleInput("export"));
+        var exportedHtmlPath = Directory.GetFiles(mapsStorage.UserMindMapsDirectory, "*.html").Single();
+        var exportedHtml = File.ReadAllText(exportedHtmlPath);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(["Export HTML from alpha"], handler.CommitMessages);
+        Assert.Contains(":root { color-scheme: dark; }", exportedHtml);
+        Assert.Contains("background: #000000;", exportedHtml);
+    }
+
+    [Fact]
     public void Show_PersistedCommand_ForwardsGeneratedSyncCommitMessageToHandler()
     {
         using var workspace = new TestWorkspace();

@@ -5,7 +5,8 @@ using Systems.Sanity.Focus.Domain;
 namespace Systems.Sanity.Focus.DomainServices;
 
 internal sealed record NodeExportOptions(
-    bool SkipCollapsedDescendants = false);
+    bool SkipCollapsedDescendants = false,
+    bool UseBlackBackground = false);
 
 internal static class NodeExportHelpers
 {

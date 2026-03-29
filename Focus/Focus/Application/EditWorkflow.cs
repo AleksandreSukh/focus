@@ -538,7 +538,7 @@ internal sealed class EditWorkflow
             var exportedContent = MapExportService.Export(
                 _map.GetCurrentNode(),
                 exportRequest.Format,
-                new NodeExportOptions(exportRequest.SkipCollapsedDescendants));
+                new NodeExportOptions(exportRequest.SkipCollapsedDescendants, exportRequest.UseBlackBackground));
             string? exportedFilePath = null;
 
             new RequestRenameUntilFileNameIsAvailableDialog(

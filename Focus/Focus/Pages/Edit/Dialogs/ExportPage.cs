@@ -16,6 +16,8 @@ internal class ExportPage : Page
 {
     private const string MarkdownOption = "md";
     private const string HtmlOption = "html";
+    private const string BlackBackgroundOption = "blackbg";
+    private const string LightBackgroundOption = "lightbg";
     private const string FullOption = "full";
     private const string CollapsedOption = "collapsed";
     private const string NameOption = "name";
@@ -26,6 +28,7 @@ internal class ExportPage : Page
     private string _fileName;
     private ExportFormat _format = ExportFormat.Markdown;
     private bool _skipCollapsedDescendants;
+    private bool _useBlackBackground;
     private string? _message;
     private bool _isError;
     private bool _cancelled;
@@ -69,6 +72,12 @@ internal class ExportPage : Page
             case HtmlOption:
                 SetFormat(ExportFormat.Html);
                 return;
+            case BlackBackgroundOption:
+                SetBackground(useBlackBackground: true);
+                return;
+            case LightBackgroundOption:
+                SetBackground(useBlackBackground: false);
+                return;
             case FullOption:
                 SetScope(skipCollapsedDescendants: false);
                 return;
@@ -79,7 +88,11 @@ internal class ExportPage : Page
                 UpdateFileName(input.Parameters);
                 return;
             case SaveOption:
-                SelectedExport = new ExportRequest(_format, _fileName, _skipCollapsedDescendants);
+                SelectedExport = new ExportRequest(
+                    _format,
+                    _fileName,
+                    _skipCollapsedDescendants,
+                    _format == ExportFormat.Html && _useBlackBackground);
                 return;
             case CancelOption:
                 _cancelled = true;
@@ -116,6 +129,29 @@ internal class ExportPage : Page
         _message = $"Format set to {format.ToDisplayString()}";
     }
 
+    private void SetBackground(bool useBlackBackground)
+    {
+        if (_format != ExportFormat.Html)
+        {
+            _message = "Background option is only available for HTML export";
+            _isError = true;
+            return;
+        }
+
+        if (_useBlackBackground == useBlackBackground)
+        {
+            _message = useBlackBackground
+                ? "Background already set to black"
+                : "Background already set to light";
+            return;
+        }
+
+        _useBlackBackground = useBlackBackground;
+        _message = useBlackBackground
+            ? "Background set to black"
+            : "Background set to light";
+    }
+
     private void SetScope(bool skipCollapsedDescendants)
     {
         if (_skipCollapsedDescendants == skipCollapsedDescendants)
@@ -143,6 +179,18 @@ internal class ExportPage : Page
             yield return new ExportOption(MarkdownOption, MarkdownOption, "export as Markdown");
         }
 
+        if (_format == ExportFormat.Html)
+        {
+            if (_useBlackBackground)
+            {
+                yield return new ExportOption(LightBackgroundOption, LightBackgroundOption, "use default light page background");
+            }
+            else
+            {
+                yield return new ExportOption(BlackBackgroundOption, BlackBackgroundOption, "use black page background");
+            }
+        }
+
         if (_skipCollapsedDescendants)
         {
             yield return new ExportOption(FullOption, FullOption, "include all descendants");
@@ -166,6 +214,8 @@ internal class ExportPage : Page
         builder.AppendLine($"Current file name: {_fileName}");
         builder.AppendLine($"Default file name: {_defaultFileName}");
         builder.AppendLine($"Format: {_format.ToDisplayString()} ({_format.GetFileExtension()})");
+        if (_format == ExportFormat.Html)
+            builder.AppendLine($"Background: {(_useBlackBackground ? "Black" : "Light")}");
         builder.AppendLine($"Scope: {(_skipCollapsedDescendants ? "Skip descendants under collapsed nodes" : "Full subtree")}");
         builder.AppendLine();
         foreach (var option in GetVisibleOptions())
