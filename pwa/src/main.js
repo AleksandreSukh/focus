@@ -62,6 +62,7 @@ const state = {
   },
   service: null,
   installEvent: null,
+  showStatus: false,
   showSettings: false,
   processingQueue: false,
   currentView: 'maps',
@@ -121,24 +122,50 @@ export async function bootstrapApp() {
 function wireUi() {
   ui.installButton = document.getElementById('install-button');
   ui.installFallback = document.getElementById('install-fallback');
+  ui.statusToggle = document.getElementById('status-toggle');
   ui.settingsToggle = document.getElementById('settings-toggle');
-  ui.statusMessage = document.getElementById('sync-status');
-  ui.statusDetail = document.getElementById('sync-detail');
-  ui.retryButton = document.getElementById('retry-sync');
   ui.screenRoot = document.getElementById('screen-root');
   ui.appRoot = document.getElementById('app-root');
+  ui.statusRoot = document.getElementById('status-root');
   ui.settingsRoot = document.getElementById('settings-root');
   ui.themeMeta = document.querySelector('meta[name="theme-color"]');
 
   bindGlobalUiListeners();
 
-  ui.settingsToggle?.addEventListener('click', () => {
-    state.showSettings = !state.showSettings;
+  ui.statusToggle?.addEventListener('click', () => {
+    const openingStatus = !state.showStatus;
+    if (openingStatus) {
+      state.activeModal = null;
+      state.showSettings = false;
+      state.pendingFocusRequest = {
+        type: 'modalAutofocus',
+      };
+    } else {
+      state.pendingFocusRequest = {
+        type: 'focusKey',
+        value: 'status-toggle',
+      };
+    }
+    state.showStatus = openingStatus;
     render();
   });
 
-  ui.retryButton?.addEventListener('click', () => {
-    void handleRetryButtonClick();
+  ui.settingsToggle?.addEventListener('click', () => {
+    const openingSettings = !state.showSettings;
+    if (openingSettings) {
+      state.activeModal = null;
+      state.showStatus = false;
+      state.pendingFocusRequest = {
+        type: 'modalAutofocus',
+      };
+    } else {
+      state.pendingFocusRequest = {
+        type: 'focusKey',
+        value: 'settings-toggle',
+      };
+    }
+    state.showSettings = openingSettings;
+    render();
   });
 
   ui.installButton?.addEventListener('click', async () => {
@@ -371,6 +398,28 @@ function handleDocumentKeydown(event) {
     return;
   }
 
+  if (event.key === 'Escape' && state.showSettings) {
+    event.preventDefault();
+    state.pendingFocusRequest = {
+      type: 'focusKey',
+      value: 'settings-toggle',
+    };
+    state.showSettings = false;
+    render();
+    return;
+  }
+
+  if (event.key === 'Escape' && state.showStatus) {
+    event.preventDefault();
+    state.pendingFocusRequest = {
+      type: 'focusKey',
+      value: 'status-toggle',
+    };
+    state.showStatus = false;
+    render();
+    return;
+  }
+
   if (target.closest('a[href]')) {
     return;
   }
@@ -487,6 +536,7 @@ function switchRepoContext(repoSettings) {
   state.currentView = 'maps';
   state.selectedMapPath = '';
   state.selectedNodeId = '';
+  state.showStatus = false;
   state.showSettings = false;
   state.localCollapsedByMap = {};
   state.activeModal = null;
@@ -1251,6 +1301,10 @@ function focusPendingElement() {
 function render() {
   renderStatusPanel();
 
+  if (ui.statusToggle) {
+    ui.statusToggle.hidden = false;
+  }
+
   if (ui.settingsToggle) {
     ui.settingsToggle.hidden = state.authState !== 'authenticated';
   }
@@ -1273,24 +1327,97 @@ function render() {
     ui.settingsRoot.hidden = true;
     ui.settingsRoot.innerHTML = '';
   }
+  if (ui.statusRoot && !state.showStatus) {
+    ui.statusRoot.hidden = true;
+    ui.statusRoot.innerHTML = '';
+  }
 
   renderGateScreen();
   focusPendingElement();
 }
 
 function renderStatusPanel() {
-  if (ui.statusMessage) {
-    ui.statusMessage.textContent = state.syncState.message;
-    ui.statusMessage.dataset.tone = state.syncState.tone;
+  if (ui.statusToggle) {
+    ui.statusToggle.dataset.tone = state.syncState.tone;
+    ui.statusToggle.setAttribute('aria-haspopup', 'dialog');
+    ui.statusToggle.setAttribute('aria-expanded', state.showStatus ? 'true' : 'false');
+    ui.statusToggle.title = state.syncState.message;
   }
 
-  if (ui.statusDetail) {
-    ui.statusDetail.textContent = state.syncState.detail || '';
+  if (!ui.statusRoot) {
+    return;
   }
 
-  if (ui.retryButton) {
-    ui.retryButton.hidden = !state.syncState.canRetry;
+  if (!state.showStatus) {
+    ui.statusRoot.hidden = true;
+    ui.statusRoot.innerHTML = '';
+    return;
   }
+
+  const syncMetadata = getSyncMetadata();
+  const lastSyncText = syncMetadata.lastSyncAt ? formatDateTime(syncMetadata.lastSyncAt) : 'Never synced';
+  const lastErrorText = syncMetadata.lastErrorSummary || 'None';
+
+  ui.statusRoot.hidden = false;
+  ui.statusRoot.innerHTML = `
+    <div class="modal-layer status-modal-layer">
+      <button type="button" id="status-backdrop" class="modal-backdrop" aria-label="Close sync status"></button>
+      <section class="modal-card status-modal-card" role="dialog" aria-modal="true" aria-labelledby="status-modal-title">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Sync</p>
+            <h2 id="status-modal-title">Sync status</h2>
+            <p class="card-copy">Review current sync state, diagnostics, and retry GitHub sync when the app reports a recoverable error.</p>
+          </div>
+          <button type="button" id="close-status" class="ghost-button compact-button" data-modal-autofocus="true">Close</button>
+        </div>
+
+        <section class="card status-summary-card">
+          <p class="sync-status" data-tone="${escapeHtml(state.syncState.tone)}">${escapeHtml(state.syncState.message)}</p>
+          <p class="status-detail">${escapeHtml(state.syncState.detail || describeRepoSettings(state.repoSettings))}</p>
+        </section>
+
+        <section class="diagnostics-grid" aria-label="Status diagnostics">
+          <div>
+            <h3>Diagnostics</h3>
+            <dl>
+              <dt>State</dt>
+              <dd>${escapeHtml(state.syncState.kind)}</dd>
+              <dt>Last sync time</dt>
+              <dd>${escapeHtml(lastSyncText)}</dd>
+              <dt>Last error</dt>
+              <dd>${escapeHtml(lastErrorText)}</dd>
+            </dl>
+          </div>
+          <div class="security-panel">
+            <h3>Repository</h3>
+            <p>${escapeHtml(describeRepoSettings(state.repoSettings))}</p>
+          </div>
+        </section>
+
+        <div class="form-actions status-actions">
+          <button type="button" id="close-status-secondary" class="secondary-button">Close</button>
+          <button type="button" id="retry-sync-modal" ${state.syncState.canRetry ? '' : 'disabled'}>Retry sync</button>
+        </div>
+      </section>
+    </div>
+  `;
+
+  const closeStatus = () => {
+    state.pendingFocusRequest = {
+      type: 'focusKey',
+      value: 'status-toggle',
+    };
+    state.showStatus = false;
+    render();
+  };
+
+  ui.statusRoot.querySelector('#status-backdrop')?.addEventListener('click', closeStatus);
+  ui.statusRoot.querySelector('#close-status')?.addEventListener('click', closeStatus);
+  ui.statusRoot.querySelector('#close-status-secondary')?.addEventListener('click', closeStatus);
+  ui.statusRoot.querySelector('#retry-sync-modal')?.addEventListener('click', () => {
+    void handleRetryButtonClick();
+  });
 }
 
 function renderGateScreen() {
@@ -1436,6 +1563,10 @@ function renderSettingsPanel() {
       void authenticateAndLoad();
     },
     onClose: () => {
+      state.pendingFocusRequest = {
+        type: 'focusKey',
+        value: 'settings-toggle',
+      };
       state.showSettings = false;
       render();
     },

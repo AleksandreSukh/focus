@@ -18,21 +18,15 @@
           <p class="app-subtitle">Private static mind-map browser and task editor with GitHub PAT sync.</p>
         </div>
         <div class="header-actions">
-          <button id="settings-toggle" class="secondary-button" hidden>Connection settings</button>
+          <button id="status-toggle" class="secondary-button status-launch-button" data-focus-key="status-toggle">Status</button>
+          <button id="settings-toggle" class="secondary-button" data-focus-key="settings-toggle" hidden>Connection settings</button>
           <button id="install-button" class="install-button" hidden>Install app</button>
         </div>
       </header>
 
-      <section class="status-panel">
-        <div>
-          <p id="sync-status" class="sync-status">Connection required.</p>
-          <p id="sync-detail" class="status-detail"></p>
-        </div>
-        <button id="retry-sync" class="secondary-button" hidden>Retry sync</button>
-      </section>
-
       <section id="screen-root"></section>
       <section id="app-root" hidden></section>
+      <section id="status-root" hidden></section>
       <section id="settings-root" hidden></section>
 
       <section id="install-fallback" class="install-fallback" hidden>

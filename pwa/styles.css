@@ -328,6 +328,26 @@ h3 {
   border: 1px solid var(--accent-border);
 }
 
+.status-launch-button[data-tone='success'] {
+  color: var(--success);
+  border-color: rgba(18, 112, 75, 0.28);
+}
+
+.status-launch-button[data-tone='error'] {
+  color: var(--danger);
+  border-color: rgba(181, 58, 47, 0.28);
+}
+
+.status-launch-button[data-tone='warning'] {
+  color: var(--warning);
+  border-color: rgba(154, 103, 0, 0.28);
+}
+
+.status-launch-button[data-tone='pending'] {
+  color: var(--accent-strong);
+  border-color: var(--accent-border-strong);
+}
+
 .danger-button {
   background: transparent;
   color: var(--danger);
@@ -628,6 +648,32 @@ h3 {
   border-radius: 1.1rem;
   box-shadow: var(--shadow);
   padding: 1rem;
+}
+
+.settings-modal-layer {
+  z-index: 40;
+}
+
+.status-modal-layer {
+  z-index: 41;
+}
+
+.settings-modal-card {
+  width: min(100%, 60rem);
+  max-height: min(100dvh - 2rem, 48rem);
+  margin: 0;
+}
+
+.status-modal-card {
+  width: min(100%, 40rem);
+}
+
+.status-summary-card {
+  margin-bottom: 1rem;
+}
+
+.status-actions {
+  justify-content: flex-end;
 }
 
 .modal-header {
