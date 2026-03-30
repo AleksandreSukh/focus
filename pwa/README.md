@@ -25,6 +25,10 @@ This folder contains a standalone Progressive Web App for managing a small task 
 
 No bundler is required; this app is static.
 
+Runtime host/repository settings are loaded from `runtime-config.js` at page load time so deployment target details can be adjusted without rebuilding app logic.
+
+For full deployment/runbook details, see `docs/pwa-deployment.md`.
+
 1. Serve the `pwa/` folder over HTTPS in production (service workers require secure context).
 2. Ensure these files are deployed at the site root (or update relative URLs as needed):
    - `index.html`
