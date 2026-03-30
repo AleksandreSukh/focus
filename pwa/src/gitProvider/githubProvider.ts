@@ -4,6 +4,7 @@ import {
   GitHubCommitResponse,
 } from './adapters/githubAdapter';
 import { GitProvider, GetFileResult, GitProviderWriteResult } from './types';
+import { recordSyncFailure, recordSyncSuccess } from './syncMetadata';
 
 export class GitHubProvider implements GitProvider {
   private readonly adapter: GitHubAdapter;
@@ -13,11 +14,17 @@ export class GitHubProvider implements GitProvider {
   }
 
   async getFile(path: string): Promise<GetFileResult> {
-    const response = await this.adapter.getContent(path);
-    return {
-      content: decodeContent(response.content, response.encoding),
-      versionToken: response.sha,
-    };
+    try {
+      const response = await this.adapter.getContent(path);
+      recordSyncSuccess();
+      return {
+        content: decodeContent(response.content, response.encoding),
+        versionToken: response.sha,
+      };
+    } catch (error) {
+      recordSyncFailure(toErrorSummary('read', path, error));
+      throw error;
+    }
   }
 
   async putFile(
@@ -26,13 +33,18 @@ export class GitHubProvider implements GitProvider {
     versionToken: string | null,
     message: string,
   ): Promise<GitProviderWriteResult> {
-    const response = await this.adapter.putContent(path, {
-      message,
-      content: encodeContent(content),
-      sha: versionToken ?? undefined,
-    });
-
-    return toWriteResult(response);
+    try {
+      const response = await this.adapter.putContent(path, {
+        message,
+        content: encodeContent(content),
+        sha: versionToken ?? undefined,
+      });
+      recordSyncSuccess();
+      return toWriteResult(response);
+    } catch (error) {
+      recordSyncFailure(toErrorSummary('write', path, error));
+      throw error;
+    }
   }
 
   async deleteFile(
@@ -40,12 +52,17 @@ export class GitHubProvider implements GitProvider {
     versionToken: string,
     message: string,
   ): Promise<GitProviderWriteResult> {
-    const response = await this.adapter.deleteContent(path, {
-      message,
-      sha: versionToken,
-    });
-
-    return toWriteResult(response);
+    try {
+      const response = await this.adapter.deleteContent(path, {
+        message,
+        sha: versionToken,
+      });
+      recordSyncSuccess();
+      return toWriteResult(response);
+    } catch (error) {
+      recordSyncFailure(toErrorSummary('delete', path, error));
+      throw error;
+    }
   }
 }
 
@@ -87,4 +104,9 @@ function encodeContent(content: string): string {
   });
 
   return btoa(binary);
+}
+
+function toErrorSummary(operation: 'read' | 'write' | 'delete', path: string, error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return `Sync ${operation} failed for ${path}: ${message}`;
 }
