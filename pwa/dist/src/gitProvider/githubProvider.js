@@ -8,7 +8,7 @@ export class GitHubProvider {
 
   async getFile(path) {
     try {
-      const response = await this.adapter.getContent(path);
+      const response = await this.adapter.getContent(path, `loading remote todo file ${path}`);
       recordSyncSuccess(`Loaded ${path} from GitHub.`);
       return {
         content: decodeContent(response.content, response.encoding),
@@ -26,7 +26,7 @@ export class GitHubProvider {
         message,
         content: encodeContent(content),
         sha: versionToken ?? undefined,
-      });
+      }, `saving remote todo file ${path}`);
       recordSyncSuccess(`Saved ${path} to GitHub.`);
       return {
         versionToken: response.content?.sha ?? '',

@@ -52,6 +52,7 @@ const state = {
 };
 
 const ui = {};
+let globalUiListenersBound = false;
 
 export async function bootstrapApp() {
   wireUi();
@@ -104,38 +105,7 @@ function wireUi() {
   ui.screenRoot = document.getElementById('screen-root');
   ui.tasksView = document.getElementById('tasks-view');
   ui.settingsRoot = document.getElementById('settings-root');
-
-  ui.screenRoot?.addEventListener('submit', async (event) => {
-    const form = event.target;
-    if (!(form instanceof HTMLFormElement)) {
-      return;
-    }
-
-    if (form.id === 'connection-form') {
-      event.preventDefault();
-      await handleConnectionFormSubmit(form);
-      return;
-    }
-
-    if (form.id === 'token-entry-form') {
-      event.preventDefault();
-      await handleTokenFormSubmit(form);
-    }
-  });
-
-  ui.screenRoot?.addEventListener('click', (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) {
-      return;
-    }
-
-    if (target.id === 'edit-settings') {
-      state.authState = 'missingConfig';
-      state.connectionError = '';
-      state.tokenError = '';
-      render();
-    }
-  });
+  bindGlobalUiListeners();
 
   ui.addForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -275,6 +245,88 @@ function wireUi() {
   });
 }
 
+function bindGlobalUiListeners() {
+  if (globalUiListenersBound) {
+    return;
+  }
+
+  document.addEventListener('submit', handleDocumentSubmit, true);
+  document.addEventListener('click', handleDocumentClick, true);
+  globalUiListenersBound = true;
+}
+
+async function handleDocumentSubmit(event) {
+  const form = event.target;
+  if (!(form instanceof HTMLFormElement)) {
+    return;
+  }
+
+  if (form.id === 'connection-form') {
+    event.preventDefault();
+    await handleConnectionFormSubmit(form);
+    return;
+  }
+
+  if (form.id === 'token-entry-form') {
+    event.preventDefault();
+    await handleTokenFormSubmit(form);
+  }
+}
+
+function handleDocumentClick(event) {
+  const target = event.target;
+  if (!(target instanceof Element)) {
+    return;
+  }
+
+  const button = target.closest('button');
+  if (!(button instanceof HTMLButtonElement)) {
+    return;
+  }
+
+  if (button.id === 'retry-sync' && button !== ui.retryButton) {
+    event.preventDefault();
+    void handleRetryButtonClick();
+    return;
+  }
+
+  if (button.id === 'edit-settings') {
+    event.preventDefault();
+    state.authState = 'missingConfig';
+    state.connectionError = '';
+    state.tokenError = '';
+    render();
+    return;
+  }
+
+  if (button.id === 'validate-token' || button.id === 'save-connection') {
+    const form = button.closest('form');
+    if (!(form instanceof HTMLFormElement)) {
+      return;
+    }
+
+    event.preventDefault();
+    if (button.id === 'validate-token') {
+      void handleTokenFormSubmit(form);
+      return;
+    }
+
+    void handleConnectionFormSubmit(form);
+  }
+}
+
+async function handleRetryButtonClick() {
+  state.syncState = {
+    kind: 'loadingRemote',
+    tone: 'pending',
+    message: 'Retrying syncâ€¦',
+    detail: buildStatusDetail(),
+    canRetry: false,
+  };
+  render();
+  await handleRetry();
+}
+
 function resolveRuntimeConfig() {
   return window.__FOCUS_RUNTIME_CONFIG__ ?? {
     host: 'github-pages',
@@ -290,14 +342,40 @@ function resolveRuntimeConfig() {
 
 function registerPwaShell() {
   window.addEventListener('load', async () => {
-    if ('serviceWorker' in navigator) {
-      try {
-        await navigator.serviceWorker.register('./sw.js');
-      } catch (error) {
-        console.error('Service worker registration failed', error);
-      }
+    if (!('serviceWorker' in navigator)) {
+      return;
+    }
+
+    if (isLocalDevelopmentHost()) {
+      await disableLocalServiceWorkerCaching();
+      return;
+    }
+
+    try {
+      await navigator.serviceWorker.register('./sw.js');
+    } catch (error) {
+      console.error('Service worker registration failed', error);
     }
   });
+}
+
+function isLocalDevelopmentHost() {
+  return ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname);
+}
+
+async function disableLocalServiceWorkerCaching() {
+  try {
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(registrations.map((registration) => registration.unregister()));
+
+    if ('caches' in window) {
+      const cacheKeys = await caches.keys();
+      const focusCacheKeys = cacheKeys.filter((cacheKey) => cacheKey.startsWith('focus-pwa-shell-'));
+      await Promise.all(focusCacheKeys.map((cacheKey) => caches.delete(cacheKey)));
+    }
+  } catch (error) {
+    console.warn('Failed to clear local service worker caches', error);
+  }
 }
 
 function updateInstallState() {
@@ -353,7 +431,7 @@ async function authenticateAndLoad() {
       kind: 'error',
       tone: validation.error.code === 'RATE_LIMIT' ? 'warning' : 'error',
       message: validation.error.message,
-      detail: describeRepoSettings(state.repoSettings),
+      detail: buildErrorDetail(validation.error),
       canRetry: validation.error.code === 'RATE_LIMIT' || validation.error.code === 'NETWORK',
     };
 
@@ -548,7 +626,7 @@ function handleSyncFailure(error, fallbackMessage) {
     kind: errorCode === 'STALE_STATE' || error?.code === 'CONFLICT_UNRESOLVED' ? 'conflict' : 'error',
     tone: errorCode === 'RATE_LIMIT' ? 'warning' : 'error',
     message,
-    detail: buildStatusDetail(),
+    detail: buildErrorDetail(error),
     canRetry: isRetriable || state.pendingOperations.length > 0,
   };
 }
@@ -616,6 +694,43 @@ function buildStatusDetail() {
   }
 
   return parts.filter(Boolean).join(' · ');
+}
+
+function buildErrorDetail(error) {
+  const parts = [describeRepoSettings(state.repoSettings)];
+  const source = error?.cause && typeof error.cause === 'object' ? error.cause : error;
+  const contextLabel =
+    typeof source?.contextLabel === 'string' && source.contextLabel
+      ? source.contextLabel
+      : typeof error?.contextLabel === 'string' && error.contextLabel
+        ? error.contextLabel
+        : '';
+  const status =
+    typeof source?.status === 'number'
+      ? source.status
+      : typeof error?.status === 'number'
+        ? error.status
+        : null;
+  const code =
+    typeof source?.code === 'string' && source.code !== 'PERSISTENCE_ERROR'
+      ? source.code
+      : typeof error?.code === 'string' && error.code !== 'PERSISTENCE_ERROR'
+        ? error.code
+        : '';
+
+  if (contextLabel) {
+    parts.push(`Step: ${contextLabel}`);
+  }
+
+  if (typeof status === 'number') {
+    parts.push(`HTTP ${status}`);
+  }
+
+  if (code) {
+    parts.push(`Code: ${code}`);
+  }
+
+  return parts.filter(Boolean).join(' | ');
 }
 
 function render() {

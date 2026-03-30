@@ -13,7 +13,7 @@ export const validateToken = async (
   token: string,
   options: TokenProbeOptions,
 ): Promise<TokenValidationResult> => {
-  const fetcher = options.fetchImpl ?? fetch;
+  const fetcher = resolveFetchImplementation(options.fetchImpl);
 
   try {
     const response = await fetcher(options.probeUrl, {
@@ -32,3 +32,13 @@ export const validateToken = async (
     return { ok: false, error: mapAuthFailure() };
   }
 };
+
+function resolveFetchImplementation(fetchImpl?: typeof fetch): typeof fetch {
+  const candidate = fetchImpl ?? globalThis.fetch;
+  if (typeof candidate !== "function") {
+    throw new Error("Fetch API is unavailable in this browser environment.");
+  }
+
+  return ((input: RequestInfo | URL, init?: RequestInit) =>
+    candidate.call(globalThis, input, init)) as typeof fetch;
+}

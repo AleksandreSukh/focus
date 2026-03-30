@@ -1,4 +1,4 @@
-const CACHE_NAME = 'focus-pwa-shell-v2';
+const CACHE_NAME = 'focus-pwa-shell-v3';
 const APP_SHELL_ASSETS = [
   './',
   './index.html',

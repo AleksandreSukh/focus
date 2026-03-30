@@ -63,10 +63,12 @@ This creates `pwa/dist/` with the deployable static files.
 From repository root:
 
 ```bash
-python -m http.server 4173 --directory pwa
+pwsh -File pwa/serve-local.ps1
 ```
 
 Open `http://localhost:4173`.
+
+Opening `index.html` directly as `file://...` is not supported. The app must be served over HTTP locally.
 
 At first launch, the app will ask for:
 

@@ -8,7 +8,7 @@ export function renderTokenEntryScreen({
       <h2>Enter GitHub personal access token</h2>
       <p class="card-copy">
         This PWA uses a GitHub personal access token for private static hosting.
-        It does not use GitHub OAuth or a “Sign in with GitHub” flow.
+        It does not use GitHub OAuth or a "Sign in with GitHub" flow.
       </p>
       <p class="connection-summary">${escapeHtml(repoLabel)}</p>
       <form id="token-entry-form" class="stack-form" novalidate>
@@ -17,7 +17,7 @@ export function renderTokenEntryScreen({
           <input id="token-input" name="token" type="password" autocomplete="off" required />
         </label>
         <div class="form-actions">
-          <button type="submit">Validate and continue</button>
+          <button id="validate-token" type="submit">Validate and continue</button>
           <button id="edit-settings" type="button" class="secondary-button">Edit connection settings</button>
         </div>
       </form>

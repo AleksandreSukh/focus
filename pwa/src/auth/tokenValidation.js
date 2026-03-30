@@ -9,9 +9,19 @@ export async function validateToken(token, probeOptions) {
       branch: probeOptions.repoBranch,
       token,
     });
-    await adapter.probeRepository();
+    await adapter.probeRepository('validating repository access');
+    await adapter.probeBranch(
+      probeOptions.repoBranch,
+      `validating branch "${probeOptions.repoBranch}"`,
+    );
     return { ok: true };
   } catch (error) {
-    return { ok: false, error: mapAuthFailure(error) };
+    return {
+      ok: false,
+      error: mapAuthFailure(
+        error,
+        error?.contextLabel || 'validating repository access',
+      ),
+    };
   }
 }

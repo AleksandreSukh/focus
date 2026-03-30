@@ -32,7 +32,7 @@ export function renderConnectionScreen({
           <input name="token" type="password" autocomplete="off" required />
         </label>
         <div class="form-actions">
-          <button type="submit">Save connection and continue</button>
+          <button id="save-connection" type="submit">Save connection and continue</button>
         </div>
       </form>
       <p id="connection-error" class="form-error" role="alert" ${errorMessage ? '' : 'hidden'}>

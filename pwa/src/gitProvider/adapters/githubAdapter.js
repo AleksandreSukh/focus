@@ -6,6 +6,8 @@ export class GitHubApiError extends Error {
     status,
     statusText,
     message,
+    operation = '',
+    contextLabel = '',
     responseText = '',
     retryAfter = null,
     rateLimitResetAt = null,
@@ -15,6 +17,8 @@ export class GitHubApiError extends Error {
     this.code = code;
     this.status = status;
     this.statusText = statusText;
+    this.operation = operation;
+    this.contextLabel = contextLabel;
     this.responseText = responseText;
     this.retryAfter = retryAfter;
     this.rateLimitResetAt = rateLimitResetAt;
@@ -28,26 +32,33 @@ export class GitHubAdapter {
     this.token = config.token;
     this.branch = config.branch;
     this.apiBaseUrl = config.apiBaseUrl ?? DEFAULT_GITHUB_API_BASE_URL;
-    this.fetchImpl = config.fetchImpl ?? fetch;
+    this.fetchImpl = resolveFetchImplementation(config.fetchImpl);
   }
 
-  async probeRepository() {
+  async probeRepository(contextLabel = 'validating repository access') {
     return this.requestJson(`/repos/${this.owner}/${this.repo}`, {
       method: 'GET',
-    });
+    }, { operation: 'probeRepository', contextLabel });
   }
 
-  async getContent(path) {
+  async probeBranch(branch, contextLabel = `validating branch "${branch}"`) {
+    return this.requestJson(`/repos/${this.owner}/${this.repo}/branches/${encodeURIComponent(branch)}`, {
+      method: 'GET',
+    }, { operation: 'probeBranch', contextLabel });
+  }
+
+  async getContent(path, contextLabel = `loading ${path}`) {
     const query = this.branch ? `?ref=${encodeURIComponent(this.branch)}` : '';
     return this.requestJson(
       `/repos/${this.owner}/${this.repo}/contents/${normalizePath(path)}${query}`,
       {
         method: 'GET',
       },
+      { operation: 'getContent', contextLabel },
     );
   }
 
-  async putContent(path, payload) {
+  async putContent(path, payload, contextLabel = `saving ${path}`) {
     return this.requestJson(
       `/repos/${this.owner}/${this.repo}/contents/${normalizePath(path)}`,
       {
@@ -57,11 +68,14 @@ export class GitHubAdapter {
           branch: this.branch,
         }),
       },
+      { operation: 'putContent', contextLabel },
     );
   }
 
-  async requestJson(endpoint, init) {
+  async requestJson(endpoint, init, context = {}) {
     let response;
+    const operation = context.operation || '';
+    const contextLabel = context.contextLabel || defaultContextLabel(operation);
 
     try {
       response = await this.fetchImpl(`${this.apiBaseUrl}${endpoint}`, {
@@ -78,19 +92,29 @@ export class GitHubAdapter {
         code: 'NETWORK',
         status: null,
         statusText: 'Network failure',
-        message:
-          'Unable to reach the GitHub API. Check your network connection and try again.',
+        operation,
+        contextLabel,
+        message: buildNetworkErrorMessage(operation, contextLabel),
         responseText: error instanceof Error ? error.message : String(error),
       });
     }
 
     if (!response.ok) {
       const responseText = await response.text();
-      throw createGitHubApiError(response, responseText);
+      throw createGitHubApiError(response, responseText, context);
     }
 
     return response.json();
   }
+}
+
+function resolveFetchImplementation(fetchImpl) {
+  const candidate = fetchImpl ?? globalThis.fetch;
+  if (typeof candidate !== 'function') {
+    throw new Error('Fetch API is unavailable in this browser environment.');
+  }
+
+  return (input, init) => candidate.call(globalThis, input, init);
 }
 
 function normalizePath(path) {
@@ -101,7 +125,7 @@ function normalizePath(path) {
     .join('/');
 }
 
-function createGitHubApiError(response, responseText) {
+function createGitHubApiError(response, responseText, context = {}) {
   const retryAfterHeader = response.headers.get('retry-after');
   const retryAfter = retryAfterHeader ? Number.parseInt(retryAfterHeader, 10) : null;
   const rateLimitResetHeader = response.headers.get('x-ratelimit-reset');
@@ -114,7 +138,17 @@ function createGitHubApiError(response, responseText) {
     code,
     status: response.status,
     statusText: response.statusText,
-    message: buildErrorMessage(code, response.status, responseText, retryAfter, rateLimitResetAt),
+    operation: context.operation || '',
+    contextLabel: context.contextLabel || defaultContextLabel(context.operation || ''),
+    message: buildErrorMessage(
+      code,
+      response.status,
+      responseText,
+      retryAfter,
+      rateLimitResetAt,
+      context.operation || '',
+      context.contextLabel || defaultContextLabel(context.operation || ''),
+    ),
     responseText,
     retryAfter: Number.isFinite(retryAfter) ? retryAfter : null,
     rateLimitResetAt,
@@ -152,26 +186,65 @@ function classifyGitHubError(response, responseText) {
   return 'UNKNOWN';
 }
 
-function buildErrorMessage(code, status, responseText, retryAfter, rateLimitResetAt) {
+function defaultContextLabel(operation) {
+  switch (operation) {
+    case 'probeRepository':
+      return 'validating repository access';
+    case 'probeBranch':
+      return 'validating branch access';
+    case 'getContent':
+      return 'loading the remote todo file';
+    case 'putContent':
+      return 'saving the remote todo file';
+    default:
+      return 'calling the GitHub API';
+  }
+}
+
+function buildNetworkErrorMessage(operation, contextLabel) {
+  const label = contextLabel || defaultContextLabel(operation);
+  return `Unable to reach the GitHub API while ${label}. Check your network connection and try again.`;
+}
+
+function buildNotFoundMessage(operation, contextLabel) {
+  const contextSuffix = contextLabel ? ` while ${contextLabel}` : '';
+
+  switch (operation) {
+    case 'probeRepository':
+      return `Repository was not found (404 Not Found)${contextSuffix}. Check the owner, repository name, and token access.`;
+    case 'probeBranch':
+      return `Configured branch was not found (404 Not Found)${contextSuffix}. Check the branch name.`;
+    case 'getContent':
+      return `Remote todo file was not found (404 Not Found)${contextSuffix}. If this is a new setup, it will be created on first save.`;
+    case 'putContent':
+      return `Remote todo file could not be saved because the configured branch or path was not found (404 Not Found)${contextSuffix}.`;
+    default:
+      return `GitHub resource was not found (404 Not Found)${contextSuffix}.`;
+  }
+}
+
+function buildErrorMessage(code, status, responseText, retryAfter, rateLimitResetAt, operation, contextLabel) {
+  const contextSuffix = contextLabel ? ` while ${contextLabel}` : '';
+
   switch (code) {
     case 'UNAUTHORIZED':
-      return 'Token was rejected (401 Unauthorized).';
+      return `Token was rejected (401 Unauthorized)${contextSuffix}.`;
     case 'FORBIDDEN':
-      return 'Token is valid but lacks required repository access (403 Forbidden).';
+      return `Token is valid but lacks required repository access (403 Forbidden)${contextSuffix}.`;
     case 'NOT_FOUND':
-      return 'Repository or configured branch/path was not found (404 Not Found).';
+      return buildNotFoundMessage(operation, contextLabel);
     case 'CONFLICT':
-      return 'Remote todo file changed during sync and must be refreshed.';
+      return `Remote todo file changed during sync${contextSuffix} and must be refreshed.`;
     case 'RATE_LIMIT':
       return retryAfter
-        ? `GitHub rate limit reached. Retry in about ${retryAfter} seconds.`
+        ? `GitHub rate limit reached${contextSuffix}. Retry in about ${retryAfter} seconds.`
         : rateLimitResetAt
-          ? `GitHub rate limit reached. Retry after ${new Date(rateLimitResetAt).toLocaleTimeString()}.`
-          : 'GitHub rate limit reached. Wait a moment and try again.';
+          ? `GitHub rate limit reached${contextSuffix}. Retry after ${new Date(rateLimitResetAt).toLocaleTimeString()}.`
+          : `GitHub rate limit reached${contextSuffix}. Wait a moment and try again.`;
     default:
       return responseText?.trim()
-        ? `GitHub API request failed (HTTP ${status}): ${truncate(responseText.trim(), 220)}`
-        : `GitHub API request failed (HTTP ${status}).`;
+        ? `GitHub API request failed${contextSuffix} (HTTP ${status}): ${truncate(responseText.trim(), 220)}`
+        : `GitHub API request failed${contextSuffix} (HTTP ${status}).`;
   }
 }
 

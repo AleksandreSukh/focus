@@ -38,7 +38,7 @@ export class GitHubAdapter {
     this.token = config.token;
     this.branch = config.branch;
     this.apiBaseUrl = config.apiBaseUrl ?? DEFAULT_GITHUB_API_BASE_URL;
-    this.fetchImpl = config.fetchImpl ?? fetch;
+    this.fetchImpl = resolveFetchImplementation(config.fetchImpl);
   }
 
   getBranch(): string | undefined {
@@ -117,6 +117,16 @@ export class GitHubAdapter {
 
     return (await response.json()) as T;
   }
+}
+
+function resolveFetchImplementation(fetchImpl?: typeof fetch): typeof fetch {
+  const candidate = fetchImpl ?? globalThis.fetch;
+  if (typeof candidate !== 'function') {
+    throw new Error('Fetch API is unavailable in this browser environment.');
+  }
+
+  return ((input: RequestInfo | URL, init?: RequestInit) =>
+    candidate.call(globalThis, input, init)) as typeof fetch;
 }
 
 function normalizePath(path: string): string {
