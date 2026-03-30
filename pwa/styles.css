@@ -189,7 +189,11 @@ h1 { font-size: 1.4rem; margin: 0; }
   color: var(--danger) !important;
 }
 
-.session-button {
+.session-controls {
+  margin-left: auto;
+}
+
+#sign-out {
   background: transparent;
   color: var(--danger);
   border: 1px solid var(--danger);

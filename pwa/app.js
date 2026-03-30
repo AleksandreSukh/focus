@@ -35,21 +35,37 @@ const authTokenInput = document.getElementById('auth-token');
 const authError = document.getElementById('auth-error');
 const signOutButton = document.getElementById('sign-out');
 
-if (
-  !(taskList instanceof HTMLElement)
-  || !(addForm instanceof HTMLFormElement)
-  || !(addInput instanceof HTMLInputElement)
-  || !(installButton instanceof HTMLButtonElement)
-  || !(installFallback instanceof HTMLElement)
-  || !(statusBar instanceof HTMLElement)
-  || !(authSection instanceof HTMLElement)
-  || !(authForm instanceof HTMLFormElement)
-  || !(authTokenInput instanceof HTMLInputElement)
-  || !(authError instanceof HTMLElement)
-  || !(signOutButton instanceof HTMLButtonElement)
-) {
-  throw new Error('App shell is missing required elements.');
-}
+const appHeader = document.querySelector('.app-header');
+const statusBar = document.createElement('p');
+statusBar.id = 'sync-status';
+statusBar.className = 'sync-status';
+statusBar.textContent = 'Authentication required.';
+
+const authSection = document.createElement('section');
+authSection.className = 'auth-panel';
+authSection.innerHTML = `
+  <h2>Connect to GitHub</h2>
+  <p>Enter a GitHub Personal Access Token with repository contents access.</p>
+  <form id="auth-form" class="auth-form">
+    <label for="auth-token" class="sr-only">GitHub token</label>
+    <input id="auth-token" type="password" autocomplete="off" placeholder="ghp_..." required />
+    <button type="submit">Connect</button>
+  </form>
+  <p id="auth-error" role="alert" class="auth-error" hidden></p>
+`;
+
+const sessionControls = document.createElement('div');
+sessionControls.className = 'session-controls';
+sessionControls.innerHTML = '<button type="button" id="sign-out" class="install-button" hidden>Sign out</button>';
+
+appHeader.insertAdjacentElement('afterend', statusBar);
+statusBar.insertAdjacentElement('afterend', authSection);
+appHeader.append(sessionControls);
+
+const authForm = authSection.querySelector('#auth-form');
+const authTokenInput = authSection.querySelector('#auth-token');
+const authError = authSection.querySelector('#auth-error');
+const signOutButton = sessionControls.querySelector('#sign-out');
 
 addForm.addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -118,7 +134,31 @@ authForm.addEventListener('submit', async (event) => {
   disableAuthForm(false);
 });
 
-signOutButton.addEventListener('click', () => {
+authForm?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!authTokenInput) return;
+
+  const token = authTokenInput.value.trim();
+  if (!token) {
+    showAuthError('Token is required.');
+    return;
+  }
+
+  disableAuthForm(true);
+  const isValid = await probeToken(token);
+  if (!isValid) {
+    disableAuthForm(false);
+    return;
+  }
+
+  saveToken(token);
+  hideAuthError();
+  authTokenInput.value = '';
+  await bootstrapAuthenticatedSession();
+  disableAuthForm(false);
+});
+
+signOutButton?.addEventListener('click', () => {
   clearToken();
   state.remoteSha = null;
   showAuthSection();
@@ -178,6 +218,37 @@ window.addEventListener('load', async () => {
 });
 
 render();
+
+async function bootstrapAuthenticatedSession() {
+  const token = getToken();
+  if (!token) {
+    showAuthSection();
+    disableTaskEditor(true);
+    return;
+  }
+
+  const valid = await probeToken(token);
+  if (!valid) {
+    clearToken();
+    showAuthSection();
+    disableTaskEditor(true);
+    return;
+  }
+
+  hideAuthSection();
+  disableTaskEditor(false);
+  setSyncStatus('Loading tasks from GitHub…', 'pending');
+
+  const loaded = await loadRemoteDocument();
+  if (loaded.ok) {
+    state.tasks = loaded.document.items.filter((task) => !task.deleted);
+    persistLocal();
+    render();
+    setSyncStatus(`Synced with ${state.git.owner}/${state.git.repo}@${state.git.branch}.`, 'success');
+  } else {
+    setSyncStatus(loaded.message, 'error');
+  }
+}
 
 async function bootstrapAuthenticatedSession() {
   const token = getToken();
@@ -384,6 +455,64 @@ async function probeToken(token) {
   return false;
 }
 
+function resolveGitConfig(config) {
+  const owner = config.repoOwner?.trim() || inferOwnerFromHostname(window.location.hostname);
+  const repo = config.repoName?.trim();
+  const branch = config.repoBranch?.trim() || 'main';
+  const tokenStorageKey = config.auth?.tokenStorageKey?.trim() || 'focus_runtime_token';
+  const filePath = normalizeRepoPath(config.repoPath, 'todos.json');
+
+  return { owner, repo, branch, filePath, tokenStorageKey };
+}
+
+function normalizeRepoPath(basePath, fileName) {
+  const normalizedBase = (basePath || '/').trim().replace(/^\/+|\/+$/g, '');
+  return normalizedBase ? `${normalizedBase}/${fileName}` : fileName;
+}
+
+function inferOwnerFromHostname(hostname) {
+  const match = hostname.match(/^([^\.]+)\.github\.io$/i);
+  return match ? match[1] : '';
+}
+
+function getToken() {
+  const value = localStorage.getItem(state.git.tokenStorageKey);
+  return value ? value.trim() : '';
+}
+
+function saveToken(token) {
+  localStorage.setItem(state.git.tokenStorageKey, token.trim());
+}
+
+function clearToken() {
+  localStorage.removeItem(state.git.tokenStorageKey);
+}
+
+async function probeToken(token) {
+  const response = await fetch(`https://api.github.com/repos/${encodeURIComponent(state.git.owner)}/${encodeURIComponent(state.git.repo)}`, {
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${token}`,
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+  });
+
+  if (response.ok) {
+    hideAuthError();
+    return true;
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    showAuthError('Token rejected. Use a token with repository read/write permissions.');
+  } else if (response.status === 404) {
+    showAuthError('Repository not found. Check runtime-config.js owner/repository values.');
+  } else {
+    showAuthError(`GitHub auth check failed (${response.status}).`);
+  }
+
+  return false;
+}
+
 async function loadRemoteDocument() {
   const token = getToken();
   const url = buildContentsUrl();
@@ -503,7 +632,7 @@ function encodePath(path) {
 function githubHeaders(token) {
   return {
     Accept: 'application/vnd.github+json',
-    Authorization: `token ${token}`,
+    Authorization: `Bearer ${token}`,
     'X-GitHub-Api-Version': '2022-11-28',
   };
 }
