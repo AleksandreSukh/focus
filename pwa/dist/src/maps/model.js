@@ -87,7 +87,7 @@ export function getTaskCounts(document) {
   };
 
   traverseDocument(document, (node, parent) => {
-    if (!isTaskCandidate(node, parent)) {
+    if (!isTaskNode(node, parent)) {
       return;
     }
 
@@ -110,7 +110,7 @@ export function collectTaskEntries(snapshot, filter = 'open') {
   const results = [];
 
   traverseDocument(snapshot.document, (node, parent, context) => {
-    if (!isTaskCandidate(node, parent) || !matchesTaskFilter(node.taskState, filter)) {
+    if (!isTaskNode(node, parent) || !matchesTaskFilter(node.taskState, filter)) {
       return;
     }
 
@@ -159,7 +159,7 @@ export function getNodeUiState(document, nodeId) {
     parent,
     pathSegments,
     canEditNode: node.nodeType !== NODE_TYPE.IDEA_BAG_ITEM,
-    canChangeTaskState: isTaskCandidate(node, parent),
+    canChangeTaskState: canChangeTaskState(node, parent),
     badges: getNodeBadges(node),
   };
 }
@@ -524,13 +524,19 @@ function taskSortPriority(taskState) {
   }
 }
 
-function isTaskCandidate(node, parent) {
+function canChangeTaskState(node, parent) {
   return Boolean(
     parent &&
     node &&
     node.nodeType !== NODE_TYPE.IDEA_BAG_ITEM &&
     isValidGuid(node.uniqueIdentifier) &&
-    isValidTaskState(node.taskState) &&
+    isValidTaskState(node.taskState),
+  );
+}
+
+function isTaskNode(node, parent) {
+  return Boolean(
+    canChangeTaskState(node, parent) &&
     node.taskState !== TASK_STATE.NONE,
   );
 }

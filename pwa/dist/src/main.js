@@ -354,7 +354,7 @@ function handleDocumentInput(event) {
     return;
   }
 
-  const modalNodeState = getActiveModalNodeUiState();
+  const modalNodeState = getActiveModalContext('editNode')?.nodeUiState ?? null;
   const taskState = modalNodeState?.node.taskState ?? TASK_STATE.NONE;
   previewNode.innerHTML = renderNodePreviewMarkup(target.value, taskState);
 }
