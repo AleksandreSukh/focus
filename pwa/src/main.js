@@ -44,6 +44,10 @@ const THEME_META_COLORS = {
   light: '#ffffff',
   dark: '#000000',
 };
+const HASH_ROUTE = {
+  maps: '#maps',
+  tasks: '#tasks',
+};
 
 const state = {
   runtimeConfig: null,
@@ -78,6 +82,7 @@ const state = {
 
 const ui = {};
 let globalUiListenersBound = false;
+let hashRoutingBound = false;
 
 export async function bootstrapApp() {
   wireUi();
@@ -88,6 +93,7 @@ export async function bootstrapApp() {
   state.runtimeConfig = resolveRuntimeConfig();
   switchRepoContext(getEffectiveRepoSettings(state.runtimeConfig));
   updateInstallState();
+  initializeHashRouting();
 
   if (!isRepoSettingsComplete(state.repoSettings)) {
     state.authState = 'missingConfig';
@@ -191,6 +197,167 @@ function wireUi() {
   });
 }
 
+function initializeHashRouting() {
+  ensureDefaultHashRoute();
+
+  if (hashRoutingBound) {
+    return;
+  }
+
+  window.addEventListener('hashchange', () => {
+    if (state.authState !== 'authenticated') {
+      return;
+    }
+
+    applyRouteFromHash({ replaceInvalid: true });
+  });
+
+  hashRoutingBound = true;
+}
+
+function ensureDefaultHashRoute() {
+  if (!window.location.hash || window.location.hash === '#') {
+    replaceHashRoute(HASH_ROUTE.maps);
+  }
+}
+
+function replaceHashRoute(nextHash) {
+  const currentPath = `${window.location.pathname}${window.location.search}`;
+  window.history.replaceState(window.history.state, '', `${currentPath}${nextHash}`);
+}
+
+function buildHashRoute(view, mapPath = '') {
+  if (view === 'tasks') {
+    return HASH_ROUTE.tasks;
+  }
+
+  if (view === 'map' && mapPath) {
+    return `#map/${encodeURIComponent(mapPath)}`;
+  }
+
+  return HASH_ROUTE.maps;
+}
+
+function parseHashRoute(hashValue) {
+  const normalizedHash = typeof hashValue === 'string' ? hashValue : '';
+  const routeText = normalizedHash.startsWith('#') ? normalizedHash.slice(1) : normalizedHash;
+
+  if (!routeText || routeText === 'maps') {
+    return { view: 'maps', isInvalid: false };
+  }
+
+  if (routeText === 'tasks') {
+    return { view: 'tasks', isInvalid: false };
+  }
+
+  if (routeText.startsWith('map/')) {
+    const encodedPath = routeText.slice(4);
+    if (!encodedPath) {
+      return { view: 'maps', isInvalid: true };
+    }
+
+    try {
+      return {
+        view: 'map',
+        mapPath: decodeURIComponent(encodedPath),
+        isInvalid: false,
+      };
+    } catch (error) {
+      return { view: 'maps', isInvalid: true };
+    }
+  }
+
+  return { view: 'maps', isInvalid: true };
+}
+
+function applyRouteFromHash(options = {}) {
+  if (state.authState !== 'authenticated') {
+    return false;
+  }
+
+  const { replaceInvalid = false } = options;
+  const route = parseHashRoute(window.location.hash);
+
+  state.activeModal = null;
+  state.showStatus = false;
+  state.showSettings = false;
+
+  if (route.view === 'map') {
+    const snapshot = state.mapsByPath[route.mapPath];
+    if (!snapshot) {
+      if (replaceInvalid) {
+        replaceHashRoute(HASH_ROUTE.maps);
+      }
+      state.currentView = 'maps';
+      render();
+      return false;
+    }
+
+    state.currentView = 'map';
+    state.selectedMapPath = route.mapPath;
+    if (!findNodeRecord(snapshot.document, state.selectedNodeId)) {
+      state.selectedNodeId = snapshot.document.rootNode?.uniqueIdentifier || '';
+    }
+    render();
+    return true;
+  }
+
+  if (route.isInvalid && replaceInvalid) {
+    replaceHashRoute(HASH_ROUTE.maps);
+  }
+
+  state.currentView = route.view === 'tasks' ? 'tasks' : 'maps';
+  render();
+  return true;
+}
+
+function navigateToHashRoute(nextHash, options = {}) {
+  const { replace = false } = options;
+  if (window.location.hash === nextHash) {
+    applyRouteFromHash({ replaceInvalid: false });
+    return;
+  }
+
+  if (replace) {
+    replaceHashRoute(nextHash);
+    applyRouteFromHash({ replaceInvalid: false });
+    return;
+  }
+
+  window.location.hash = nextHash;
+}
+
+function navigateToMapsRoute(options = {}) {
+  navigateToHashRoute(HASH_ROUTE.maps, options);
+}
+
+function navigateToTasksRoute(options = {}) {
+  navigateToHashRoute(HASH_ROUTE.tasks, options);
+}
+
+function navigateToMapRoute(mapPath, options = {}) {
+  const snapshot = state.mapsByPath[mapPath];
+  if (!snapshot) {
+    return;
+  }
+
+  const { replace = false, preferredNodeId = '' } = options;
+  const nextHash = buildHashRoute('map', mapPath);
+
+  state.selectedMapPath = mapPath;
+  if (preferredNodeId && findNodeRecord(snapshot.document, preferredNodeId)) {
+    state.selectedNodeId = preferredNodeId;
+  } else if (!findNodeRecord(snapshot.document, state.selectedNodeId)) {
+    state.selectedNodeId = snapshot.document.rootNode?.uniqueIdentifier || '';
+  }
+
+  if (window.location.hash !== HASH_ROUTE.maps) {
+    replaceHashRoute(HASH_ROUTE.maps);
+  }
+
+  navigateToHashRoute(nextHash, { replace });
+}
+
 function bindGlobalUiListeners() {
   if (globalUiListenersBound) {
     return;
@@ -285,9 +452,12 @@ function handleDocumentClick(event) {
   event.preventDefault();
   switch (clickableElement.dataset.action) {
     case 'switch-view':
-      state.activeModal = null;
-      state.currentView = clickableElement.dataset.view === 'tasks' ? 'tasks' : 'maps';
-      render();
+      if (clickableElement.dataset.view === 'tasks') {
+        navigateToTasksRoute();
+        return;
+      }
+
+      navigateToMapsRoute();
       return;
     case 'refresh-maps':
       void loadWorkspace(true);
@@ -296,9 +466,7 @@ function handleDocumentClick(event) {
       openMap(clickableElement.dataset.mapPath || '');
       return;
     case 'back-to-maps':
-      state.activeModal = null;
-      state.currentView = 'maps';
-      render();
+      navigateToMapsRoute({ replace: true });
       return;
     case 'select-node':
       selectNode(clickableElement.dataset.mapPath || '', clickableElement.dataset.nodeId || '');
@@ -649,7 +817,7 @@ async function loadWorkspace(forceRefresh) {
     detail: buildStatusDetail(),
     canRetry: false,
   };
-  render();
+  applyRouteFromHash({ replaceInvalid: true });
 
   if (state.pendingOperations.length > 0) {
     void processPendingOperations();
@@ -1051,18 +1219,7 @@ function setActiveModalError(message) {
 }
 
 function openMap(mapPath) {
-  const snapshot = state.mapsByPath[mapPath];
-  if (!snapshot) {
-    return;
-  }
-
-  state.activeModal = null;
-  state.currentView = 'map';
-  state.selectedMapPath = mapPath;
-  if (!findNodeRecord(snapshot.document, state.selectedNodeId)) {
-    state.selectedNodeId = snapshot.document.rootNode?.uniqueIdentifier || '';
-  }
-  render();
+  navigateToMapRoute(mapPath);
 }
 
 function openTaskNode(mapPath, nodeId) {
@@ -1071,13 +1228,12 @@ function openTaskNode(mapPath, nodeId) {
     return;
   }
 
-  state.activeModal = null;
-  state.currentView = 'map';
-  state.selectedMapPath = mapPath;
-  state.selectedNodeId = findNodeRecord(snapshot.document, nodeId)
+  const nextNodeId = findNodeRecord(snapshot.document, nodeId)
     ? nodeId
     : snapshot.document.rootNode?.uniqueIdentifier || '';
-  render();
+  navigateToMapRoute(mapPath, {
+    preferredNodeId: nextNodeId,
+  });
 }
 
 function selectNode(mapPath, nodeId) {
@@ -1640,6 +1796,9 @@ function renderMapView() {
   const snapshot = getSelectedSnapshot();
   if (!snapshot) {
     state.currentView = 'maps';
+    if (window.location.hash !== HASH_ROUTE.maps) {
+      replaceHashRoute(HASH_ROUTE.maps);
+    }
     return renderMapsView(getSnapshots().map((item) => buildMapSummary(item)));
   }
 
