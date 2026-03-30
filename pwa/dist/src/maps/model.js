@@ -19,6 +19,7 @@ export const MAP_ERROR = Object.freeze({
 const DEFAULT_DEVICE = 'focus-pwa-web';
 const LEGACY_SOURCE = 'legacy-import';
 const MANUAL_SOURCE = 'manual';
+const UNTITLED_NODE_NAME = 'Untitled';
 
 export function cloneMapDocument(document) {
   if (typeof structuredClone === 'function') {
@@ -70,9 +71,7 @@ export function buildMapSummary(snapshot) {
     filePath: snapshot.filePath,
     fileName: snapshot.fileName,
     mapName: snapshot.mapName,
-    rootTitle: typeof rootNode?.name === 'string' && rootNode.name.trim()
-      ? rootNode.name
-      : snapshot.mapName,
+    rootTitle: normalizeNodeDisplayText(rootNode?.name),
     updatedAt,
     taskCounts,
   };
@@ -120,8 +119,9 @@ export function collectTaskEntries(snapshot, filter = 'open') {
       fileName: snapshot.fileName,
       mapName: snapshot.mapName,
       nodeId: node.uniqueIdentifier,
-      nodeName: displayNodeName(node),
+      nodeName: normalizeNodeDisplayText(node?.name),
       nodePath: context.pathSegments.join(' > '),
+      nodePathSegments: [...context.pathSegments],
       taskState: node.taskState,
       depth: context.depth,
     });
@@ -203,10 +203,17 @@ export function displayTaskState(taskState) {
 
 export function displayNodeName(node) {
   const marker = displayTaskState(node.taskState);
-  const name = typeof node?.name === 'string' && node.name
-    ? node.name
-    : '(untitled)';
+  const name = normalizeNodeDisplayText(node?.name);
   return marker ? `${marker} ${name}` : name;
+}
+
+export function normalizeNodeDisplayText(value) {
+  const text = typeof value === 'string' ? value : '';
+  if (!text.trim()) {
+    return UNTITLED_NODE_NAME;
+  }
+
+  return text.replace(/\r\n|\r|\n/g, ' ').trim();
 }
 
 export function getNodeBadges(node) {
@@ -459,7 +466,7 @@ function traverseDocument(document, visitor) {
 }
 
 function traverseNode(node, parent, pathSegments, depth, visitor) {
-  const nextPath = [...pathSegments, node.name || '(untitled)'];
+  const nextPath = [...pathSegments, normalizeNodeDisplayText(node?.name)];
   visitor(node, parent, {
     pathSegments: nextPath,
     depth,

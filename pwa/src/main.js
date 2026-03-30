@@ -31,18 +31,25 @@ import {
   buildMapSummary,
   cloneMapDocument,
   collectTaskEntries,
-  getNodeBadges,
-  displayTaskState,
   findNodeRecord,
   getNodeUiState,
+  normalizeNodeDisplayText,
   nowIso,
   TASK_STATE,
 } from './maps/model.js';
+import { renderInlineHtml } from './formatting/inlineFormatter.js';
+
+const THEME_STORAGE_KEY = 'focus.pwa.theme';
+const THEME_META_COLORS = {
+  light: '#ffffff',
+  dark: '#000000',
+};
 
 const state = {
   runtimeConfig: null,
   repoSettings: null,
   repoScope: '',
+  theme: 'light',
   authState: 'missingConfig',
   connectionError: '',
   tokenError: '',
@@ -64,6 +71,8 @@ const state = {
   mapsByPath: {},
   pendingOperations: [],
   localCollapsedByMap: {},
+  activeModal: null,
+  pendingFocusRequest: null,
 };
 
 const ui = {};
@@ -73,6 +82,8 @@ export async function bootstrapApp() {
   wireUi();
   registerPwaShell();
 
+  state.theme = loadThemePreference();
+  applyThemePreference();
   state.runtimeConfig = resolveRuntimeConfig();
   switchRepoContext(getEffectiveRepoSettings(state.runtimeConfig));
   updateInstallState();
@@ -117,6 +128,7 @@ function wireUi() {
   ui.screenRoot = document.getElementById('screen-root');
   ui.appRoot = document.getElementById('app-root');
   ui.settingsRoot = document.getElementById('settings-root');
+  ui.themeMeta = document.querySelector('meta[name="theme-color"]');
 
   bindGlobalUiListeners();
 
@@ -159,6 +171,9 @@ function bindGlobalUiListeners() {
 
   document.addEventListener('submit', handleDocumentSubmit, true);
   document.addEventListener('click', handleDocumentClick, true);
+  document.addEventListener('keydown', handleDocumentKeydown, true);
+  document.addEventListener('change', handleDocumentChange, true);
+  document.addEventListener('input', handleDocumentInput, true);
   globalUiListenersBound = true;
 }
 
@@ -200,76 +215,177 @@ function handleDocumentClick(event) {
     return;
   }
 
+  const nestedLink = target.closest('a[href]');
+  if (nestedLink instanceof HTMLAnchorElement) {
+    return;
+  }
+
   const button = target.closest('button');
-  if (!(button instanceof HTMLButtonElement)) {
-    return;
-  }
+  const actionElement = target.closest('[data-action]');
+  const clickableElement = actionElement instanceof HTMLElement ? actionElement : null;
 
-  if (button.id === 'edit-settings') {
-    event.preventDefault();
-    state.authState = 'missingConfig';
-    state.connectionError = '';
-    state.tokenError = '';
-    render();
-    return;
-  }
-
-  if (button.id === 'validate-token' || button.id === 'save-connection') {
-    const form = button.closest('form');
-    if (!(form instanceof HTMLFormElement)) {
+  if (button instanceof HTMLButtonElement) {
+    if (button.id === 'edit-settings') {
+      event.preventDefault();
+      state.authState = 'missingConfig';
+      state.connectionError = '';
+      state.tokenError = '';
+      render();
       return;
     }
 
-    event.preventDefault();
-    if (button.id === 'validate-token') {
-      void handleTokenFormSubmit(form);
+    if (button.id === 'validate-token' || button.id === 'save-connection') {
+      const form = button.closest('form');
+      if (!(form instanceof HTMLFormElement)) {
+        return;
+      }
+
+      event.preventDefault();
+      if (button.id === 'validate-token') {
+        void handleTokenFormSubmit(form);
+        return;
+      }
+
+      void handleConnectionFormSubmit(form);
       return;
     }
-
-    void handleConnectionFormSubmit(form);
-    return;
   }
 
-  const action = button.dataset.action;
-  if (!action) {
+  if (!clickableElement?.dataset.action) {
     return;
   }
 
   event.preventDefault();
-  switch (action) {
+  switch (clickableElement.dataset.action) {
     case 'switch-view':
-      state.currentView = button.dataset.view === 'tasks' ? 'tasks' : 'maps';
+      state.activeModal = null;
+      state.currentView = clickableElement.dataset.view === 'tasks' ? 'tasks' : 'maps';
       render();
       return;
     case 'refresh-maps':
       void loadWorkspace(true);
       return;
     case 'open-map':
-      openMap(button.dataset.mapPath || '');
+      openMap(clickableElement.dataset.mapPath || '');
       return;
     case 'back-to-maps':
+      state.activeModal = null;
       state.currentView = 'maps';
       render();
       return;
     case 'select-node':
-      selectNode(button.dataset.mapPath || '', button.dataset.nodeId || '');
+      selectNode(clickableElement.dataset.mapPath || '', clickableElement.dataset.nodeId || '');
       return;
     case 'toggle-node':
-      toggleLocalNodeCollapse(button.dataset.mapPath || '', button.dataset.nodeId || '');
+      toggleLocalNodeCollapse(clickableElement.dataset.mapPath || '', clickableElement.dataset.nodeId || '');
       return;
     case 'set-task-state':
-      void handleSetTaskState(button.dataset.taskState || '');
+      void handleSetTaskState(clickableElement.dataset.taskState || '');
+      return;
+    case 'open-modal':
+      openNodeModal(
+        clickableElement.dataset.modalKind || '',
+        clickableElement.dataset.mapPath || '',
+        clickableElement.dataset.nodeId || '',
+        clickableElement.dataset.focusKey || '',
+      );
+      return;
+    case 'close-modal':
+      closeActiveModal();
       return;
     case 'open-task-node':
-      openTaskNode(button.dataset.mapPath || '', button.dataset.nodeId || '');
+      openTaskNode(clickableElement.dataset.mapPath || '', clickableElement.dataset.nodeId || '');
       return;
     case 'set-task-filter':
-      state.taskFilter = button.dataset.filter || 'open';
+      state.taskFilter = clickableElement.dataset.filter || 'open';
       render();
       return;
     default:
       return;
   }
+}
+
+function handleDocumentChange(event) {
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement)) {
+    return;
+  }
+
+  if (target.name !== 'theme-mode') {
+    return;
+  }
+
+  const nextTheme = target.value === 'dark' ? 'dark' : 'light';
+  if (state.theme === nextTheme) {
+    return;
+  }
+
+  state.theme = nextTheme;
+  saveThemePreference(nextTheme);
+  applyThemePreference();
+  render();
+}
+
+function handleDocumentInput(event) {
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement) && !(target instanceof HTMLTextAreaElement)) {
+    return;
+  }
+
+  const form = target.closest('form');
+  if (!(form instanceof HTMLFormElement)) {
+    return;
+  }
+
+  if (state.activeModal && ['edit-node-form', 'add-note-form', 'add-task-form'].includes(form.id)) {
+    state.activeModal = {
+      ...state.activeModal,
+      draftText: target.value,
+      errorMessage: '',
+    };
+  }
+
+  if (form.id !== 'edit-node-form') {
+    return;
+  }
+
+  const previewNode = form.querySelector('[data-inline-preview="edit-node"]');
+  if (!(previewNode instanceof HTMLElement)) {
+    return;
+  }
+
+  const modalNodeState = getActiveModalNodeUiState();
+  const taskState = modalNodeState?.node.taskState ?? TASK_STATE.NONE;
+  previewNode.innerHTML = renderNodePreviewMarkup(target.value, taskState);
+}
+
+function handleDocumentKeydown(event) {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+
+  if (event.key === 'Escape' && state.activeModal) {
+    event.preventDefault();
+    closeActiveModal();
+    return;
+  }
+
+  if (target.closest('a[href]')) {
+    return;
+  }
+
+  if (event.key !== 'Enter' && event.key !== ' ') {
+    return;
+  }
+
+  const actionElement = target.closest('[data-action][role="button"]');
+  if (!(actionElement instanceof HTMLElement)) {
+    return;
+  }
+
+  event.preventDefault();
+  actionElement.click();
 }
 
 async function handleRetryButtonClick() {
@@ -345,6 +461,23 @@ function updateInstallState() {
   }
 }
 
+function loadThemePreference() {
+  const storedTheme = window.localStorage?.getItem(THEME_STORAGE_KEY);
+  return storedTheme === 'dark' ? 'dark' : 'light';
+}
+
+function saveThemePreference(theme) {
+  window.localStorage?.setItem(THEME_STORAGE_KEY, theme === 'dark' ? 'dark' : 'light');
+}
+
+function applyThemePreference() {
+  document.documentElement.dataset.theme = state.theme;
+
+  if (ui.themeMeta instanceof HTMLMetaElement) {
+    ui.themeMeta.content = THEME_META_COLORS[state.theme] || THEME_META_COLORS.light;
+  }
+}
+
 function switchRepoContext(repoSettings) {
   state.repoSettings = normalizeRepoSettings(repoSettings);
   state.repoScope = buildRepoScope(state.repoSettings);
@@ -356,6 +489,8 @@ function switchRepoContext(repoSettings) {
   state.selectedNodeId = '';
   state.showSettings = false;
   state.localCollapsedByMap = {};
+  state.activeModal = null;
+  state.pendingFocusRequest = null;
 }
 
 async function authenticateAndLoad() {
@@ -474,7 +609,12 @@ async function loadWorkspace(forceRefresh) {
 function enqueueOperation(operation) {
   const currentSnapshot = state.mapsByPath[operation.filePath];
   if (!currentSnapshot) {
-    return;
+    return {
+      ok: false,
+      error: {
+        message: 'The selected map is no longer available.',
+      },
+    };
   }
 
   const nextSnapshot = {
@@ -492,7 +632,7 @@ function enqueueOperation(operation) {
       canRetry: false,
     };
     render();
-    return;
+    return applied;
   }
 
   state.pendingOperations = [...state.pendingOperations, operation];
@@ -510,6 +650,10 @@ function enqueueOperation(operation) {
   };
   render();
   void processPendingOperations();
+  return {
+    ok: true,
+    value: applied.value,
+  };
 }
 
 async function processPendingOperations() {
@@ -692,48 +836,78 @@ async function handleTokenFormSubmit(form) {
 }
 
 async function handleEditNodeSubmit(form) {
-  const snapshot = getSelectedSnapshot();
-  const selectedNode = getSelectedNodeUiState(snapshot);
-  if (!snapshot || !selectedNode) {
+  const modalContext = getActiveModalContext('editNode');
+  if (!modalContext) {
     return;
   }
 
   const text = String(new FormData(form).get('text') ?? '').trim();
-  const operation = {
-    type: 'editNodeText',
-    filePath: snapshot.filePath,
-    nodeId: selectedNode.node.uniqueIdentifier,
-    text,
-    timestamp: nowIso(),
-    commitMessage: buildNodeEditCommitMessage(snapshot.mapName, selectedNode.node.uniqueIdentifier),
+  state.activeModal = {
+    ...state.activeModal,
+    draftText: text,
+    errorMessage: '',
   };
 
-  enqueueOperation(operation);
+  const operation = {
+    type: 'editNodeText',
+    filePath: modalContext.snapshot.filePath,
+    nodeId: modalContext.nodeUiState.node.uniqueIdentifier,
+    text,
+    timestamp: nowIso(),
+    commitMessage: buildNodeEditCommitMessage(
+      modalContext.snapshot.mapName,
+      modalContext.nodeUiState.node.uniqueIdentifier,
+    ),
+  };
+
+  const result = enqueueOperation(operation);
+  if (!result.ok) {
+    setActiveModalError(result.error.message);
+    return;
+  }
+
+  closeActiveModal({
+    focusKey: buildNodeFocusKey(operation.filePath, state.selectedNodeId || operation.nodeId),
+  });
 }
 
 async function handleAddChildSubmit(form, type) {
-  const snapshot = getSelectedSnapshot();
-  const selectedNode = getSelectedNodeUiState(snapshot);
-  if (!snapshot || !selectedNode) {
+  const expectedModalKind = type === 'addChildTask' ? 'addChildTask' : 'addChildNote';
+  const modalContext = getActiveModalContext(expectedModalKind);
+  if (!modalContext) {
     return;
   }
 
   const text = String(new FormData(form).get('text') ?? '').trim();
+  state.activeModal = {
+    ...state.activeModal,
+    draftText: text,
+    errorMessage: '',
+  };
+
   const operation = {
     type,
-    filePath: snapshot.filePath,
-    parentNodeId: selectedNode.node.uniqueIdentifier,
+    filePath: modalContext.snapshot.filePath,
+    parentNodeId: modalContext.nodeUiState.node.uniqueIdentifier,
     newNodeId: createClientNodeId(),
     text,
     timestamp: nowIso(),
     commitMessage: buildNodeAddCommitMessage(
-      snapshot.mapName,
+      modalContext.snapshot.mapName,
       text,
       type === 'addChildTask' ? 'task' : 'note',
     ),
   };
 
-  enqueueOperation(operation);
+  const result = enqueueOperation(operation);
+  if (!result.ok) {
+    setActiveModalError(result.error.message);
+    return;
+  }
+
+  closeActiveModal({
+    focusKey: buildNodeFocusKey(operation.filePath, state.selectedNodeId || operation.parentNodeId),
+  });
 }
 
 async function handleSetTaskState(taskStateValue) {
@@ -748,7 +922,7 @@ async function handleSetTaskState(taskStateValue) {
     return;
   }
 
-  enqueueOperation({
+  const result = enqueueOperation({
     type: 'setTaskState',
     filePath: snapshot.filePath,
     nodeId: selectedNode.node.uniqueIdentifier,
@@ -760,6 +934,70 @@ async function handleSetTaskState(taskStateValue) {
       nextTaskState,
     ),
   });
+
+  if (result.ok) {
+    state.pendingFocusRequest = {
+      type: 'focusKey',
+      value: buildNodeFocusKey(snapshot.filePath, selectedNode.node.uniqueIdentifier),
+    };
+    focusPendingElement();
+  }
+}
+
+function openNodeModal(kind, mapPath, nodeId, returnFocusKey = '') {
+  const snapshot = state.mapsByPath[mapPath];
+  if (!snapshot) {
+    return;
+  }
+
+  const nodeUiState = getNodeUiState(snapshot.document, nodeId);
+  if (!nodeUiState) {
+    return;
+  }
+
+  state.currentView = 'map';
+  state.selectedMapPath = mapPath;
+  state.selectedNodeId = nodeUiState.node.uniqueIdentifier;
+  state.activeModal = {
+    kind,
+    mapPath,
+    nodeId: nodeUiState.node.uniqueIdentifier,
+    draftText: kind === 'editNode' ? nodeUiState.node.name || '' : '',
+    errorMessage: '',
+    returnFocusKey: returnFocusKey || buildNodeFocusKey(mapPath, nodeUiState.node.uniqueIdentifier),
+  };
+  state.pendingFocusRequest = {
+    type: 'modalAutofocus',
+  };
+  render();
+}
+
+function closeActiveModal(options = {}) {
+  if (!state.activeModal) {
+    return;
+  }
+
+  const focusKey = options.focusKey || state.activeModal.returnFocusKey || '';
+  state.activeModal = null;
+  if (focusKey) {
+    state.pendingFocusRequest = {
+      type: 'focusKey',
+      value: focusKey,
+    };
+  }
+  render();
+}
+
+function setActiveModalError(message) {
+  if (!state.activeModal) {
+    return;
+  }
+
+  state.activeModal = {
+    ...state.activeModal,
+    errorMessage: message,
+  };
+  render();
 }
 
 function openMap(mapPath) {
@@ -768,6 +1006,7 @@ function openMap(mapPath) {
     return;
   }
 
+  state.activeModal = null;
   state.currentView = 'map';
   state.selectedMapPath = mapPath;
   if (!findNodeRecord(snapshot.document, state.selectedNodeId)) {
@@ -782,6 +1021,7 @@ function openTaskNode(mapPath, nodeId) {
     return;
   }
 
+  state.activeModal = null;
   state.currentView = 'map';
   state.selectedMapPath = mapPath;
   state.selectedNodeId = findNodeRecord(snapshot.document, nodeId)
@@ -796,6 +1036,7 @@ function selectNode(mapPath, nodeId) {
     return;
   }
 
+  state.activeModal = null;
   state.currentView = 'map';
   state.selectedMapPath = mapPath;
   state.selectedNodeId = findNodeRecord(snapshot.document, nodeId)
@@ -839,6 +1080,7 @@ function setSnapshots(snapshots) {
   if (!state.selectedMapPath || !nextByPath[state.selectedMapPath]) {
     state.selectedMapPath = '';
     state.selectedNodeId = '';
+    state.activeModal = null;
     if (state.currentView === 'map') {
       state.currentView = 'maps';
     }
@@ -848,6 +1090,14 @@ function setSnapshots(snapshots) {
   const selectedSnapshot = nextByPath[state.selectedMapPath];
   if (!findNodeRecord(selectedSnapshot.document, state.selectedNodeId)) {
     state.selectedNodeId = selectedSnapshot.document.rootNode?.uniqueIdentifier || '';
+    state.activeModal = null;
+  }
+
+  if (state.activeModal) {
+    const modalSnapshot = nextByPath[state.activeModal.mapPath];
+    if (!modalSnapshot || !findNodeRecord(modalSnapshot.document, state.activeModal.nodeId)) {
+      state.activeModal = null;
+    }
   }
 }
 
@@ -893,6 +1143,35 @@ function getSelectedNodeUiState(snapshot = getSelectedSnapshot()) {
   }
 
   return getNodeUiState(snapshot.document, snapshot.document.rootNode?.uniqueIdentifier || '');
+}
+
+function getNodeUiStateForLocation(mapPath, nodeId) {
+  const snapshot = state.mapsByPath[mapPath];
+  if (!snapshot) {
+    return null;
+  }
+
+  const nodeUiState = getNodeUiState(snapshot.document, nodeId);
+  if (!nodeUiState) {
+    return null;
+  }
+
+  return {
+    snapshot,
+    nodeUiState,
+  };
+}
+
+function getActiveModalContext(expectedKind = '') {
+  if (!state.activeModal) {
+    return null;
+  }
+
+  if (expectedKind && state.activeModal.kind !== expectedKind) {
+    return null;
+  }
+
+  return getNodeUiStateForLocation(state.activeModal.mapPath, state.activeModal.nodeId);
 }
 
 function applyPendingOperationsLocally(snapshots, pendingOperations) {
@@ -943,6 +1222,32 @@ function createClientNodeId() {
   return `${Date.now().toString(16).padStart(8, '0')}-0000-4000-8000-${Math.random().toString(16).slice(2, 14).padEnd(12, '0')}`;
 }
 
+function buildNodeFocusKey(mapPath, nodeId) {
+  return `node|${mapPath}|${nodeId}`;
+}
+
+function focusPendingElement() {
+  const request = state.pendingFocusRequest;
+  if (!request) {
+    return;
+  }
+
+  state.pendingFocusRequest = null;
+  queueMicrotask(() => {
+    let element = null;
+    if (request.type === 'modalAutofocus') {
+      element = document.querySelector('[data-modal-autofocus="true"]');
+    } else if (request.type === 'focusKey') {
+      element = Array.from(document.querySelectorAll('[data-focus-key]'))
+        .find((candidate) => candidate instanceof HTMLElement && candidate.dataset.focusKey === request.value) || null;
+    }
+
+    if (element instanceof HTMLElement) {
+      element.focus();
+    }
+  });
+}
+
 function render() {
   renderStatusPanel();
 
@@ -953,6 +1258,7 @@ function render() {
   if (state.authState === 'authenticated') {
     renderWorkspace();
     renderSettingsPanel();
+    focusPendingElement();
     return;
   }
 
@@ -969,6 +1275,7 @@ function render() {
   }
 
   renderGateScreen();
+  focusPendingElement();
 }
 
 function renderStatusPanel() {
@@ -1136,67 +1443,66 @@ function renderSettingsPanel() {
 }
 
 function renderMapsView(summaries) {
-  if (summaries.length === 0) {
-    return `
-      <section class="workspace-panel empty-panel">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">Maps</p>
-            <h2>Mind map files</h2>
-            <p class="section-copy">The configured FocusMaps folder is reachable, but no top-level .json map files were found.</p>
-          </div>
-        </div>
-        <article class="card empty-card">
-          <p>Point <code>repoPath</code> directly at the FocusMaps folder, for example <code>Tool/PMMT/FocusMaps</code>, and make sure the folder contains map JSON files.</p>
-        </article>
-      </section>
-    `;
-  }
-
   return `
-    <section class="workspace-panel">
+    <section class="workspace-panel ${summaries.length === 0 ? 'empty-panel' : ''}">
       <div class="section-heading">
         <div>
           <p class="eyebrow">Maps</p>
           <h2>Mind map files</h2>
-          <p class="section-copy">Open any existing map and edit the task tree without changing unsupported mind-map data.</p>
+          <p class="section-copy">
+            ${summaries.length === 0
+              ? 'The configured FocusMaps folder is reachable, but no top-level .json map files were found.'
+              : 'Open any existing map in a compact reading view and use inline actions only when you want to edit.'}
+          </p>
         </div>
+        ${renderThemeModeControl()}
       </div>
-      <div class="map-grid">
-        ${summaries.map((summary) => renderMapCard(summary)).join('')}
-      </div>
+      ${summaries.length === 0
+        ? `
+          <article class="card empty-card">
+            <p>Point <code>repoPath</code> directly at the FocusMaps folder, for example <code>Tool/PMMT/FocusMaps</code>, and make sure the folder contains map JSON files.</p>
+          </article>
+        `
+        : `
+          <div class="compact-list map-list">
+            ${summaries.map((summary) => renderMapCard(summary)).join('')}
+          </div>
+        `}
     </section>
   `;
 }
 
 function renderMapCard(summary) {
-  const pendingCount = getPendingCountForMap(summary.filePath);
-  const countItems = [
+  return `
+    <article class="card compact-row map-row">
+      <div class="compact-row-main">
+        <div class="compact-title-block">
+          <h3>${renderInlineHtml(summary.rootTitle, { theme: state.theme, wrapperClass: 'formatted-inline card-title-inline' })}</h3>
+          <p class="map-file-name">${escapeHtml(summary.fileName)}</p>
+          <p class="compact-meta">${escapeHtml(buildMapSummaryLine(summary))}</p>
+        </div>
+      </div>
+      <div class="compact-row-actions">
+        <p class="map-updated">Updated ${escapeHtml(formatRelativeTime(summary.updatedAt))}</p>
+        <button type="button" class="secondary-button compact-button" data-action="open-map" data-map-path="${escapeHtml(summary.filePath)}">Open</button>
+      </div>
+    </article>
+  `;
+}
+
+function buildMapSummaryLine(summary) {
+  const parts = [
     `Open ${summary.taskCounts.open}`,
     `Todo ${summary.taskCounts.todo}`,
     `Doing ${summary.taskCounts.doing}`,
     `Done ${summary.taskCounts.done}`,
   ];
-
+  const pendingCount = getPendingCountForMap(summary.filePath);
   if (pendingCount > 0) {
-    countItems.push(`Pending ${pendingCount}`);
+    parts.push(`Pending ${pendingCount}`);
   }
 
-  return `
-    <article class="card map-card">
-      <div class="map-card-header">
-        <div>
-          <h3>${escapeHtml(summary.rootTitle)}</h3>
-          <p class="map-file-name">${escapeHtml(summary.fileName)}</p>
-        </div>
-        <button type="button" data-action="open-map" data-map-path="${escapeHtml(summary.filePath)}">Open map</button>
-      </div>
-      <p class="map-updated">Updated ${escapeHtml(formatRelativeTime(summary.updatedAt))}</p>
-      <div class="pill-row">
-        ${countItems.map((item) => `<span class="pill">${escapeHtml(item)}</span>`).join('')}
-      </div>
-    </article>
-  `;
+  return parts.join(' · ');
 }
 
 function renderMapView() {
@@ -1218,150 +1524,313 @@ function renderMapView() {
     `;
   }
 
+  const rootNode = snapshot.document.rootNode;
+  const rootHasChildren = Array.isArray(rootNode?.children) && rootNode.children.length > 0;
+  const rootCollapsed = getLocalCollapsedState(snapshot.filePath, rootNode);
+  const isRootSelected = selectedNodeState.node.uniqueIdentifier === rootNode.uniqueIdentifier;
+
   return `
-    <section class="workspace-panel map-editor">
-      <div class="map-editor-header">
+    <section class="workspace-panel map-reader-view">
+      <div class="map-reader-header">
         <div>
-          <p class="eyebrow">Map editor</p>
-          <h2>${escapeHtml(snapshot.mapName)}</h2>
-          <p class="section-copy">${escapeHtml(snapshot.filePath)}</p>
+          <p class="eyebrow">Mind map</p>
+          <p class="map-reader-file">${escapeHtml(snapshot.filePath)}</p>
         </div>
-        <button type="button" class="secondary-button" data-action="back-to-maps">Back to maps</button>
+        <div class="compact-row-actions">
+          <button type="button" class="secondary-button compact-button" data-action="back-to-maps">Back to maps</button>
+        </div>
       </div>
-      <div class="editor-layout">
-        <section class="card tree-panel" aria-label="Map tree">
-          <ul class="tree-list">
-            ${renderTreeNode(snapshot, snapshot.document.rootNode, 0)}
-          </ul>
-        </section>
-        <aside class="card inspector-panel" aria-label="Selected node editor">
-          ${renderInspector(snapshot, selectedNodeState)}
-        </aside>
-      </div>
+
+      <article class="map-document" aria-label="Map reader">
+        <header class="map-document-header ${isRootSelected ? 'selected' : ''}">
+          <div class="map-document-line">
+            ${rootHasChildren
+              ? `<button
+                  type="button"
+                  class="tree-toggle compact-toggle"
+                  data-action="toggle-node"
+                  data-map-path="${escapeHtml(snapshot.filePath)}"
+                  data-node-id="${escapeHtml(rootNode.uniqueIdentifier)}"
+                  aria-label="${rootCollapsed ? 'Expand' : 'Collapse'} node"
+                >${rootCollapsed ? '+' : '-'}</button>`
+              : '<span class="tree-spacer root-spacer" aria-hidden="true"></span>'}
+            ${renderPassiveTaskDot(rootNode.taskState, 'root-task-dot')}
+            <div class="map-document-body">
+              <div
+                role="button"
+                tabindex="0"
+                class="map-document-title ${isRootSelected ? 'selected' : ''}"
+                data-action="select-node"
+                data-map-path="${escapeHtml(snapshot.filePath)}"
+                data-node-id="${escapeHtml(rootNode.uniqueIdentifier)}"
+                data-focus-key="${escapeHtml(buildNodeFocusKey(snapshot.filePath, rootNode.uniqueIdentifier))}"
+              >
+                ${renderNodeTextMarkup(rootNode.name, 'formatted-inline map-title-inline')}
+              </div>
+              ${isRootSelected ? renderSelectedNodeActions(snapshot, selectedNodeState) : ''}
+            </div>
+          </div>
+        </header>
+
+        ${rootHasChildren && !rootCollapsed
+          ? `<ol class="reader-list reader-root-list">${rootNode.children.map((child) => renderTreeNode(snapshot, child, 1, selectedNodeState)).join('')}</ol>`
+          : ''}
+      </article>
+
+      ${renderActiveModal()}
     </section>
   `;
 }
 
-function renderTreeNode(snapshot, node, depth) {
+function renderTreeNode(snapshot, node, depth, selectedNodeState) {
   const isSelected =
     state.selectedMapPath === snapshot.filePath &&
     state.selectedNodeId === node.uniqueIdentifier;
   const hasChildren = Array.isArray(node.children) && node.children.length > 0;
   const isCollapsed = getLocalCollapsedState(snapshot.filePath, node);
-  const taskMarker = displayTaskState(node.taskState);
-  const badges = getNodeBadges(node);
-  const markerLabel = taskMarker ? `<span class="task-marker">${escapeHtml(taskMarker)}</span>` : '';
+  const nodeTextMarkup = renderNodeTextMarkup(node.name, 'formatted-inline tree-inline');
 
   return `
-    <li class="tree-node ${isSelected ? 'selected' : ''}" style="--depth:${depth}">
-      <div class="tree-row">
+    <li class="reader-node ${isSelected ? 'selected' : ''}" style="--depth:${depth}">
+      <div class="reader-node-line">
         ${hasChildren
           ? `<button
               type="button"
-              class="tree-toggle"
+              class="tree-toggle compact-toggle"
               data-action="toggle-node"
               data-map-path="${escapeHtml(snapshot.filePath)}"
               data-node-id="${escapeHtml(node.uniqueIdentifier)}"
               aria-label="${isCollapsed ? 'Expand' : 'Collapse'} node"
             >${isCollapsed ? '+' : '-'}</button>`
           : '<span class="tree-spacer" aria-hidden="true"></span>'}
-        <button
-          type="button"
-          class="tree-label ${isSelected ? 'selected' : ''}"
-          data-action="select-node"
-          data-map-path="${escapeHtml(snapshot.filePath)}"
-          data-node-id="${escapeHtml(node.uniqueIdentifier)}"
-        >
-          ${markerLabel}
-          <span>${escapeHtml(node.name || '(untitled)')}</span>
-        </button>
-        ${badges.length > 0 ? `<span class="badge-row">${renderBadgeMarkup(badges)}</span>` : ''}
+        ${renderPassiveTaskDot(node.taskState)}
+        <div class="reader-node-body">
+          <div
+            role="button"
+            tabindex="0"
+            class="tree-label ${isSelected ? 'selected' : ''}"
+            data-action="select-node"
+            data-map-path="${escapeHtml(snapshot.filePath)}"
+            data-node-id="${escapeHtml(node.uniqueIdentifier)}"
+            data-focus-key="${escapeHtml(buildNodeFocusKey(snapshot.filePath, node.uniqueIdentifier))}"
+          >
+            ${nodeTextMarkup}
+          </div>
+          ${isSelected ? renderSelectedNodeActions(snapshot, selectedNodeState) : ''}
+        </div>
       </div>
       ${hasChildren && !isCollapsed
-        ? `<ul class="tree-list child-list">${node.children.map((child) => renderTreeNode(snapshot, child, depth + 1)).join('')}</ul>`
+        ? `<ul class="reader-list child-list">${node.children.map((child) => renderTreeNode(snapshot, child, depth + 1, selectedNodeState)).join('')}</ul>`
         : ''}
     </li>
   `;
 }
 
-function renderInspector(snapshot, nodeUiState) {
-  const selectionPath = nodeUiState.pathSegments.join(' > ');
-  const readOnlyMessage = nodeUiState.canEditNode
-    ? 'Unsupported map data such as links, attachments, idea tags, and stored collapsed flags will be preserved when you save supported edits.'
-    : 'This node type is read-only in the PWA. You can inspect it here, but text and task changes stay disabled.';
+function renderSelectedNodeActions(snapshot, nodeUiState) {
+  const nodeId = nodeUiState.node.uniqueIdentifier;
+  const mapPath = snapshot.filePath;
+  const actionDisabled = nodeUiState.canEditNode ? '' : 'disabled';
+  const taskDisabled = nodeUiState.canChangeTaskState ? '' : 'disabled';
+  const badgesMarkup = nodeUiState.badges.length > 0
+    ? `<div class="selected-node-meta">${renderBadgeMarkup(nodeUiState.badges)}</div>`
+    : '';
+  const hintMarkup = renderSelectedNodeHint(nodeUiState);
 
   return `
-    <div class="inspector-copy">
-      <p class="eyebrow">Selected node</p>
-      <h3>${escapeHtml(nodeUiState.node.name || '(untitled)')}</h3>
-      <p class="node-path">${escapeHtml(selectionPath)}</p>
-      <div class="pill-row">${renderBadgeMarkup(nodeUiState.badges)}</div>
-      <p class="section-copy">${escapeHtml(describeSelectionCapabilities(nodeUiState))}</p>
+    <div class="selected-node-actions">
+      <div class="selected-node-toolbar">
+        <button
+          type="button"
+          class="mini-action"
+          data-action="open-modal"
+          data-modal-kind="editNode"
+          data-map-path="${escapeHtml(mapPath)}"
+          data-node-id="${escapeHtml(nodeId)}"
+          data-focus-key="${escapeHtml(buildModalTriggerKey('editNode', mapPath, nodeId))}"
+          ${actionDisabled}
+        >
+          Edit
+        </button>
+        <button
+          type="button"
+          class="mini-action"
+          data-action="open-modal"
+          data-modal-kind="addChildNote"
+          data-map-path="${escapeHtml(mapPath)}"
+          data-node-id="${escapeHtml(nodeId)}"
+          data-focus-key="${escapeHtml(buildModalTriggerKey('addChildNote', mapPath, nodeId))}"
+          ${actionDisabled}
+        >
+          Note
+        </button>
+        <button
+          type="button"
+          class="mini-action"
+          data-action="open-modal"
+          data-modal-kind="addChildTask"
+          data-map-path="${escapeHtml(mapPath)}"
+          data-node-id="${escapeHtml(nodeId)}"
+          data-focus-key="${escapeHtml(buildModalTriggerKey('addChildTask', mapPath, nodeId))}"
+          ${actionDisabled}
+        >
+          Task
+        </button>
+        <div class="task-dot-group" role="group" aria-label="Task state">
+          ${renderTaskStateDotButton('Clear task state', TASK_STATE.NONE, nodeUiState, taskDisabled)}
+          ${renderTaskStateDotButton('Set Todo', TASK_STATE.TODO, nodeUiState, taskDisabled)}
+          ${renderTaskStateDotButton('Set Doing', TASK_STATE.DOING, nodeUiState, taskDisabled)}
+          ${renderTaskStateDotButton('Set Done', TASK_STATE.DONE, nodeUiState, taskDisabled)}
+        </div>
+      </div>
+      ${badgesMarkup}
+      ${hintMarkup}
     </div>
-
-    <form id="edit-node-form" class="stack-form inspector-form">
-      <label>
-        <span>Node text</span>
-        <textarea name="text" rows="4" maxlength="5000" ${nodeUiState.canEditNode ? '' : 'disabled'}>${escapeHtml(nodeUiState.node.name || '')}</textarea>
-      </label>
-      <div class="form-actions">
-        <button type="submit" ${nodeUiState.canEditNode ? '' : 'disabled'}>Save text</button>
-      </div>
-    </form>
-
-    <section class="inspector-section">
-      <h4>Task state</h4>
-      <div class="state-row">
-        ${renderTaskStateButton('None', TASK_STATE.NONE, nodeUiState)}
-        ${renderTaskStateButton('Todo', TASK_STATE.TODO, nodeUiState)}
-        ${renderTaskStateButton('Doing', TASK_STATE.DOING, nodeUiState)}
-        ${renderTaskStateButton('Done', TASK_STATE.DONE, nodeUiState)}
-      </div>
-    </section>
-
-    <section class="inspector-section">
-      <h4>Add child note</h4>
-      <form id="add-note-form" class="stack-form compact-form">
-        <label>
-          <span>Child note text</span>
-          <input name="text" type="text" maxlength="500" placeholder="Add a child note" ${nodeUiState.canEditNode ? '' : 'disabled'} />
-        </label>
-        <div class="form-actions">
-          <button type="submit" ${nodeUiState.canEditNode ? '' : 'disabled'}>Add note</button>
-        </div>
-      </form>
-    </section>
-
-    <section class="inspector-section">
-      <h4>Add child task</h4>
-      <form id="add-task-form" class="stack-form compact-form">
-        <label>
-          <span>Child task text</span>
-          <input name="text" type="text" maxlength="500" placeholder="Add a child task" ${nodeUiState.canEditNode ? '' : 'disabled'} />
-        </label>
-        <div class="form-actions">
-          <button type="submit" ${nodeUiState.canEditNode ? '' : 'disabled'}>Add task</button>
-        </div>
-      </form>
-    </section>
-
-    <p class="security-note">${escapeHtml(readOnlyMessage)}</p>
   `;
 }
 
-function renderTaskStateButton(label, taskState, nodeUiState) {
+function renderSelectedNodeHint(nodeUiState) {
+  if (!nodeUiState.canEditNode) {
+    return '<p class="selected-node-hint">Idea tag is preserved but read-only in the PWA.</p>';
+  }
+
+  if (!nodeUiState.canChangeTaskState) {
+    return '<p class="selected-node-hint">Root node text is editable, but task state stays disabled.</p>';
+  }
+
+  return '';
+}
+
+function renderTaskStateDotButton(label, taskState, nodeUiState, disabledAttribute) {
   const isActive = nodeUiState.node.taskState === taskState;
-  const disabled = nodeUiState.canChangeTaskState ? '' : 'disabled';
   return `
     <button
       type="button"
-      class="state-button ${isActive ? 'active' : ''}"
+      class="task-dot-button ${taskStateToneClass(taskState)} ${isActive ? 'active' : ''}"
       data-action="set-task-state"
       data-task-state="${taskState}"
-      ${disabled}
+      aria-label="${escapeHtml(label)}"
+      title="${escapeHtml(label)}"
+      ${disabledAttribute}
     >
-      ${escapeHtml(label)}
+      <span class="sr-only">${escapeHtml(label)}</span>
     </button>
+  `;
+}
+
+function renderPassiveTaskDot(taskState, extraClass = '') {
+  return `<span class="task-dot ${taskStateToneClass(taskState)} ${escapeHtml(extraClass)}" aria-hidden="true"></span>`;
+}
+
+function taskStateToneClass(taskState) {
+  switch (taskState) {
+    case TASK_STATE.TODO:
+      return 'is-todo';
+    case TASK_STATE.DOING:
+      return 'is-doing';
+    case TASK_STATE.DONE:
+      return 'is-done';
+    default:
+      return 'is-none';
+  }
+}
+
+function buildModalTriggerKey(kind, mapPath, nodeId) {
+  return `modal|${kind}|${mapPath}|${nodeId}`;
+}
+
+function renderActiveModal() {
+  if (!state.activeModal) {
+    return '';
+  }
+
+  const modalContext = getActiveModalContext(state.activeModal.kind);
+  if (!modalContext) {
+    return '';
+  }
+
+  const { nodeUiState } = modalContext;
+  const isEditModal = state.activeModal.kind === 'editNode';
+  const isAddTaskModal = state.activeModal.kind === 'addChildTask';
+  const title = isEditModal
+    ? 'Edit node text'
+    : isAddTaskModal
+      ? 'Add child task'
+      : 'Add child note';
+  const description = isEditModal
+    ? 'Unsupported mind-map data stays preserved when you save supported edits.'
+    : isAddTaskModal
+      ? 'Create a new child task under the selected node. New tasks start in Todo.'
+      : 'Create a new child note under the selected node.';
+  const formId = isEditModal
+    ? 'edit-node-form'
+    : isAddTaskModal
+      ? 'add-task-form'
+      : 'add-note-form';
+  const actionLabel = isEditModal
+    ? 'Save text'
+    : isAddTaskModal
+      ? 'Add task'
+      : 'Add note';
+  const inputMarkup = isEditModal
+    ? `
+      <label>
+        <span>Node text</span>
+        <textarea
+          id="edit-node-text"
+          name="text"
+          rows="5"
+          maxlength="5000"
+          data-modal-autofocus="true"
+        >${escapeHtml(state.activeModal.draftText)}</textarea>
+      </label>
+      <div class="preview-block">
+        <p class="preview-label">Rendered preview</p>
+        <div class="preview-panel" data-inline-preview="edit-node">
+          ${renderNodePreviewMarkup(state.activeModal.draftText, nodeUiState.node.taskState)}
+        </div>
+      </div>
+    `
+    : `
+      <label>
+        <span>${isAddTaskModal ? 'Child task text' : 'Child note text'}</span>
+        <input
+          type="text"
+          name="text"
+          maxlength="500"
+          value="${escapeHtml(state.activeModal.draftText)}"
+          placeholder="${escapeHtml(isAddTaskModal ? 'Describe the new task' : 'Describe the new child note')}"
+          data-modal-autofocus="true"
+        />
+      </label>
+    `;
+
+  return `
+    <div class="modal-layer">
+      <button type="button" class="modal-backdrop" data-action="close-modal" aria-label="Close dialog"></button>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="map-modal-title">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">${isEditModal ? 'Edit' : 'Add child'}</p>
+            <h3 id="map-modal-title">${escapeHtml(title)}</h3>
+            <p class="node-path">${renderInlinePath(nodeUiState.pathSegments, 'formatted-path node-path-inline')}</p>
+          </div>
+          <button type="button" class="ghost-button compact-button" data-action="close-modal">Close</button>
+        </div>
+
+        ${state.activeModal.errorMessage
+          ? `<p class="form-error" role="alert">${escapeHtml(state.activeModal.errorMessage)}</p>`
+          : ''}
+
+        <form id="${formId}" class="stack-form modal-form">
+          ${inputMarkup}
+          <p class="security-note">${escapeHtml(description)}</p>
+          <div class="form-actions">
+            <button type="button" class="secondary-button" data-action="close-modal">Cancel</button>
+            <button type="submit">${escapeHtml(actionLabel)}</button>
+          </div>
+        </form>
+      </div>
+    </div>
   `;
 }
 
@@ -1403,23 +1872,26 @@ function renderTasksView() {
           </article>
         `
         : `
-          <div class="task-entry-list">
+          <div class="compact-list task-entry-list">
             ${entries.map((entry) => `
-              <article class="card task-entry">
-                <div>
-                  <p class="task-entry-map">${escapeHtml(entry.mapName)}</p>
-                  <h3>${escapeHtml(entry.nodeName)}</h3>
-                  <p class="task-entry-path">${escapeHtml(entry.nodePath)}</p>
+              <article class="card compact-row task-row">
+                <div class="compact-row-main task-row-main">
+                  ${renderPassiveTaskDot(entry.taskState)}
+                  <div class="compact-title-block">
+                    <h3>${renderInlineHtml(entry.nodeName, { theme: state.theme, wrapperClass: 'formatted-inline task-title-inline' })}</h3>
+                    <p class="task-entry-map">${escapeHtml(entry.mapName)}</p>
+                    <p class="task-entry-path">${renderInlinePath(entry.nodePathSegments || entry.nodePath.split(' > '), 'formatted-path task-path-inline')}</p>
+                  </div>
                 </div>
-                <div class="task-entry-actions">
-                  <span class="pill">${escapeHtml(taskStateLabel(entry.taskState))}</span>
+                <div class="compact-row-actions">
                   <button
                     type="button"
+                    class="secondary-button compact-button"
                     data-action="open-task-node"
                     data-map-path="${escapeHtml(entry.filePath)}"
                     data-node-id="${escapeHtml(entry.nodeId)}"
                   >
-                    Open in map
+                    Open
                   </button>
                 </div>
               </article>
@@ -1427,6 +1899,57 @@ function renderTasksView() {
           </div>
         `}
     </section>
+  `;
+}
+
+function renderThemeModeControl() {
+  return `
+    <fieldset class="theme-switcher" aria-label="Theme preference">
+      <legend class="theme-switcher-title">Theme</legend>
+      <label class="theme-choice ${state.theme === 'light' ? 'active' : ''}">
+        <input type="radio" name="theme-mode" value="light" ${state.theme === 'light' ? 'checked' : ''} />
+        <span>Light</span>
+      </label>
+      <label class="theme-choice ${state.theme === 'dark' ? 'active' : ''}">
+        <input type="radio" name="theme-mode" value="dark" ${state.theme === 'dark' ? 'checked' : ''} />
+        <span>Dark</span>
+      </label>
+    </fieldset>
+  `;
+}
+
+function renderNodeTextMarkup(rawText, wrapperClass) {
+  return renderInlineHtml(normalizeNodeDisplayText(rawText), {
+    theme: state.theme,
+    wrapperClass,
+  });
+}
+
+function renderNodePreviewMarkup(rawText, taskState) {
+  return `
+    <div class="preview-inline-row">
+      ${renderPassiveTaskDot(taskState, 'preview-task-dot')}
+      ${renderNodeTextMarkup(rawText, 'formatted-inline preview-inline')}
+    </div>
+  `;
+}
+
+function renderInlinePath(pathSegments, wrapperClass = 'formatted-path') {
+  const segments = Array.isArray(pathSegments) ? pathSegments : [];
+  if (segments.length === 0) {
+    return renderInlineHtml(normalizeNodeDisplayText(''), {
+      theme: state.theme,
+      wrapperClass,
+    });
+  }
+
+  return `
+    <span class="${escapeHtml(wrapperClass)}">
+      ${segments.map((segment) => renderInlineHtml(segment, {
+        theme: state.theme,
+        wrapperClass: 'formatted-inline path-segment-inline',
+      })).join('<span class="path-separator"> > </span>')}
+    </span>
   `;
 }
 
