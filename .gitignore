@@ -353,3 +353,4 @@ MigrationBackup/
 
 .build-output/
 .dotnet/
+.chrome-profile/
