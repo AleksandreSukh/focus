@@ -1,3 +1,17 @@
+const runtimeConfig = window.__FOCUS_RUNTIME_CONFIG__ ?? {
+  host: 'github-pages',
+  repoOwner: '',
+  repoName: '',
+  repoBranch: 'main',
+  repoPath: '/',
+  auth: {
+    tokenStorageKey: 'focus_runtime_token',
+    tokenSource: 'runtime-only',
+  },
+};
+
+window.focusRuntimeConfig = runtimeConfig;
+
 const STORAGE_KEY = 'focus-pwa-tasks-v1';
 const state = {
   tasks: readTasks(),
