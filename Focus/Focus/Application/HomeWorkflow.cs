@@ -94,6 +94,7 @@ internal sealed class HomeWorkflow
             HomePage.OptionNew => HandleCreateFile(input),
             HomePage.OptionRen => HandleRenameFile(input, fileSelection),
             HomePage.OptionDel => HandleDeleteFile(input, fileSelection),
+            HomePage.OptionRefresh => HomeWorkflowResult.Continue,
             HomePage.OptionUpdateApp => HandleUpdateApp(),
             HomePage.OptionSearch => HandleSearch(input),
             HomePage.OptionTasks or HomePage.OptionTasksAlias => HandleTasks(input),

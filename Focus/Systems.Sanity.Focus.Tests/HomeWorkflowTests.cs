@@ -39,6 +39,51 @@ public class HomeWorkflowTests
     }
 
     [Fact]
+    public void Execute_RefreshCommand_ReturnsContinueWithoutOpeningMap()
+    {
+        var navigator = new RecordingPageNavigator();
+        using var workspace = new TestWorkspace(navigator);
+        workspace.SaveMap("alpha", new MindMap("Alpha"));
+        var workflow = new HomeWorkflow(workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("ls"), workflow.GetFileSelection());
+
+        Assert.False(result.ShouldExit);
+        Assert.False(result.IsError);
+        Assert.Null(navigator.OpenedEditMapFilePath);
+    }
+
+    [Fact]
+    public void Execute_MapNamedLs_RefreshTakesPrecedenceAndMapStillOpensByIdentifier()
+    {
+        static (HomeWorkflowResult Result, string FilePath, RecordingPageNavigator Navigator) ExecuteAgainstLsMap(string input)
+        {
+            var navigator = new RecordingPageNavigator();
+            using var workspace = new TestWorkspace(navigator);
+            var filePath = workspace.SaveMap("ls", new MindMap("LS map"));
+            var workflow = new HomeWorkflow(workspace.AppContext);
+
+            return (workflow.Execute(new ConsoleInput(input), workflow.GetFileSelection()), filePath, navigator);
+        }
+
+        var refreshRun = ExecuteAgainstLsMap("ls");
+        var numberRun = ExecuteAgainstLsMap("1");
+        var shortcutRun = ExecuteAgainstLsMap(AccessibleKeyNumbering.GetStringFor(1));
+
+        Assert.False(refreshRun.Result.ShouldExit);
+        Assert.False(refreshRun.Result.IsError);
+        Assert.Null(refreshRun.Navigator.OpenedEditMapFilePath);
+
+        Assert.False(numberRun.Result.ShouldExit);
+        Assert.False(numberRun.Result.IsError);
+        Assert.Equal(numberRun.FilePath, numberRun.Navigator.OpenedEditMapFilePath);
+
+        Assert.False(shortcutRun.Result.ShouldExit);
+        Assert.False(shortcutRun.Result.IsError);
+        Assert.Equal(shortcutRun.FilePath, shortcutRun.Navigator.OpenedEditMapFilePath);
+    }
+
+    [Fact]
     public void Execute_LocalizedShortcut_OpensSelectedMap()
     {
         var navigator = new RecordingPageNavigator();
