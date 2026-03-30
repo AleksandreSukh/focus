@@ -1,15 +1,17 @@
 :root {
-  --bg: #f3efe6;
+  --bg: #f5efe3;
   --card: #fffdf8;
-  --text: #1d252c;
-  --muted: #59636d;
+  --card-alt: #f7f1e8;
+  --text: #1b242b;
+  --muted: #5d6770;
   --accent: #0d6c63;
-  --accent-strong: #084c46;
+  --accent-strong: #074740;
+  --accent-soft: rgba(13, 108, 99, 0.12);
   --danger: #b53a2f;
   --warning: #9a6700;
   --success: #12704b;
-  --border: #d8d2c6;
-  --shadow: 0 22px 45px rgba(25, 35, 45, 0.08);
+  --border: #d6d0c4;
+  --shadow: 0 20px 44px rgba(25, 35, 45, 0.08);
   color-scheme: light;
 }
 
@@ -22,29 +24,49 @@ body {
   min-height: 100vh;
   font-family: "Segoe UI", "Aptos", system-ui, sans-serif;
   background:
-    radial-gradient(circle at top left, rgba(13, 108, 99, 0.12), transparent 26rem),
+    radial-gradient(circle at top left, rgba(13, 108, 99, 0.14), transparent 24rem),
+    radial-gradient(circle at right 20%, rgba(183, 128, 42, 0.09), transparent 20rem),
     linear-gradient(180deg, #fbf7ee 0%, var(--bg) 100%);
   color: var(--text);
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
+button {
+  border-radius: 0.8rem;
+  border: 0;
+  cursor: pointer;
+  padding: 0.72rem 0.95rem;
+}
+
+code {
+  font-family: "Cascadia Code", "Consolas", monospace;
+  font-size: 0.94em;
+}
+
 .app-shell {
-  width: min(100%, 54rem);
+  width: min(100%, 76rem);
   margin: 0 auto;
   min-height: 100dvh;
   padding: 1.25rem 1rem 2rem;
 }
 
-.app-header {
+.app-header,
+.status-panel,
+.settings-header,
+.workspace-nav,
+.map-card-header,
+.map-editor-header,
+.task-entry,
+.task-entry-actions {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
   gap: 1rem;
-  margin-bottom: 1rem;
+  align-items: flex-start;
 }
 
 .eyebrow {
@@ -56,18 +78,54 @@ input {
   font-weight: 700;
 }
 
-h1 {
+h1,
+h2,
+h3,
+h4 {
   margin: 0;
-  font-size: clamp(1.8rem, 4vw, 2.6rem);
 }
 
-.app-subtitle {
-  margin: 0.35rem 0 0;
+h1 {
+  font-size: clamp(1.9rem, 4vw, 2.9rem);
+}
+
+h2 {
+  font-size: clamp(1.35rem, 3vw, 1.95rem);
+}
+
+h3 {
+  font-size: 1.08rem;
+}
+
+.app-subtitle,
+.card-copy,
+.section-copy,
+.status-detail,
+.security-note,
+.map-file-name,
+.map-updated,
+.task-entry-path,
+.task-entry-map,
+.node-path,
+.connection-summary {
   color: var(--muted);
 }
 
+.app-subtitle,
+.status-detail,
+.section-copy,
+.security-note,
+.node-path {
+  margin: 0.35rem 0 0;
+}
+
 .header-actions,
-.form-actions {
+.form-actions,
+.nav-actions,
+.nav-tabs,
+.filter-row,
+.pill-row,
+.state-row {
   display: flex;
   gap: 0.6rem;
   flex-wrap: wrap;
@@ -75,7 +133,6 @@ h1 {
 
 .status-panel,
 .card,
-.task-item,
 .install-fallback {
   background: var(--card);
   border: 1px solid var(--border);
@@ -84,27 +141,14 @@ h1 {
 }
 
 .status-panel {
-  display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 1rem;
   padding: 0.9rem 1rem;
-  margin-bottom: 1rem;
-}
-
-.sync-status,
-.status-detail {
-  margin: 0;
+  margin: 1rem 0;
 }
 
 .sync-status {
+  margin: 0;
   font-weight: 700;
-}
-
-.status-detail {
-  margin-top: 0.25rem;
-  color: var(--muted);
-  font-size: 0.95rem;
 }
 
 .sync-status[data-tone='success'] {
@@ -132,17 +176,6 @@ h1 {
   margin-bottom: 1rem;
 }
 
-.card-copy,
-.security-note,
-.connection-summary {
-  color: var(--muted);
-}
-
-.connection-summary {
-  font-weight: 700;
-  margin: 0.4rem 0 0.8rem;
-}
-
 .stack-form {
   display: grid;
   gap: 0.9rem;
@@ -158,9 +191,8 @@ h1 {
   font-weight: 600;
 }
 
-.add-form input,
-.edit-input,
-.stack-form input {
+.stack-form input,
+.stack-form textarea {
   width: 100%;
   border: 1px solid var(--border);
   border-radius: 0.8rem;
@@ -169,36 +201,36 @@ h1 {
   color: var(--text);
 }
 
-.install-button,
-.add-form button,
-.form-actions button,
-.secondary-button,
-.ghost-button,
-.danger-button,
-.task-label,
-.delete {
-  border-radius: 0.8rem;
-  border: 0;
-  cursor: pointer;
-  padding: 0.72rem 0.95rem;
+.stack-form textarea {
+  resize: vertical;
+  min-height: 7rem;
 }
 
 .install-button,
-.add-form button,
-.form-actions button:not(.secondary-button):not(.ghost-button):not(.danger-button) {
+.form-actions button:not(.secondary-button):not(.ghost-button):not(.danger-button),
+.map-card button,
+.task-entry button,
+.state-button.active,
+.nav-tab.active,
+.filter-pill.active {
   background: var(--accent);
   color: #fff;
 }
 
 .secondary-button,
-.ghost-button {
+.ghost-button,
+.nav-tab,
+.filter-pill,
+.state-button,
+.tree-toggle,
+.tree-label,
+.task-entry button {
   background: transparent;
   color: var(--accent-strong);
-  border: 1px solid rgba(13, 108, 99, 0.28);
+  border: 1px solid rgba(13, 108, 99, 0.24);
 }
 
-.danger-button,
-.delete {
+.danger-button {
   background: transparent;
   color: var(--danger);
   border: 1px solid rgba(181, 58, 47, 0.24);
@@ -209,68 +241,180 @@ h1 {
   margin: 0.8rem 0 0;
 }
 
-.add-form {
+.workspace-shell,
+.workspace-panel,
+.editor-layout,
+.task-entry-list,
+.map-grid,
+.diagnostics-grid {
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 0.6rem;
-  margin-bottom: 1rem;
+  gap: 1rem;
 }
 
-.task-list {
-  list-style: none;
-  padding: 0;
+.workspace-panel {
+  margin-top: 1rem;
+}
+
+.workspace-nav {
+  align-items: center;
+}
+
+.nav-tab,
+.filter-pill,
+.state-button {
+  min-width: 5rem;
+}
+
+.map-grid {
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+}
+
+.map-card {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.map-card-header {
+  align-items: center;
+}
+
+.map-file-name,
+.map-updated,
+.task-entry-map,
+.task-entry-path {
   margin: 0;
-  display: grid;
-  gap: 0.75rem;
 }
 
-.task-item {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 0.75rem;
-  align-items: start;
-  padding: 0.8rem 0.85rem;
+.pill,
+.filter-pill,
+.nav-tab,
+.state-button {
+  border-radius: 999px;
 }
 
-.task-item.empty-state {
-  grid-template-columns: 1fr;
+.pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2rem;
+  padding: 0.35rem 0.7rem;
+  background: var(--card-alt);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.pill.subtle {
+  background: rgba(13, 108, 99, 0.08);
+  color: var(--accent-strong);
+  border-color: rgba(13, 108, 99, 0.14);
+}
+
+.empty-card {
   color: var(--muted);
 }
 
-.task-body {
-  display: grid;
-  gap: 0.25rem;
+.map-editor-header {
+  align-items: center;
 }
 
-.task-label {
+.editor-layout {
+  grid-template-columns: minmax(0, 1.35fr) minmax(18rem, 0.95fr);
+}
+
+.tree-panel,
+.inspector-panel {
+  min-height: 24rem;
+}
+
+.tree-list {
+  list-style: none;
+  margin: 0;
   padding: 0;
-  background: transparent;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.child-list {
+  margin-top: 0.35rem;
+}
+
+.tree-node {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.tree-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.55rem;
+  align-items: center;
+  padding-left: calc(var(--depth, 0) * 1.05rem);
+}
+
+.tree-spacer,
+.tree-toggle {
+  width: 2rem;
+  min-width: 2rem;
+  min-height: 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tree-spacer {
+  border-radius: 999px;
+}
+
+.tree-label {
+  justify-content: flex-start;
   text-align: left;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
   color: var(--text);
 }
 
-.task-label.done {
-  color: var(--muted);
-  text-decoration: line-through;
+.tree-label.selected,
+.tree-node.selected > .tree-row > .tree-toggle {
+  border-color: rgba(13, 108, 99, 0.55);
+  background: var(--accent-soft);
 }
 
-.task-meta {
-  color: var(--muted);
-  font-size: 0.86rem;
+.task-marker {
+  font-family: "Cascadia Code", "Consolas", monospace;
+  color: var(--accent-strong);
 }
 
-.settings-header {
-  display: flex;
-  justify-content: space-between;
+.badge-row {
+  display: inline-flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.inspector-panel {
+  display: grid;
   gap: 1rem;
-  align-items: flex-start;
-  margin-bottom: 1rem;
+  align-content: start;
+}
+
+.inspector-copy,
+.inspector-section {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.task-entry {
+  align-items: center;
+}
+
+.task-entry-actions {
+  align-items: center;
 }
 
 .diagnostics-grid {
-  display: grid;
   grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
-  gap: 1rem;
   margin-top: 1rem;
 }
 
@@ -316,33 +460,56 @@ h1 {
   border: 0;
 }
 
-@media (max-width: 700px) {
+button:disabled,
+input:disabled,
+textarea:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+@media (max-width: 920px) {
+  .editor-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
   .app-header,
   .status-panel,
-  .settings-header {
+  .settings-header,
+  .workspace-nav,
+  .map-card-header,
+  .map-editor-header,
+  .task-entry,
+  .task-entry-actions {
     flex-direction: column;
+    align-items: stretch;
   }
 
   .header-actions,
-  .form-actions {
+  .form-actions,
+  .nav-tabs,
+  .nav-actions,
+  .filter-row,
+  .state-row {
     width: 100%;
   }
 
   .header-actions > *,
-  .form-actions > * {
+  .form-actions > *,
+  .nav-tabs > *,
+  .nav-actions > *,
+  .filter-row > *,
+  .state-row > * {
     flex: 1 1 auto;
   }
 
-  .add-form {
-    grid-template-columns: 1fr;
+  .tree-row {
+    grid-template-columns: auto minmax(0, 1fr);
   }
 
-  .task-item {
-    grid-template-columns: auto 1fr;
-  }
-
-  .delete {
+  .badge-row {
     grid-column: 2;
-    justify-self: start;
+    justify-content: flex-start;
   }
 }

@@ -6,9 +6,20 @@ export class GitHubProvider {
     this.adapter = new GitHubAdapter(config);
   }
 
+  async listDirectory(path) {
+    try {
+      const response = await this.adapter.listDirectory(path, `listing maps directory ${path || '/'}`);
+      recordSyncSuccess(`Listed ${path || '/'} from GitHub.`);
+      return Array.isArray(response) ? response : [];
+    } catch (error) {
+      recordSyncFailure(toErrorSummary('list', path || '/', error));
+      throw error;
+    }
+  }
+
   async getFile(path) {
     try {
-      const response = await this.adapter.getContent(path, `loading remote todo file ${path}`);
+      const response = await this.adapter.getContent(path, `loading remote file ${path}`);
       recordSyncSuccess(`Loaded ${path} from GitHub.`);
       return {
         content: decodeContent(response.content, response.encoding),
@@ -26,7 +37,7 @@ export class GitHubProvider {
         message,
         content: encodeContent(content),
         sha: versionToken ?? undefined,
-      }, `saving remote todo file ${path}`);
+      }, `saving remote file ${path}`);
       recordSyncSuccess(`Saved ${path} to GitHub.`);
       return {
         versionToken: response.content?.sha ?? '',

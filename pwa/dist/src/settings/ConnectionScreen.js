@@ -7,8 +7,8 @@ export function renderConnectionScreen({
     <section class="card connection-card" aria-label="GitHub connection settings">
       <h2>Connect this PWA to GitHub</h2>
       <p class="card-copy">
-        This is a private static PWA. It uses repository settings plus a GitHub personal access token.
-        It does not use GitHub OAuth.
+        This is a private static PWA. It reads existing Focus mind-map files from GitHub using
+        repository settings plus a GitHub personal access token. It does not use GitHub OAuth.
       </p>
       <form id="connection-form" class="stack-form" novalidate>
         <label>
@@ -24,8 +24,13 @@ export function renderConnectionScreen({
           <input name="repoBranch" type="text" required value="${escapeHtml(initialValues.repoBranch)}" />
         </label>
         <label>
-          <span>Folder path inside repository</span>
-          <input name="repoPath" type="text" value="${escapeHtml(initialValues.repoPath)}" placeholder="/" />
+          <span>FocusMaps folder path inside repository</span>
+          <input
+            name="repoPath"
+            type="text"
+            value="${escapeHtml(initialValues.repoPath)}"
+            placeholder="Tool/PMMT/FocusMaps"
+          />
         </label>
         <label>
           <span>GitHub personal access token</span>
@@ -39,7 +44,7 @@ export function renderConnectionScreen({
         ${escapeHtml(errorMessage)}
       </p>
       <p class="security-note">
-        Recommended token scope: repository contents read/write for this repo only.
+        Point the path directly at the FocusMaps directory. Recommended token scope: repository contents read/write for this repo only.
       </p>
     </section>
   `;

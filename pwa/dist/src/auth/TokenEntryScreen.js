@@ -7,7 +7,7 @@ export function renderTokenEntryScreen({
     <section class="card connection-card" aria-label="GitHub access token">
       <h2>Enter GitHub personal access token</h2>
       <p class="card-copy">
-        This PWA uses a GitHub personal access token for private static hosting.
+        This PWA uses a GitHub personal access token to read and update Focus mind-map files in the configured FocusMaps folder.
         It does not use GitHub OAuth or a "Sign in with GitHub" flow.
       </p>
       <p class="connection-summary">${escapeHtml(repoLabel)}</p>

@@ -32,7 +32,7 @@ export function renderSettingsScreen({
         <div>
           <h2>Connection settings</h2>
           <p class="card-copy">
-            Update repository settings, validate access, or clear the saved PAT without wiping local task data.
+            Update repository settings, validate access, or clear the saved PAT without wiping local cached map data.
           </p>
         </div>
         <button id="close-settings" type="button" class="ghost-button">Close</button>
@@ -51,7 +51,7 @@ export function renderSettingsScreen({
           <input name="repoBranch" type="text" required value="${escapeHtml(repoSettings.repoBranch)}" />
         </label>
         <label>
-          <span>Folder path inside repository</span>
+          <span>FocusMaps folder path inside repository</span>
           <input name="repoPath" type="text" value="${escapeHtml(repoSettings.repoPath)}" />
         </label>
         <div class="form-actions">
@@ -81,7 +81,8 @@ export function renderSettingsScreen({
         <div class="security-panel">
           <h3>Authentication model</h3>
           <p>
-            This app uses a GitHub personal access token stored locally in this browser. It does not use GitHub OAuth.
+            This app uses a GitHub personal access token stored locally in this browser. Set the path to the
+            FocusMaps directory itself, not to a single file. It does not use GitHub OAuth.
           </p>
         </div>
       </section>

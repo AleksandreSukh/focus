@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#0f172a" />
-    <title>Focus Tasks</title>
+    <title>Focus Maps</title>
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icons/icon.svg" />
     <link rel="stylesheet" href="./styles.css" />
@@ -14,8 +14,8 @@
       <header class="app-header">
         <div>
           <p class="eyebrow">Focus PWA</p>
-          <h1>Focus Tasks</h1>
-          <p class="app-subtitle">Private static task list with GitHub PAT sync.</p>
+          <h1>Focus Maps</h1>
+          <p class="app-subtitle">Private static mind-map browser and task editor with GitHub PAT sync.</p>
         </div>
         <div class="header-actions">
           <button id="settings-toggle" class="secondary-button" hidden>Connection settings</button>
@@ -32,17 +32,8 @@
       </section>
 
       <section id="screen-root"></section>
-
-      <section id="tasks-view" hidden>
-        <form id="add-form" class="add-form">
-          <label for="add-input" class="sr-only">Add a task</label>
-          <input id="add-input" name="task" type="text" maxlength="120" placeholder="Add a task" required />
-          <button type="submit">Add</button>
-        </form>
-
-        <ul id="task-list" class="task-list" aria-live="polite"></ul>
-        <section id="settings-root" hidden></section>
-      </section>
+      <section id="app-root" hidden></section>
+      <section id="settings-root" hidden></section>
 
       <section id="install-fallback" class="install-fallback" hidden>
         <h2>Install on Android</h2>

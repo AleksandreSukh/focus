@@ -96,9 +96,13 @@ export function isRepoSettingsComplete(settings) {
   );
 }
 
-export function buildRepoFilePath(settings, fileName = 'todos.json') {
+export function buildRepoPath(settings, relativePath = '') {
   const basePath = normalizeRepoPath(settings?.repoPath);
-  return basePath === DEFAULT_REPO_PATH ? fileName : `${basePath}/${fileName}`;
+  if (!relativePath) {
+    return basePath;
+  }
+
+  return basePath === DEFAULT_REPO_PATH ? relativePath : `${basePath}/${relativePath}`;
 }
 
 export function describeRepoSettings(settings) {

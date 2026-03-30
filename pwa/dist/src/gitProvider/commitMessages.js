@@ -22,3 +22,27 @@ export function buildTodoToggleCommitMessage(id, completed) {
 export function buildTodoDeleteCommitMessage(id) {
   return `todo:delete ${normalizeValue(id)}`;
 }
+
+function normalizeMapName(mapName) {
+  const normalized = truncate(normalizeValue(mapName), 48);
+  return normalized || 'map';
+}
+
+export function buildNodeAddCommitMessage(mapName, shortText, kind = 'note') {
+  const normalizedKind = kind === 'task' ? 'task' : 'note';
+  const normalizedText = truncate(normalizeValue(shortText), 48);
+  return `map:add ${normalizedKind} ${normalizeMapName(mapName)} ${normalizedText}`.trimEnd();
+}
+
+export function buildNodeEditCommitMessage(mapName, nodeId) {
+  return `map:edit ${normalizeMapName(mapName)} ${normalizeValue(nodeId)}`;
+}
+
+export function buildNodeTaskStateCommitMessage(mapName, nodeId, taskState) {
+  const stateLabel =
+    taskState === 1 ? 'todo' :
+      taskState === 2 ? 'doing' :
+        taskState === 3 ? 'done' :
+          'clear';
+  return `map:task ${normalizeMapName(mapName)} ${normalizeValue(nodeId)} -> ${stateLabel}`;
+}

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'focus-pwa-shell-v3';
+const CACHE_NAME = 'focus-pwa-shell-v4';
 const APP_SHELL_ASSETS = [
   './',
   './index.html',
@@ -22,11 +22,11 @@ const APP_SHELL_ASSETS = [
   './src/gitProvider/githubProvider.js',
   './src/gitProvider/syncMetadata.js',
   './src/gitProvider/adapters/githubAdapter.js',
-  './src/todos/githubTodoProvider.js',
-  './src/todos/localCache.js',
-  './src/todos/merge.js',
-  './src/todos/todoRepository.js',
-  './src/todos/todoService.js',
+  './src/maps/githubMindMapProvider.js',
+  './src/maps/localCache.js',
+  './src/maps/mindMapRepository.js',
+  './src/maps/mindMapService.js',
+  './src/maps/model.js',
 ];
 
 self.addEventListener('install', (event) => {

@@ -36,15 +36,23 @@ export class GitHubAdapter {
   }
 
   async probeRepository(contextLabel = 'validating repository access') {
-    return this.requestJson(`/repos/${this.owner}/${this.repo}`, {
-      method: 'GET',
-    }, { operation: 'probeRepository', contextLabel });
+    return this.requestJson(
+      `/repos/${this.owner}/${this.repo}`,
+      {
+        method: 'GET',
+      },
+      { operation: 'probeRepository', contextLabel },
+    );
   }
 
   async probeBranch(branch, contextLabel = `validating branch "${branch}"`) {
-    return this.requestJson(`/repos/${this.owner}/${this.repo}/branches/${encodeURIComponent(branch)}`, {
-      method: 'GET',
-    }, { operation: 'probeBranch', contextLabel });
+    return this.requestJson(
+      `/repos/${this.owner}/${this.repo}/branches/${encodeURIComponent(branch)}`,
+      {
+        method: 'GET',
+      },
+      { operation: 'probeBranch', contextLabel },
+    );
   }
 
   async getContent(path, contextLabel = `loading ${path}`) {
@@ -55,6 +63,19 @@ export class GitHubAdapter {
         method: 'GET',
       },
       { operation: 'getContent', contextLabel },
+    );
+  }
+
+  async listDirectory(path, contextLabel = `listing ${path || 'repository root'}`) {
+    const query = this.branch ? `?ref=${encodeURIComponent(this.branch)}` : '';
+    const normalizedPath = normalizePath(path);
+    const contentPath = normalizedPath ? `/contents/${normalizedPath}` : '/contents';
+    return this.requestJson(
+      `/repos/${this.owner}/${this.repo}${contentPath}${query}`,
+      {
+        method: 'GET',
+      },
+      { operation: 'listDirectory', contextLabel },
     );
   }
 
@@ -193,9 +214,11 @@ function defaultContextLabel(operation) {
     case 'probeBranch':
       return 'validating branch access';
     case 'getContent':
-      return 'loading the remote todo file';
+      return 'loading the remote file';
+    case 'listDirectory':
+      return 'listing the configured maps directory';
     case 'putContent':
-      return 'saving the remote todo file';
+      return 'saving the remote file';
     default:
       return 'calling the GitHub API';
   }
@@ -215,9 +238,11 @@ function buildNotFoundMessage(operation, contextLabel) {
     case 'probeBranch':
       return `Configured branch was not found (404 Not Found)${contextSuffix}. Check the branch name.`;
     case 'getContent':
-      return `Remote todo file was not found (404 Not Found)${contextSuffix}. If this is a new setup, it will be created on first save.`;
+      return `Remote file was not found (404 Not Found)${contextSuffix}. Check the configured path and file name.`;
+    case 'listDirectory':
+      return `Configured maps directory was not found (404 Not Found)${contextSuffix}. Check the FocusMaps path in settings.`;
     case 'putContent':
-      return `Remote todo file could not be saved because the configured branch or path was not found (404 Not Found)${contextSuffix}.`;
+      return `Remote file could not be saved because the configured branch or path was not found (404 Not Found)${contextSuffix}.`;
     default:
       return `GitHub resource was not found (404 Not Found)${contextSuffix}.`;
   }
@@ -234,7 +259,7 @@ function buildErrorMessage(code, status, responseText, retryAfter, rateLimitRese
     case 'NOT_FOUND':
       return buildNotFoundMessage(operation, contextLabel);
     case 'CONFLICT':
-      return `Remote todo file changed during sync${contextSuffix} and must be refreshed.`;
+      return `Remote file changed during sync${contextSuffix} and must be refreshed.`;
     case 'RATE_LIMIT':
       return retryAfter
         ? `GitHub rate limit reached${contextSuffix}. Retry in about ${retryAfter} seconds.`
@@ -249,5 +274,5 @@ function buildErrorMessage(code, status, responseText, retryAfter, rateLimitRese
 }
 
 function truncate(value, maxLength) {
-  return value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
+  return value.length > maxLength ? `${value.slice(0, maxLength - 3)}...` : value;
 }

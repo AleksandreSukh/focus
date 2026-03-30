@@ -1,7 +1,7 @@
 {
-  "name": "Focus Tasks",
+  "name": "Focus Maps",
   "short_name": "Focus",
-  "description": "Minimal offline-capable task list for Focus PWA.",
+  "description": "Mind-map browser and task editor for Focus map files with GitHub-backed sync.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
