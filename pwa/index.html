@@ -13,8 +13,24 @@
     <main class="app-shell">
       <header class="app-header">
         <h1>Focus Tasks</h1>
-        <button id="install-button" class="install-button" hidden>Install app</button>
+        <div class="header-actions">
+          <button id="sign-out" type="button" class="session-button" hidden>Sign out</button>
+          <button id="install-button" class="install-button" hidden>Install app</button>
+        </div>
       </header>
+
+      <p id="sync-status" class="sync-status">Authentication required.</p>
+
+      <section id="auth-panel" class="auth-panel">
+        <h2>Connect to GitHub</h2>
+        <p>Enter a GitHub Personal Access Token with repository contents access.</p>
+        <form id="auth-form" class="auth-form">
+          <label for="auth-token" class="sr-only">GitHub token</label>
+          <input id="auth-token" type="password" autocomplete="off" placeholder="ghp_..." required />
+          <button type="submit">Connect</button>
+        </form>
+        <p id="auth-error" role="alert" class="auth-error" hidden></p>
+      </section>
 
       <form id="add-form" class="add-form">
         <label for="add-input" class="sr-only">Add a task</label>

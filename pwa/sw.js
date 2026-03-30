@@ -1,9 +1,10 @@
-const CACHE_NAME = 'focus-pwa-shell-v1';
+const CACHE_NAME = 'focus-pwa-shell-v2';
 const APP_SHELL_ASSETS = [
   './',
   './index.html',
   './styles.css',
   './app.js',
+  './runtime-config.js',
   './manifest.webmanifest',
   './icons/icon.svg',
   './icons/icon-maskable.svg',
