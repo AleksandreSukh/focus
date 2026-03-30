@@ -143,8 +143,13 @@ Notes:
 
 The user config currently supports:
 
-- `DataFolder`
-- GitRepository
+- `dataFolder`
+- `gitRepository`
+- `translations`
+
+A ready-to-copy sample config lives at [docs/focus-config.sample.json](docs/focus-config.sample.json).
+
+`translations` lets Focus convert localized keyboard input back into the built-in command alphabet. The sample file includes a full Georgian `ka-GE` character dictionary for command entry.
 
 ## Development notes
 

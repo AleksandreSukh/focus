@@ -1,0 +1,37 @@
+{
+  "dataFolder": "C:\\Users\\your-user\\Documents",
+  "gitRepository": "",
+  "translations": [
+    {
+      "languageIdentifier": "ka-GE",
+      "characterDictionary": {
+        "ა": "a",
+        "ბ": "b",
+        "ც": "c",
+        "დ": "d",
+        "ე": "e",
+        "ფ": "f",
+        "გ": "g",
+        "ჰ": "h",
+        "ი": "i",
+        "ჯ": "j",
+        "კ": "k",
+        "ლ": "l",
+        "მ": "m",
+        "ნ": "n",
+        "ო": "o",
+        "პ": "p",
+        "ქ": "q",
+        "რ": "r",
+        "ს": "s",
+        "ტ": "t",
+        "უ": "u",
+        "ვ": "v",
+        "წ": "w",
+        "ხ": "x",
+        "ყ": "y",
+        "ზ": "z"
+      }
+    }
+  ]
+}
