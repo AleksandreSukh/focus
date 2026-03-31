@@ -254,6 +254,10 @@ h3 {
   justify-content: flex-end;
 }
 
+.update-banner[hidden] {
+  display: none;
+}
+
 .update-banner {
   display: flex;
   align-items: center;
