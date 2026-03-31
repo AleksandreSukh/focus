@@ -38,6 +38,9 @@ public sealed class NodeMetadata
         UpdatedAtUtc = NormalizeTimestamp(timestampUtc);
     }
 
+    // Canonical UTC timestamp format shared with the PWA: no milliseconds, Z suffix.
+    internal const string TimestampFormat = "yyyy-MM-ddTHH:mm:ssZ";
+
     private static DateTimeOffset NormalizeTimestamp(DateTimeOffset? timestampUtc) =>
         (timestampUtc ?? DateTimeOffset.UtcNow).ToUniversalTime();
 }

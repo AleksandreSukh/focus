@@ -3,6 +3,7 @@ import {
   buildMapSummary,
   cloneMapDocument,
   collectTaskEntries,
+  createMapDocument,
 } from './model.js';
 
 export class MindMapService {
@@ -71,6 +72,54 @@ export class MindMapService {
 
   buildTaskEntries(filter = 'open', snapshots = Array.from(this.snapshotsByPath.values())) {
     return snapshots.flatMap((snapshot) => collectTaskEntries(snapshot, filter));
+  }
+
+  async createMap(filePath, mapName, commitMessage) {
+    const document = createMapDocument(mapName);
+    const saved = await this.repository.createMap(filePath, document, commitMessage);
+    if (!saved.ok) {
+      return saved;
+    }
+
+    const fileName = filePath.split('/').pop() || filePath;
+    const snapshot = {
+      filePath,
+      fileName,
+      mapName,
+      document,
+      revision: saved.revision,
+      loadedAt: Date.now(),
+    };
+    this.snapshotsByPath.set(filePath, snapshot);
+    return {
+      ok: true,
+      value: snapshot,
+    };
+  }
+
+  async saveResolved(filePath, document, revision, commitMessage) {
+    const saved = await this.repository.saveMap(filePath, document, revision, commitMessage);
+    if (!saved.ok) {
+      return saved;
+    }
+
+    const existing = this.snapshotsByPath.get(filePath);
+    const fileName = existing?.fileName || filePath.split('/').pop() || filePath;
+    const mapName = existing?.mapName || fileName.replace(/\.json$/i, '');
+
+    const snapshot = {
+      filePath,
+      fileName,
+      mapName,
+      document,
+      revision: saved.revision,
+      loadedAt: Date.now(),
+    };
+    this.snapshotsByPath.set(filePath, snapshot);
+    return {
+      ok: true,
+      value: snapshot,
+    };
   }
 
   async applyMutation(filePath, mutation, commitMessage) {

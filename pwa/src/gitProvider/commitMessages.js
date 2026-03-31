@@ -46,3 +46,15 @@ export function buildNodeTaskStateCommitMessage(mapName, nodeId, taskState) {
           'clear';
   return `map:task ${normalizeMapName(mapName)} ${normalizeValue(nodeId)} -> ${stateLabel}`;
 }
+
+export function buildNodeDeleteCommitMessage(mapName, nodeId) {
+  return `map:delete ${normalizeMapName(mapName)} ${normalizeValue(nodeId)}`;
+}
+
+export function buildMapCreateCommitMessage(mapName) {
+  return `map:create ${normalizeMapName(mapName)}`;
+}
+
+export function buildConflictResolveCommitMessage(mapName) {
+  return `map:resolve ${normalizeMapName(mapName)}`;
+}

@@ -219,6 +219,13 @@ h3 {
   margin-top: 0.35rem;
 }
 
+.status-detail,
+.security-panel {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .header-actions,
 .nav-tabs,
 .nav-actions,
@@ -388,6 +395,124 @@ h3 {
   background: transparent;
   color: var(--danger);
   border: 1px solid rgba(181, 58, 47, 0.25);
+}
+
+.mini-action--destructive {
+  color: var(--danger);
+}
+
+.modal-card--wide {
+  max-width: min(860px, 96vw);
+}
+
+.diff-view {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.diff-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0.3rem 0.6rem;
+  background: var(--surface-subtle, rgba(0, 0, 0, 0.04));
+  border-bottom: 1px solid var(--border);
+}
+
+.diff-header-label {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.76rem;
+}
+
+.diff-header-label--remove {
+  color: var(--danger);
+}
+
+.diff-header-label--add {
+  color: var(--success);
+}
+
+.diff-body {
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 340px;
+}
+
+.diff-line {
+  display: block;
+  padding: 1px 0.6rem;
+  white-space: pre;
+  tab-size: 2;
+}
+
+.diff-line--remove {
+  background: rgba(181, 58, 47, 0.1);
+  color: var(--danger);
+}
+
+.diff-line--add {
+  background: rgba(18, 112, 75, 0.1);
+  color: var(--success);
+}
+
+.diff-line--ellipsis {
+  padding: 2px 0.6rem;
+  text-align: center;
+  color: var(--text-subtle, var(--accent-strong));
+  opacity: 0.6;
+  font-style: italic;
+  white-space: normal;
+}
+
+.diff-too-large {
+  font-style: italic;
+}
+
+.conflict-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.conflict-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.conflict-item--resolved {
+  border-color: var(--accent-border);
+  background: var(--surface-subtle, rgba(0,0,0,0.02));
+}
+
+.conflict-description {
+  font-weight: 500;
+  font-size: 0.95rem;
+}
+
+.conflict-choices {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.conflict-choices .secondary-button.active {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+}
+
+.conflict-resolution-label {
+  font-size: 0.82rem;
+  color: var(--text-subtle, var(--accent-strong));
+  opacity: 0.8;
 }
 
 .mini-action,

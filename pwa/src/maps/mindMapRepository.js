@@ -41,6 +41,54 @@ export class MindMapRepository {
     }
   }
 
+  async createMap(filePath, document, commitMessage) {
+    try {
+      const outcome = await this.provider.saveMap({
+        filePath,
+        document,
+        expectedRevision: null,
+        commitMessage,
+      });
+
+      if (outcome.ok) {
+        return {
+          ok: true,
+          revision: outcome.revision,
+        };
+      }
+
+      if (outcome.reason === 'conflict') {
+        return {
+          ok: false,
+          error: {
+            code: 'ALREADY_EXISTS',
+            message: `A map file named "${filePath}" already exists on the remote. Choose a different name.`,
+            retriable: false,
+          },
+        };
+      }
+
+      return {
+        ok: false,
+        error: {
+          code: 'PERSISTENCE_ERROR',
+          message: outcome.message || `Unable to create map "${filePath}".`,
+          retriable: true,
+        },
+      };
+    } catch (cause) {
+      return {
+        ok: false,
+        error: {
+          code: 'PERSISTENCE_ERROR',
+          message: cause?.message || `Unable to create map "${filePath}".`,
+          retriable: cause?.code === 'NETWORK' || cause?.code === 'RATE_LIMIT',
+          cause,
+        },
+      };
+    }
+  }
+
   async saveMap(filePath, document, expectedRevision, commitMessage) {
     try {
       const outcome = await this.provider.saveMap({

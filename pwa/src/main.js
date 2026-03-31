@@ -1,5 +1,8 @@
 import {
+  buildConflictResolveCommitMessage,
+  buildMapCreateCommitMessage,
   buildNodeAddCommitMessage,
+  buildNodeDeleteCommitMessage,
   buildNodeEditCommitMessage,
   buildNodeTaskStateCommitMessage,
   getSyncMetadata,
@@ -400,6 +403,10 @@ async function handleDocumentSubmit(event) {
       event.preventDefault();
       await handleAddChildSubmit(form, 'addChildTask');
       return;
+    case 'create-map-form':
+      event.preventDefault();
+      await handleCreateMapSubmit(form);
+      return;
     default:
       return;
   }
@@ -490,6 +497,32 @@ function handleDocumentClick(event) {
     case 'close-modal':
       closeActiveModal();
       return;
+    case 'open-create-map-modal':
+      openCreateMapModal(clickableElement.dataset.focusKey || '');
+      return;
+    case 'open-conflict-modal':
+      void openConflictModal();
+      return;
+    case 'set-conflict-resolution': {
+      const itemId = Number.parseInt(clickableElement.dataset.itemId ?? '', 10);
+      const resolution = clickableElement.dataset.resolution === 'right' ? 'right' : 'left';
+      if (state.activeModal?.kind === 'resolveConflict' && !Number.isNaN(itemId)) {
+        state.activeModal = {
+          ...state.activeModal,
+          items: state.activeModal.items.map((item) =>
+            item.id === itemId ? { ...item, resolution } : item,
+          ),
+        };
+        render();
+      }
+      return;
+    }
+    case 'accept-conflict-resolution':
+      void handleAcceptConflictResolution();
+      return;
+    case 'confirm-delete-node':
+      void handleDeleteNodeConfirm();
+      return;
     case 'open-task-node':
       openTaskNode(clickableElement.dataset.mapPath || '', clickableElement.dataset.nodeId || '');
       return;
@@ -536,7 +569,7 @@ function handleDocumentInput(event) {
     return;
   }
 
-  if (state.activeModal && ['edit-node-form', 'add-note-form', 'add-task-form'].includes(form.id)) {
+  if (state.activeModal && ['edit-node-form', 'add-note-form', 'add-task-form', 'create-map-form'].includes(form.id)) {
     state.activeModal = {
       ...state.activeModal,
       draftText: target.value,
@@ -1166,6 +1199,420 @@ async function handleSetTaskState(taskStateValue) {
   }
 }
 
+async function handleCreateMapSubmit(form) {
+  if (!state.activeModal || state.activeModal.kind !== 'createMap') {
+    return;
+  }
+
+  const rawName = String(new FormData(form).get('mapName') ?? '').trim();
+  const name = rawName.replace(/\.json$/i, '').trim();
+
+  state.activeModal = {
+    ...state.activeModal,
+    draftText: rawName,
+    errorMessage: '',
+  };
+
+  if (!name) {
+    setActiveModalError('Map name cannot be empty.');
+    return;
+  }
+
+  if (name.includes('/') || name.includes('\\')) {
+    setActiveModalError('Map name cannot contain "/" or "\\".');
+    return;
+  }
+
+  const existingNames = getSnapshots().map((s) => s.mapName.toLowerCase());
+  if (existingNames.includes(name.toLowerCase())) {
+    setActiveModalError(`A map named "${name}" already exists.`);
+    return;
+  }
+
+  const repoPath = state.repoSettings?.repoPath
+    ? String(state.repoSettings.repoPath).replace(/\/+$/, '')
+    : '';
+  const filePath = repoPath ? `${repoPath}/${name}.json` : `${name}.json`;
+
+  const result = await state.service.createMap(filePath, name, buildMapCreateCommitMessage(name));
+  if (!result.ok) {
+    setActiveModalError(result.error.message || 'Failed to create map. Try again.');
+    return;
+  }
+
+  replaceSnapshot(result.value);
+  state.service.hydrateSnapshots(getSnapshots());
+  persistRepoScopedState();
+  state.syncState = {
+    kind: 'success',
+    tone: 'success',
+    message: `Map "${name}" created.`,
+    detail: buildStatusDetail(),
+    canRetry: false,
+  };
+  state.activeModal = null;
+  navigateToMapRoute(filePath);
+}
+
+async function handleDeleteNodeConfirm() {
+  const modalContext = getActiveModalContext('deleteNode');
+  if (!modalContext) {
+    return;
+  }
+
+  const { snapshot, nodeUiState } = modalContext;
+  const parentId = nodeUiState.parent?.uniqueIdentifier;
+  if (!parentId) {
+    setActiveModalError('Cannot delete the root node.');
+    return;
+  }
+
+  const operation = {
+    type: 'deleteNode',
+    filePath: snapshot.filePath,
+    nodeId: nodeUiState.node.uniqueIdentifier,
+    timestamp: nowIso(),
+    commitMessage: buildNodeDeleteCommitMessage(
+      snapshot.mapName,
+      nodeUiState.node.uniqueIdentifier,
+    ),
+  };
+
+  const result = enqueueOperation(operation);
+  if (!result.ok) {
+    setActiveModalError(result.error.message);
+    return;
+  }
+
+  closeActiveModal({
+    focusKey: buildNodeFocusKey(snapshot.filePath, parentId),
+  });
+}
+
+async function openConflictModal() {
+  const failingOp = state.pendingOperations[0];
+  if (!failingOp || state.syncState.kind !== 'conflict') {
+    return;
+  }
+
+  const filePath = failingOp.filePath;
+  const mapName = getMapLabel(filePath);
+  const opsForMap = state.pendingOperations.filter((op) => op.filePath === filePath);
+
+  state.activeModal = {
+    kind: 'resolveConflict',
+    mapPath: '',
+    nodeId: '',
+    draftText: '',
+    errorMessage: '',
+    returnFocusKey: 'status-summary-card',
+    filePath,
+    mapName,
+    items: opsForMap.map((op, i) => ({
+      id: i,
+      description: describeOperation(op),
+      operation: op,
+      resolution: null,
+    })),
+    remoteDocument: null,
+    remoteRevision: null,
+    loading: true,
+  };
+  state.showStatus = false;
+  state.pendingFocusRequest = { type: 'modalAutofocus' };
+  render();
+
+  const loaded = await state.service.loadMap(filePath, true);
+  if (!state.activeModal || state.activeModal.kind !== 'resolveConflict') {
+    return;
+  }
+
+  if (!loaded.ok) {
+    state.activeModal = {
+      ...state.activeModal,
+      loading: false,
+      errorMessage: loaded.error?.message || 'Could not load remote document.',
+    };
+    render();
+    return;
+  }
+
+  state.activeModal = {
+    ...state.activeModal,
+    loading: false,
+    remoteDocument: loaded.value.document,
+    remoteRevision: loaded.value.revision,
+  };
+  render();
+}
+
+function computeLineDiff(leftLines, rightLines) {
+  const MAX = 500;
+  if (leftLines.length > MAX || rightLines.length > MAX) {
+    return null;
+  }
+
+  const m = leftLines.length;
+  const n = rightLines.length;
+  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = leftLines[i - 1] === rightLines[j - 1]
+        ? dp[i - 1][j - 1] + 1
+        : Math.max(dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+
+  const result = [];
+  let i = m;
+  let j = n;
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && leftLines[i - 1] === rightLines[j - 1]) {
+      result.push({ type: 'context', text: leftLines[i - 1] });
+      i--;
+      j--;
+    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+      result.push({ type: 'add', text: rightLines[j - 1] });
+      j--;
+    } else {
+      result.push({ type: 'remove', text: leftLines[i - 1] });
+      i--;
+    }
+  }
+  result.reverse();
+  return result;
+}
+
+function collapseContextHunks(hunks, contextLines = 3) {
+  const show = new Set();
+  hunks.forEach((h, i) => {
+    if (h.type !== 'context') {
+      for (let d = -contextLines; d <= contextLines; d++) {
+        const idx = i + d;
+        if (idx >= 0 && idx < hunks.length) {
+          show.add(idx);
+        }
+      }
+    }
+  });
+
+  if (show.size === 0) {
+    return [];
+  }
+
+  const result = [];
+  let prevIdx = -1;
+  hunks.forEach((hunk, i) => {
+    if (!show.has(i)) {
+      return;
+    }
+    if (prevIdx === -1 && i > 0) {
+      result.push({ type: 'ellipsis', skipped: i });
+    } else if (prevIdx !== -1 && i > prevIdx + 1) {
+      result.push({ type: 'ellipsis', skipped: i - prevIdx - 1 });
+    }
+    result.push(hunk);
+    prevIdx = i;
+  });
+
+  if (prevIdx !== -1 && prevIdx < hunks.length - 1) {
+    result.push({ type: 'ellipsis', skipped: hunks.length - 1 - prevIdx });
+  }
+
+  return result;
+}
+
+function buildConflictDiffMarkup(localDocument, remoteDocument, mapName) {
+  const leftText = JSON.stringify(remoteDocument, null, 2);
+  const rightText = JSON.stringify(localDocument, null, 2);
+  const leftLines = leftText.split('\n');
+  const rightLines = rightText.split('\n');
+
+  const hunks = computeLineDiff(leftLines, rightLines);
+
+  if (!hunks) {
+    return '<p class="card-copy diff-too-large">Document too large to display inline diff.</p>';
+  }
+
+  const hasChanges = hunks.some((h) => h.type !== 'context');
+  if (!hasChanges) {
+    return '<p class="card-copy">No textual differences detected between local and remote.</p>';
+  }
+
+  const collapsed = collapseContextHunks(hunks, 3);
+  const lines = collapsed.map((hunk) => {
+    if (hunk.type === 'ellipsis') {
+      return `<div class="diff-line diff-line--ellipsis">@@ … ${hunk.skipped} unchanged line${hunk.skipped === 1 ? '' : 's'} … @@</div>`;
+    }
+    const prefix = hunk.type === 'add' ? '+' : hunk.type === 'remove' ? '-' : ' ';
+    const cls = hunk.type === 'add' ? 'diff-line--add' : hunk.type === 'remove' ? 'diff-line--remove' : '';
+    return `<div class="diff-line ${cls}">${escapeHtml(prefix + hunk.text)}</div>`;
+  }).join('');
+
+  return `
+    <div class="diff-view" role="region" aria-label="Diff view">
+      <div class="diff-header">
+        <span class="diff-header-label diff-header-label--remove">--- remote/${escapeHtml(mapName)}.json</span>
+        <span class="diff-header-label diff-header-label--add">+++ local/${escapeHtml(mapName)}.json</span>
+      </div>
+      <div class="diff-body">${lines}</div>
+    </div>
+  `;
+}
+
+function renderResolveConflictModal() {
+  const modal = state.activeModal;
+  if (!modal || modal.kind !== 'resolveConflict') {
+    return '';
+  }
+
+  const allResolved = !modal.loading && modal.items.every((item) => item.resolution !== null);
+
+  const localDocument = state.mapsByPath[modal.filePath]?.document ?? null;
+  const diffMarkup = modal.loading
+    ? '<p class="card-copy">Loading remote document…</p>'
+    : localDocument && modal.remoteDocument
+      ? buildConflictDiffMarkup(localDocument, modal.remoteDocument, modal.mapName)
+      : '';
+
+  const conflictRows = modal.loading
+    ? ''
+    : modal.items.map((item) => `
+        <div class="conflict-item ${item.resolution ? 'conflict-item--resolved' : ''}">
+          <p class="conflict-description">${escapeHtml(item.description)}</p>
+          <div class="conflict-choices">
+            <button
+              type="button"
+              class="secondary-button compact-button ${item.resolution === 'left' ? 'active' : ''}"
+              data-action="set-conflict-resolution"
+              data-item-id="${item.id}"
+              data-resolution="left"
+            >Take local</button>
+            <button
+              type="button"
+              class="secondary-button compact-button ${item.resolution === 'right' ? 'active' : ''}"
+              data-action="set-conflict-resolution"
+              data-item-id="${item.id}"
+              data-resolution="right"
+            >Take remote</button>
+          </div>
+          ${item.resolution
+            ? `<p class="conflict-resolution-label">${escapeHtml(
+                item.resolution === 'left' ? 'Keep my change' : 'Use remote version',
+              )}</p>`
+            : ''}
+        </div>
+      `).join('');
+
+  return `
+    <div class="modal-layer">
+      <button type="button" class="modal-backdrop" data-action="close-modal" aria-label="Close dialog"></button>
+      <div class="modal-card modal-card--wide" role="dialog" aria-modal="true" aria-labelledby="map-modal-title">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Sync conflict</p>
+            <h3 id="map-modal-title">Resolve conflicts in ${escapeHtml(modal.mapName)}</h3>
+          </div>
+          <button type="button" class="ghost-button compact-button" data-action="close-modal" data-modal-autofocus="true">Close</button>
+        </div>
+
+        ${modal.errorMessage
+          ? `<p class="form-error" role="alert">${escapeHtml(modal.errorMessage)}</p>`
+          : ''}
+
+        ${diffMarkup}
+
+        ${conflictRows
+          ? `<div class="conflict-list">${conflictRows}</div>`
+          : ''}
+
+        <div class="form-actions">
+          <button type="button" class="secondary-button" data-action="close-modal">Cancel</button>
+          <button
+            type="button"
+            data-action="accept-conflict-resolution"
+            ${allResolved ? '' : 'disabled'}
+          >Accept</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function handleAcceptConflictResolution() {
+  const modal = state.activeModal;
+  if (!modal || modal.kind !== 'resolveConflict') {
+    return;
+  }
+
+  if (modal.items.some((item) => item.resolution === null)) {
+    return;
+  }
+
+  const { filePath, mapName, items, remoteDocument, remoteRevision } = modal;
+
+  const mergedDocument = cloneMapDocument(remoteDocument);
+  for (const item of items) {
+    if (item.resolution === 'left') {
+      applyMapMutation(mergedDocument, item.operation);
+    }
+  }
+
+  const result = await state.service.saveResolved(
+    filePath,
+    mergedDocument,
+    remoteRevision,
+    buildConflictResolveCommitMessage(mapName),
+  );
+
+  if (!state.activeModal || state.activeModal.kind !== 'resolveConflict') {
+    return;
+  }
+
+  if (!result.ok) {
+    state.activeModal = {
+      ...state.activeModal,
+      errorMessage: result.error?.message || 'Failed to save resolution. Try again.',
+    };
+    render();
+    return;
+  }
+
+  state.pendingOperations = state.pendingOperations.filter((op) => op.filePath !== filePath);
+  replaceSnapshot(result.value);
+  persistRepoScopedState();
+
+  state.syncState = {
+    kind: 'success',
+    tone: 'success',
+    message: `Conflict in "${mapName}" resolved.`,
+    detail: buildStatusDetail(),
+    canRetry: false,
+  };
+  state.activeModal = null;
+  render();
+
+  if (state.pendingOperations.length > 0) {
+    void processPendingOperations();
+  }
+}
+
+function openCreateMapModal(returnFocusKey = '') {
+  state.activeModal = {
+    kind: 'createMap',
+    mapPath: '',
+    nodeId: '',
+    draftText: '',
+    errorMessage: '',
+    returnFocusKey: returnFocusKey || 'create-map-trigger',
+  };
+  state.pendingFocusRequest = {
+    type: 'modalAutofocus',
+  };
+  render();
+}
+
 function openNodeModal(kind, mapPath, nodeId, returnFocusKey = '') {
   const snapshot = state.mapsByPath[mapPath];
   if (!snapshot) {
@@ -1303,7 +1750,7 @@ function setSnapshots(snapshots) {
     state.activeModal = null;
   }
 
-  if (state.activeModal) {
+  if (state.activeModal && state.activeModal.mapPath) {
     const modalSnapshot = nextByPath[state.activeModal.mapPath];
     if (!modalSnapshot || !findNodeRecord(modalSnapshot.document, state.activeModal.nodeId)) {
       state.activeModal = null;
@@ -1554,9 +2001,17 @@ function renderStatusPanel() {
           <button type="button" id="close-status" class="ghost-button compact-button" data-modal-autofocus="true">Close</button>
         </div>
 
-        <section class="card status-summary-card">
+        <section
+          class="card status-summary-card ${state.syncState.kind === 'conflict' ? 'clickable-card' : ''}"
+          ${state.syncState.kind === 'conflict'
+            ? 'role="button" tabindex="0" data-action="open-conflict-modal" data-focus-key="status-summary-card" aria-label="Open conflict resolution"'
+            : ''}
+        >
           <p class="sync-status" data-tone="${escapeHtml(state.syncState.tone)}">${escapeHtml(state.syncState.message)}</p>
           <p class="status-detail">${escapeHtml(state.syncState.detail || describeRepoSettings(state.repoSettings))}</p>
+          ${state.syncState.kind === 'conflict'
+            ? '<p class="card-copy">Tap to review and resolve sync conflicts.</p>'
+            : ''}
         </section>
 
         <section class="diagnostics-grid" aria-label="Status diagnostics">
@@ -1678,6 +2133,7 @@ function renderWorkspace() {
       </nav>
       ${viewMarkup}
     </section>
+    ${state.activeModal?.kind === 'resolveConflict' ? renderResolveConflictModal() : ''}
   `;
 }
 
@@ -1755,6 +2211,19 @@ function renderSettingsPanel() {
 function renderMapsView(summaries) {
   return `
     <section class="workspace-panel ${summaries.length === 0 ? 'empty-panel' : ''}">
+      <div class="map-reader-header">
+        <div>
+          <p class="eyebrow">Maps</p>
+        </div>
+        <div class="compact-row-actions">
+          <button
+            type="button"
+            class="secondary-button compact-button"
+            data-action="open-create-map-modal"
+            data-focus-key="create-map-trigger"
+          >New map</button>
+        </div>
+      </div>
       ${summaries.length === 0
         ? `
           <article class="card empty-card">
@@ -1767,6 +2236,7 @@ function renderMapsView(summaries) {
             ${summaries.map((summary) => renderMapCard(summary)).join('')}
           </div>
         `}
+      ${renderActiveModal()}
     </section>
   `;
 }
@@ -1940,6 +2410,7 @@ function renderSelectedNodeActions(snapshot, nodeUiState) {
   const mapPath = snapshot.filePath;
   const actionDisabled = nodeUiState.canEditNode ? '' : 'disabled';
   const taskDisabled = nodeUiState.canChangeTaskState ? '' : 'disabled';
+  const canDelete = nodeUiState.canChangeTaskState;
   const badgesMarkup = nodeUiState.badges.length > 0
     ? `<div class="selected-node-meta">${renderBadgeMarkup(nodeUiState.badges)}</div>`
     : '';
@@ -1990,6 +2461,19 @@ function renderSelectedNodeActions(snapshot, nodeUiState) {
           ${renderTaskStateDotButton('Set Doing', TASK_STATE.DOING, nodeUiState, taskDisabled)}
           ${renderTaskStateDotButton('Set Done', TASK_STATE.DONE, nodeUiState, taskDisabled)}
         </div>
+        ${canDelete
+          ? `<button
+              type="button"
+              class="mini-action mini-action--destructive"
+              data-action="open-modal"
+              data-modal-kind="deleteNode"
+              data-map-path="${escapeHtml(mapPath)}"
+              data-node-id="${escapeHtml(nodeId)}"
+              data-focus-key="${escapeHtml(buildModalTriggerKey('deleteNode', mapPath, nodeId))}"
+            >
+              Remove
+            </button>`
+          : ''}
       </div>
       ${badgesMarkup}
       ${hintMarkup}
@@ -2052,12 +2536,21 @@ function renderActiveModal() {
     return '';
   }
 
+  if (state.activeModal.kind === 'createMap') {
+    return renderCreateMapModal();
+  }
+
   const modalContext = getActiveModalContext(state.activeModal.kind);
   if (!modalContext) {
     return '';
   }
 
   const { nodeUiState } = modalContext;
+
+  if (state.activeModal.kind === 'deleteNode') {
+    return renderDeleteNodeModal(nodeUiState);
+  }
+
   const isEditModal = state.activeModal.kind === 'editNode';
   const isAddTaskModal = state.activeModal.kind === 'addChildTask';
   const title = isEditModal
@@ -2138,6 +2631,88 @@ function renderActiveModal() {
             <button type="submit">${escapeHtml(actionLabel)}</button>
           </div>
         </form>
+      </div>
+    </div>
+  `;
+}
+
+function renderCreateMapModal() {
+  return `
+    <div class="modal-layer">
+      <button type="button" class="modal-backdrop" data-action="close-modal" aria-label="Close dialog"></button>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="map-modal-title">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Maps</p>
+            <h3 id="map-modal-title">New map</h3>
+          </div>
+          <button type="button" class="ghost-button compact-button" data-action="close-modal">Close</button>
+        </div>
+
+        ${state.activeModal.errorMessage
+          ? `<p class="form-error" role="alert">${escapeHtml(state.activeModal.errorMessage)}</p>`
+          : ''}
+
+        <form id="create-map-form" class="stack-form modal-form">
+          <label>
+            <span>Map name</span>
+            <input
+              type="text"
+              name="mapName"
+              maxlength="200"
+              value="${escapeHtml(state.activeModal.draftText)}"
+              placeholder="Enter a map name"
+              data-modal-autofocus="true"
+            />
+          </label>
+          <p class="security-note">The map is saved as &lt;name&gt;.json in the configured FocusMaps folder.</p>
+          <div class="form-actions">
+            <button type="button" class="secondary-button" data-action="close-modal">Cancel</button>
+            <button type="submit">Create</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+}
+
+function renderDeleteNodeModal(nodeUiState) {
+  const node = nodeUiState.node;
+  const isTask = node.taskState !== TASK_STATE.NONE;
+  const nodeKind = isTask ? 'task' : 'note';
+  const childCount = Array.isArray(node.children) ? node.children.length : 0;
+  const childWarning = childCount > 0
+    ? `<p class="form-error" role="note">This ${nodeKind} has ${childCount} child node${childCount === 1 ? '' : 's'} that will also be removed.</p>`
+    : '';
+
+  return `
+    <div class="modal-layer">
+      <button type="button" class="modal-backdrop" data-action="close-modal" aria-label="Close dialog"></button>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="map-modal-title">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Remove ${escapeHtml(nodeKind)}</p>
+            <h3 id="map-modal-title">Confirm removal</h3>
+            <p class="node-path">${renderInlinePath(nodeUiState.pathSegments, 'formatted-path node-path-inline')}</p>
+          </div>
+          <button type="button" class="ghost-button compact-button" data-action="close-modal">Close</button>
+        </div>
+
+        ${state.activeModal.errorMessage
+          ? `<p class="form-error" role="alert">${escapeHtml(state.activeModal.errorMessage)}</p>`
+          : ''}
+
+        ${childWarning}
+
+        <p class="security-note">Remove this ${escapeHtml(nodeKind)} from the map? This cannot be undone.</p>
+        <div class="form-actions">
+          <button type="button" class="secondary-button" data-action="close-modal" data-modal-autofocus="true">Cancel</button>
+          <button
+            type="button"
+            class="danger-button"
+            data-action="confirm-delete-node"
+          >Remove</button>
+        </div>
       </div>
     </div>
   `;
@@ -2355,6 +2930,8 @@ function describeOperation(operation) {
       return `new child task in ${mapLabel}`;
     case 'addChildNote':
       return `new child note in ${mapLabel}`;
+    case 'deleteNode':
+      return `node removal in ${mapLabel}`;
     default:
       return `change in ${mapLabel}`;
   }

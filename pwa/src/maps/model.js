@@ -176,6 +176,8 @@ export function applyMapMutation(document, mutation) {
       return addChildNode(document, mutation, timestamp, TASK_STATE.NONE);
     case 'addChildTask':
       return addChildNode(document, mutation, timestamp, TASK_STATE.TODO);
+    case 'deleteNode':
+      return deleteChildNode(document, mutation, timestamp);
     default:
       return {
         ok: false,
@@ -186,6 +188,23 @@ export function applyMapMutation(document, mutation) {
         },
       };
   }
+}
+
+export function createMapDocument(rootName) {
+  const timestamp = nowIso();
+  return {
+    rootNode: {
+      nodeType: NODE_TYPE.TEXT_ITEM,
+      uniqueIdentifier: createGuid(),
+      name: sanitizeText(String(rootName ?? '')),
+      children: [],
+      links: {},
+      number: 1,
+      collapsed: false,
+      taskState: TASK_STATE.NONE,
+      metadata: createMetadata(timestamp, MANUAL_SOURCE, DEFAULT_DEVICE),
+    },
+  };
 }
 
 export function displayTaskState(taskState) {
@@ -238,8 +257,14 @@ export function getNodeBadges(node) {
   return badges;
 }
 
+// Canonical UTC timestamp format shared with the console app: yyyy-MM-ddTHH:mm:ssZ
+// No milliseconds, Z suffix — matches Newtonsoft.Json DateTimeOffset UTC serialization.
 export function nowIso() {
-  return new Date().toISOString();
+  return formatIso(new Date());
+}
+
+function formatIso(date) {
+  return date.toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
 function normalizeNode(node, context) {
@@ -408,6 +433,39 @@ function addChildNode(document, mutation, timestamp, taskState) {
   };
 }
 
+function deleteChildNode(document, mutation, timestamp) {
+  const record = findNodeRecord(document, mutation.nodeId);
+  if (!record) {
+    return notFoundError(mutation.nodeId);
+  }
+
+  if (!record.parent) {
+    return validationError('Cannot delete the root node.');
+  }
+
+  if (record.node.nodeType === NODE_TYPE.IDEA_BAG_ITEM) {
+    return validationError('Idea-tag nodes cannot be deleted in the PWA.');
+  }
+
+  const parent = record.parent;
+  const index = parent.children.indexOf(record.node);
+  if (index === -1) {
+    return validationError('Node was not found in parent children.');
+  }
+
+  parent.children.splice(index, 1);
+  renumberChildren(parent);
+  touchMetadata(parent, timestamp);
+
+  return {
+    ok: true,
+    value: {
+      affectedNodeId: parent.uniqueIdentifier,
+      selectedNodeId: parent.uniqueIdentifier,
+    },
+  };
+}
+
 function validateTaskTarget(node, parent) {
   if (!parent) {
     return validationError("Can't change task state for root node");
@@ -565,7 +623,7 @@ function normalizeTimestamp(value) {
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime())
     ? nowIso()
-    : parsed.toISOString();
+    : formatIso(parsed);
 }
 
 function isValidTaskState(value) {
