@@ -2223,9 +2223,6 @@ function renderMapsView(summaries) {
   return `
     <section class="workspace-panel ${summaries.length === 0 ? 'empty-panel' : ''}">
       <div class="map-reader-header">
-        <div>
-          <p class="eyebrow">Maps</p>
-        </div>
         <div class="compact-row-actions">
           <button
             type="button"
