@@ -123,7 +123,7 @@ export class MindMapService {
   }
 
   async applyMutation(filePath, mutation, commitMessage) {
-    const latest = await this.loadMap(filePath, true);
+    const latest = await this.loadMap(filePath, false);
     if (!latest.ok) {
       return latest;
     }
