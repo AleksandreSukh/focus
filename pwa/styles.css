@@ -435,6 +435,53 @@ h3 {
   color: var(--danger);
 }
 
+.mini-action-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  min-width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  border: 2px solid var(--accent-border);
+  border-radius: 999px;
+  background: transparent;
+}
+
+.mini-action-icon svg {
+  width: 1.1rem;
+  height: 1.1rem;
+  flex-shrink: 0;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+}
+
+.mini-action-icon--task {
+  color: var(--task-todo);
+  border-color: var(--task-todo-border);
+}
+
+.mini-action-icon--destructive {
+  color: var(--danger);
+  border-color: rgba(181, 58, 47, 0.25);
+}
+
+.task-dot-clickable {
+  cursor: pointer;
+  padding: 0;
+  border: 2px solid var(--task-none-border);
+  background: transparent;
+}
+
+.task-dot-clickable:hover {
+  background: var(--task-todo);
+  border-color: var(--task-todo);
+  opacity: 0.7;
+}
+
 .modal-card--wide {
   max-width: min(860px, 96vw);
 }

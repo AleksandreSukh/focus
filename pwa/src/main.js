@@ -484,7 +484,11 @@ function handleDocumentClick(event) {
       toggleLocalNodeCollapse(clickableElement.dataset.mapPath || '', clickableElement.dataset.nodeId || '');
       return;
     case 'set-task-state':
-      void handleSetTaskState(clickableElement.dataset.taskState || '');
+      void handleSetTaskState(
+        clickableElement.dataset.taskState || '',
+        clickableElement.dataset.mapPath,
+        clickableElement.dataset.nodeId,
+      );
       return;
     case 'open-modal':
       openNodeModal(
@@ -1165,35 +1169,42 @@ async function handleAddChildSubmit(form, type) {
   });
 }
 
-async function handleSetTaskState(taskStateValue) {
-  const snapshot = getSelectedSnapshot();
-  const selectedNode = getSelectedNodeUiState(snapshot);
-  if (!snapshot || !selectedNode) {
-    return;
-  }
-
+async function handleSetTaskState(taskStateValue, explicitMapPath, explicitNodeId) {
   const nextTaskState = Number.parseInt(String(taskStateValue ?? ''), 10);
   if (!Number.isInteger(nextTaskState)) {
     return;
   }
 
+  let filePath, nodeId, mapName;
+
+  if (explicitMapPath && explicitNodeId) {
+    const snapshot = state.mapsByPath[explicitMapPath];
+    if (!snapshot) return;
+    filePath = explicitMapPath;
+    nodeId = explicitNodeId;
+    mapName = snapshot.mapName;
+  } else {
+    const snapshot = getSelectedSnapshot();
+    const selectedNode = getSelectedNodeUiState(snapshot);
+    if (!snapshot || !selectedNode) return;
+    filePath = snapshot.filePath;
+    nodeId = selectedNode.node.uniqueIdentifier;
+    mapName = snapshot.mapName;
+  }
+
   const result = enqueueOperation({
     type: 'setTaskState',
-    filePath: snapshot.filePath,
-    nodeId: selectedNode.node.uniqueIdentifier,
+    filePath,
+    nodeId,
     taskState: nextTaskState,
     timestamp: nowIso(),
-    commitMessage: buildNodeTaskStateCommitMessage(
-      snapshot.mapName,
-      selectedNode.node.uniqueIdentifier,
-      nextTaskState,
-    ),
+    commitMessage: buildNodeTaskStateCommitMessage(mapName, nodeId, nextTaskState),
   });
 
   if (result.ok) {
     state.pendingFocusRequest = {
       type: 'focusKey',
-      value: buildNodeFocusKey(snapshot.filePath, selectedNode.node.uniqueIdentifier),
+      value: buildNodeFocusKey(filePath, nodeId),
     };
     focusPendingElement();
   }
@@ -2310,16 +2321,6 @@ function renderMapView() {
 
   return `
     <section class="workspace-panel map-reader-view">
-      <div class="map-reader-header">
-        <div>
-          <p class="eyebrow">Mind map</p>
-          <p class="map-reader-file">${escapeHtml(snapshot.filePath)}</p>
-        </div>
-        <div class="compact-row-actions">
-          <button type="button" class="secondary-button compact-button" data-action="back-to-maps">Back to maps</button>
-        </div>
-      </div>
-
       <article class="map-document" aria-label="Map reader">
         <header class="map-document-header ${isRootSelected ? 'selected' : ''}">
           <div class="map-document-line">
@@ -2382,7 +2383,7 @@ function renderTreeNode(snapshot, node, depth, selectedNodeState) {
               aria-label="${isCollapsed ? 'Expand' : 'Collapse'} node"
             >${isCollapsed ? '+' : '-'}</button>`
           : '<span class="tree-spacer" aria-hidden="true"></span>'}
-        ${renderPassiveTaskDot(node.taskState)}
+        ${renderNodeBullet(snapshot.filePath, node)}
         <div class="reader-node-body">
           <div
             role="button"
@@ -2411,6 +2412,7 @@ function renderSelectedNodeActions(snapshot, nodeUiState) {
   const actionDisabled = nodeUiState.canEditNode ? '' : 'disabled';
   const taskDisabled = nodeUiState.canChangeTaskState ? '' : 'disabled';
   const canDelete = nodeUiState.canChangeTaskState;
+  const isTask = nodeUiState.node.taskState !== TASK_STATE.NONE;
   const badgesMarkup = nodeUiState.badges.length > 0
     ? `<div class="selected-node-meta">${renderBadgeMarkup(nodeUiState.badges)}</div>`
     : '';
@@ -2421,57 +2423,82 @@ function renderSelectedNodeActions(snapshot, nodeUiState) {
       <div class="selected-node-toolbar">
         <button
           type="button"
-          class="mini-action"
+          class="mini-action mini-action-icon"
           data-action="open-modal"
           data-modal-kind="editNode"
           data-map-path="${escapeHtml(mapPath)}"
           data-node-id="${escapeHtml(nodeId)}"
           data-focus-key="${escapeHtml(buildModalTriggerKey('editNode', mapPath, nodeId))}"
+          aria-label="Edit"
+          title="Edit"
           ${actionDisabled}
         >
-          Edit
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+          </svg>
         </button>
         <button
           type="button"
-          class="mini-action"
+          class="mini-action mini-action-icon"
           data-action="open-modal"
           data-modal-kind="addChildNote"
           data-map-path="${escapeHtml(mapPath)}"
           data-node-id="${escapeHtml(nodeId)}"
           data-focus-key="${escapeHtml(buildModalTriggerKey('addChildNote', mapPath, nodeId))}"
+          aria-label="Add note"
+          title="Add note"
           ${actionDisabled}
         >
-          Note
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <line x1="12" y1="5" x2="12" y2="19"/>
+            <line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
         </button>
         <button
           type="button"
-          class="mini-action"
+          class="mini-action mini-action-icon mini-action-icon--task"
           data-action="open-modal"
           data-modal-kind="addChildTask"
           data-map-path="${escapeHtml(mapPath)}"
           data-node-id="${escapeHtml(nodeId)}"
           data-focus-key="${escapeHtml(buildModalTriggerKey('addChildTask', mapPath, nodeId))}"
+          aria-label="Add task"
+          title="Add task"
           ${actionDisabled}
         >
-          Task
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <line x1="12" y1="5" x2="12" y2="19"/>
+            <line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
         </button>
-        <div class="task-dot-group" role="group" aria-label="Task state">
-          ${renderTaskStateDotButton('Clear task state', TASK_STATE.NONE, nodeUiState, taskDisabled)}
-          ${renderTaskStateDotButton('Set Todo', TASK_STATE.TODO, nodeUiState, taskDisabled)}
-          ${renderTaskStateDotButton('Set Doing', TASK_STATE.DOING, nodeUiState, taskDisabled)}
-          ${renderTaskStateDotButton('Set Done', TASK_STATE.DONE, nodeUiState, taskDisabled)}
-        </div>
+        ${isTask ? `
+          <div class="task-dot-group" role="group" aria-label="Task state">
+            ${renderTaskStateDotButton('Clear task state', TASK_STATE.NONE, nodeUiState, taskDisabled)}
+            ${renderTaskStateDotButton('Set Todo', TASK_STATE.TODO, nodeUiState, taskDisabled)}
+            ${renderTaskStateDotButton('Set Doing', TASK_STATE.DOING, nodeUiState, taskDisabled)}
+            ${renderTaskStateDotButton('Set Done', TASK_STATE.DONE, nodeUiState, taskDisabled)}
+          </div>
+        ` : ''}
         ${canDelete
           ? `<button
               type="button"
-              class="mini-action mini-action--destructive"
+              class="mini-action mini-action-icon mini-action-icon--destructive"
               data-action="open-modal"
               data-modal-kind="deleteNode"
               data-map-path="${escapeHtml(mapPath)}"
               data-node-id="${escapeHtml(nodeId)}"
               data-focus-key="${escapeHtml(buildModalTriggerKey('deleteNode', mapPath, nodeId))}"
+              aria-label="Remove"
+              title="Remove"
             >
-              Remove
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                <path d="M10 11v6"/>
+                <path d="M14 11v6"/>
+                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+              </svg>
             </button>`
           : ''}
       </div>
@@ -2487,7 +2514,7 @@ function renderSelectedNodeHint(nodeUiState) {
   }
 
   if (!nodeUiState.canChangeTaskState) {
-    return '<p class="selected-node-hint">Root node text is editable, but task state stays disabled.</p>';
+    return '';
   }
 
   return '';
@@ -2508,6 +2535,24 @@ function renderTaskStateDotButton(label, taskState, nodeUiState, disabledAttribu
       <span class="sr-only">${escapeHtml(label)}</span>
     </button>
   `;
+}
+
+function renderNodeBullet(mapPath, node) {
+  if (node.taskState === TASK_STATE.NONE) {
+    return `
+      <button
+        type="button"
+        class="task-dot task-dot-clickable is-none"
+        data-action="set-task-state"
+        data-task-state="${TASK_STATE.TODO}"
+        data-map-path="${escapeHtml(mapPath)}"
+        data-node-id="${escapeHtml(node.uniqueIdentifier)}"
+        aria-label="Mark as Todo"
+        title="Mark as Todo"
+      ></button>
+    `;
+  }
+  return renderPassiveTaskDot(node.taskState);
 }
 
 function renderPassiveTaskDot(taskState, extraClass = '') {

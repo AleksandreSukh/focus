@@ -79,7 +79,7 @@ internal sealed class EditWorkflow
 
     private readonly FocusAppContext _appContext;
     private readonly string _filePath;
-    private readonly MindMap _map;
+    private MindMap _map;
 
     public EditWorkflow(string filePath, FocusAppContext appContext, Guid? initialNodeIdentifier = null)
     {
@@ -620,9 +620,39 @@ internal sealed class EditWorkflow
 
     private CommandExecutionResult ProcessGoToRoot()
     {
+        PullAndReloadIfChanged();
+
         return _map.GoToRoot()
             ? CommandExecutionResult.Success()
             : CommandExecutionResult.Error("Can't go to root");
+    }
+
+    private void PullAndReloadIfChanged()
+    {
+        try
+        {
+            var fileInfo = new FileInfo(_filePath);
+            if (!fileInfo.Exists)
+                return;
+
+            var beforeWrite = fileInfo.LastWriteTimeUtc;
+            var beforeLength = fileInfo.Length;
+
+            var result = _appContext.MapsStorage.PullLatestAtStartup();
+            if (result.Status != Infrastructure.FileSynchronization.StartupSyncStatus.Succeeded)
+                return;
+
+            fileInfo.Refresh();
+            if (fileInfo.LastWriteTimeUtc != beforeWrite || fileInfo.Length != beforeLength)
+            {
+                _map = _appContext.MapRepository.OpenMap(_filePath);
+                _appContext.RefreshLinkIndex();
+            }
+        }
+        catch
+        {
+            // Pull failed (e.g., uncommitted local changes) – continue with normal ls behavior.
+        }
     }
 
     private CommandExecutionResult ProcessHide(string parameters)
