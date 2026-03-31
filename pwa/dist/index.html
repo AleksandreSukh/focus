@@ -12,14 +12,56 @@
   <body>
     <main class="app-shell">
       <header class="app-header">
-        <div>
-          <p class="eyebrow">Focus PWA</p>
-          <h1>Focus Maps</h1>
-          <p class="app-subtitle">Private static mind-map browser and task editor with GitHub PAT sync.</p>
-        </div>
         <div class="header-actions">
-          <button id="status-toggle" class="secondary-button status-launch-button" data-focus-key="status-toggle">Status</button>
-          <button id="settings-toggle" class="secondary-button" data-focus-key="settings-toggle" hidden>Connection settings</button>
+          <div id="theme-root" class="theme-root" hidden></div>
+          <button
+            id="refresh-toggle"
+            class="secondary-button icon-button"
+            data-action="refresh-maps"
+            data-focus-key="refresh-toggle"
+            aria-label="Refresh from GitHub"
+            title="Refresh from GitHub"
+            hidden
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M18.7 8.1A8.5 8.5 0 0 0 5.3 5.8" />
+              <path d="M5 2.8v3.9h3.9" />
+              <path d="M5.3 15.9A8.5 8.5 0 0 0 18.7 18.2" />
+              <path d="M19 21.2v-3.9h-3.9" />
+              <path
+                d="M12 7.2c-2.32 0-4.2 1.83-4.2 4.09 0 1.78 1.13 3.3 2.71 3.84 0.21 0.03 0.29-0.09 0.29-0.21v-0.94c-1.1 0.23-1.33-0.46-1.33-0.46-0.18-0.44-0.43-0.56-0.43-0.56-0.35-0.23 0.03-0.23 0.03-0.23 0.39 0.03 0.59 0.39 0.59 0.39 0.34 0.58 0.9 0.41 1.12 0.32 0.03-0.24 0.14-0.41 0.25-0.51-0.88-0.1-1.81-0.43-1.81-1.92 0-0.42 0.15-0.77 0.39-1.04-0.04-0.1-0.17-0.52 0.04-1.08 0 0 0.32-0.1 1.05 0.39 0.31-0.08 0.64-0.12 0.97-0.12s0.66 0.04 0.97 0.12c0.73-0.49 1.05-0.39 1.05-0.39 0.21 0.56 0.08 0.98 0.04 1.08 0.24 0.27 0.39 0.62 0.39 1.04 0 1.49-0.94 1.82-1.82 1.92 0.14 0.12 0.27 0.36 0.27 0.73v1.09c0 0.12 0.08 0.24 0.3 0.21 1.57-0.54 2.7-2.06 2.7-3.84 0-2.26-1.88-4.09-4.2-4.09z"
+                fill="currentColor"
+                stroke="none"
+              />
+            </svg>
+          </button>
+          <button
+            id="status-toggle"
+            class="secondary-button status-launch-button icon-button"
+            data-focus-key="status-toggle"
+            aria-label="Status"
+            title="Status"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M5 20h14" />
+              <path d="M7 16v4" />
+              <path d="M11 12v8" />
+              <path d="M15 8v12" />
+              <path d="M19 4v16" />
+            </svg>
+          </button>
+          <button
+            id="settings-toggle"
+            class="secondary-button icon-button"
+            data-focus-key="settings-toggle"
+            aria-label="Connection settings"
+            title="Connection settings"
+            hidden
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.11-3.1c0.54 1.35 0.23 2.95-0.94 4.12a5 5 0 0 1-6.24 0.66l-8.29 8.29a2 2 0 1 1-2.83-2.83l8.29-8.29a5 5 0 0 1 0.67-6.24c1.17-1.17 2.77-1.48 4.12-0.94L14.7 6.3z" />
+            </svg>
+          </button>
           <button id="install-button" class="install-button" hidden>Install app</button>
         </div>
       </header>

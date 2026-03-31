@@ -128,6 +128,8 @@ export async function bootstrapApp() {
 function wireUi() {
   ui.installButton = document.getElementById('install-button');
   ui.installFallback = document.getElementById('install-fallback');
+  ui.themeRoot = document.getElementById('theme-root');
+  ui.refreshToggle = document.getElementById('refresh-toggle');
   ui.statusToggle = document.getElementById('status-toggle');
   ui.settingsToggle = document.getElementById('settings-toggle');
   ui.screenRoot = document.getElementById('screen-root');
@@ -492,7 +494,9 @@ function handleDocumentClick(event) {
       openTaskNode(clickableElement.dataset.mapPath || '', clickableElement.dataset.nodeId || '');
       return;
     case 'set-task-filter':
-      state.taskFilter = clickableElement.dataset.filter || 'open';
+      state.taskFilter = state.taskFilter === clickableElement.dataset.filter
+        ? ''
+        : clickableElement.dataset.filter || 'open';
       render();
       return;
     default:
@@ -1456,6 +1460,11 @@ function focusPendingElement() {
 
 function render() {
   renderStatusPanel();
+  renderHeaderThemeControl();
+
+  if (ui.refreshToggle) {
+    ui.refreshToggle.hidden = state.authState !== 'authenticated';
+  }
 
   if (ui.statusToggle) {
     ui.statusToggle.hidden = false;
@@ -1492,12 +1501,29 @@ function render() {
   focusPendingElement();
 }
 
+function renderHeaderThemeControl() {
+  if (!ui.themeRoot) {
+    return;
+  }
+
+  if (state.authState !== 'authenticated') {
+    ui.themeRoot.hidden = true;
+    ui.themeRoot.innerHTML = '';
+    return;
+  }
+
+  ui.themeRoot.hidden = false;
+  ui.themeRoot.innerHTML = renderThemeModeControl('theme-switcher--header');
+}
+
 function renderStatusPanel() {
   if (ui.statusToggle) {
+    const statusLabel = `Status: ${state.syncState.message}`;
     ui.statusToggle.dataset.tone = state.syncState.tone;
     ui.statusToggle.setAttribute('aria-haspopup', 'dialog');
     ui.statusToggle.setAttribute('aria-expanded', state.showStatus ? 'true' : 'false');
-    ui.statusToggle.title = state.syncState.message;
+    ui.statusToggle.setAttribute('aria-label', statusLabel);
+    ui.statusToggle.title = statusLabel;
   }
 
   if (!ui.statusRoot) {
@@ -1631,14 +1657,14 @@ function renderWorkspace() {
   ui.appRoot.innerHTML = `
     <section class="workspace-shell" aria-label="Mind map workspace">
       <nav class="workspace-nav" aria-label="Workspace navigation">
-        <div class="nav-tabs">
+        <div class="nav-tabs" data-active-view="${state.currentView === 'tasks' ? 'tasks' : 'maps'}">
           <button
             type="button"
             class="nav-tab ${state.currentView === 'tasks' ? '' : 'active'}"
             data-action="switch-view"
             data-view="maps"
           >
-            Maps
+            <span class="nav-tab-title">Maps</span>
           </button>
           <button
             type="button"
@@ -1646,11 +1672,8 @@ function renderWorkspace() {
             data-action="switch-view"
             data-view="tasks"
           >
-            Tasks
+            <span class="nav-tab-title">Tasks</span>
           </button>
-        </div>
-        <div class="nav-actions">
-          <button type="button" class="secondary-button" data-action="refresh-maps">Refresh from GitHub</button>
         </div>
       </nav>
       ${viewMarkup}
@@ -1732,22 +1755,11 @@ function renderSettingsPanel() {
 function renderMapsView(summaries) {
   return `
     <section class="workspace-panel ${summaries.length === 0 ? 'empty-panel' : ''}">
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">Maps</p>
-          <h2>Mind map files</h2>
-          <p class="section-copy">
-            ${summaries.length === 0
-              ? 'The configured FocusMaps folder is reachable, but no top-level .json map files were found.'
-              : 'Open any existing map in a compact reading view and use inline actions only when you want to edit.'}
-          </p>
-        </div>
-        ${renderThemeModeControl()}
-      </div>
       ${summaries.length === 0
         ? `
           <article class="card empty-card">
-            <p>Point <code>repoPath</code> directly at the FocusMaps folder, for example <code>Tool/PMMT/FocusMaps</code>, and make sure the folder contains map JSON files.</p>
+            <p>The configured FocusMaps folder is reachable, but no top-level .json map files were found.</p>
+            <p class="section-copy">Point <code>repoPath</code> directly at the FocusMaps folder, for example <code>Tool/PMMT/FocusMaps</code>, and make sure the folder contains map JSON files.</p>
           </article>
         `
         : `
@@ -1761,7 +1773,15 @@ function renderMapsView(summaries) {
 
 function renderMapCard(summary) {
   return `
-    <article class="card compact-row map-row">
+    <article
+      class="card compact-row map-row clickable-card"
+      role="button"
+      tabindex="0"
+      data-action="open-map"
+      data-map-path="${escapeHtml(summary.filePath)}"
+      aria-label="Open map ${escapeHtml(summary.fileName)}"
+      title="Open ${escapeHtml(summary.fileName)}"
+    >
       <div class="compact-row-main">
         <div class="compact-title-block">
           <h3>${renderInlineHtml(summary.rootTitle, { theme: state.theme, wrapperClass: 'formatted-inline card-title-inline' })}</h3>
@@ -1771,7 +1791,6 @@ function renderMapCard(summary) {
       </div>
       <div class="compact-row-actions">
         <p class="map-updated">Updated ${escapeHtml(formatRelativeTime(summary.updatedAt))}</p>
-        <button type="button" class="secondary-button compact-button" data-action="open-map" data-map-path="${escapeHtml(summary.filePath)}">Open</button>
       </div>
     </article>
   `;
@@ -2127,27 +2146,20 @@ function renderActiveModal() {
 function renderTasksView() {
   const entries = buildTaskEntriesForView(state.taskFilter);
   const filterButtons = [
-    ['open', 'Open'],
-    ['todo', 'Todo'],
-    ['doing', 'Doing'],
-    ['done', 'Done'],
-    ['all', 'All'],
+    ['open', 'Open', 'open'],
+    ['todo', 'Todo', 'todo'],
+    ['doing', 'Doing', 'doing'],
+    ['done', 'Done', 'done'],
   ];
 
   return `
     <section class="workspace-panel">
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">Tasks</p>
-          <h2>All task nodes</h2>
-          <p class="section-copy">Browse task nodes across every loaded map and jump straight back into the owning tree.</p>
-        </div>
-      </div>
+      <h2 class="sr-only">All task nodes</h2>
       <div class="filter-row">
-        ${filterButtons.map(([value, label]) => `
+        ${filterButtons.map(([value, label, tone]) => `
           <button
             type="button"
-            class="filter-pill ${state.taskFilter === value ? 'active' : ''}"
+            class="filter-pill filter-pill--${tone} ${state.taskFilter === value ? 'active' : ''}"
             data-action="set-task-filter"
             data-filter="${value}"
           >
@@ -2164,7 +2176,16 @@ function renderTasksView() {
         : `
           <div class="compact-list task-entry-list">
             ${entries.map((entry) => `
-              <article class="card compact-row task-row">
+              <article
+                class="card compact-row task-row clickable-card"
+                role="button"
+                tabindex="0"
+                data-action="open-task-node"
+                data-map-path="${escapeHtml(entry.filePath)}"
+                data-node-id="${escapeHtml(entry.nodeId)}"
+                aria-label="Open task ${escapeHtml(entry.nodeName)}"
+                title="Open task ${escapeHtml(entry.nodeName)}"
+              >
                 <div class="compact-row-main task-row-main">
                   ${renderPassiveTaskDot(entry.taskState)}
                   <div class="compact-title-block">
@@ -2172,17 +2193,6 @@ function renderTasksView() {
                     <p class="task-entry-map">${escapeHtml(entry.mapName)}</p>
                     <p class="task-entry-path">${renderInlinePath(entry.nodePathSegments || entry.nodePath.split(' > '), 'formatted-path task-path-inline')}</p>
                   </div>
-                </div>
-                <div class="compact-row-actions">
-                  <button
-                    type="button"
-                    class="secondary-button compact-button"
-                    data-action="open-task-node"
-                    data-map-path="${escapeHtml(entry.filePath)}"
-                    data-node-id="${escapeHtml(entry.nodeId)}"
-                  >
-                    Open
-                  </button>
                 </div>
               </article>
             `).join('')}
@@ -2192,10 +2202,10 @@ function renderTasksView() {
   `;
 }
 
-function renderThemeModeControl() {
+function renderThemeModeControl(extraClass = '') {
+  const className = ['theme-switcher', extraClass].filter(Boolean).join(' ');
   return `
-    <fieldset class="theme-switcher" aria-label="Theme preference">
-      <legend class="theme-switcher-title">Theme</legend>
+    <fieldset class="${className}" aria-label="Theme preference">
       <label class="theme-choice ${state.theme === 'light' ? 'active' : ''}">
         <input type="radio" name="theme-mode" value="light" ${state.theme === 'light' ? 'checked' : ''} />
         <span>Light</span>
@@ -2244,8 +2254,9 @@ function renderInlinePath(pathSegments, wrapperClass = 'formatted-path') {
 }
 
 function buildTaskEntriesForView(filter) {
+  const effectiveFilter = filter || 'all';
   return getSnapshots()
-    .flatMap((snapshot) => collectTaskEntries(snapshot, filter))
+    .flatMap((snapshot) => collectTaskEntries(snapshot, effectiveFilter))
     .sort((left, right) => {
       const priorityDelta = taskStatePriority(left.taskState) - taskStatePriority(right.taskState);
       if (priorityDelta !== 0) {
