@@ -1,4 +1,4 @@
-const CACHE_NAME = 'focus-pwa-shell-v11';
+const CACHE_NAME = 'focus-pwa-shell-v12';
 const APP_SHELL_ASSETS = [
   './',
   './index.html',
@@ -46,6 +46,13 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') {
+    return;
+  }
+
+  // version.json must never be served from cache so the update checker
+  // always sees the latest value from the server.
+  if (new URL(event.request.url).pathname.endsWith('/version.json')) {
+    event.respondWith(fetch(event.request));
     return;
   }
 

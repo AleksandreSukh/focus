@@ -16,7 +16,8 @@ $topLevelFiles = @(
     'app.js',
     'sw.js',
     'manifest.webmanifest',
-    'runtime-config.js'
+    'runtime-config.js',
+    'version.json'
 )
 
 foreach ($file in $topLevelFiles) {

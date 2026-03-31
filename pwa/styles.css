@@ -254,6 +254,36 @@ h3 {
   justify-content: flex-end;
 }
 
+.update-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.6rem 1rem;
+  background: var(--accent);
+  color: #fff;
+}
+
+.update-banner-text {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.update-banner-button {
+  flex-shrink: 0;
+  padding: 0.3rem 0.8rem;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 0.4rem;
+  background: transparent;
+  color: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.update-banner-button:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
 .card,
 .status-panel,
 .install-fallback {

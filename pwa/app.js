@@ -1,3 +1,56 @@
+(function initUpdateChecker() {
+  const VERSION_CHECK_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
+  let knownVersion = null;
+
+  async function fetchVersion() {
+    try {
+      const res = await fetch('./version.json', { cache: 'no-store' });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return typeof data.version === 'number' ? data.version : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function showUpdateBanner() {
+    const banner = document.getElementById('update-banner');
+    if (!banner || !banner.hidden) return;
+    banner.hidden = false;
+  }
+
+  async function checkForUpdate() {
+    const latest = await fetchVersion();
+    if (latest === null) return;
+
+    if (knownVersion === null) {
+      knownVersion = latest;
+      return;
+    }
+
+    if (latest > knownVersion) {
+      showUpdateBanner();
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const banner = document.getElementById('update-banner');
+    if (banner) {
+      banner.querySelector('[data-action="reload-app"]')?.addEventListener('click', () => {
+        window.location.reload();
+      });
+    }
+
+    void checkForUpdate();
+    setInterval(() => void checkForUpdate(), VERSION_CHECK_INTERVAL_MS);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        void checkForUpdate();
+      }
+    });
+  });
+})();
+
 (function bootstrapFocusPwaShell() {
   function whenDomReady(callback) {
     if (document.readyState === 'loading') {
