@@ -35,7 +35,9 @@ import {
   cloneMapDocument,
   collectTaskEntries,
   findNodeRecord,
+  getNodeBadges,
   getNodeUiState,
+  NODE_TYPE,
   normalizeNodeDisplayText,
   nowIso,
   TASK_STATE,
@@ -43,6 +45,7 @@ import {
 import { renderInlineHtml } from './formatting/inlineFormatter.js';
 
 const THEME_STORAGE_KEY = 'focus.pwa.theme';
+const FAB_SIDE_STORAGE_KEY = 'focus.pwa.fabSide';
 const THEME_META_COLORS = {
   light: '#ffffff',
   dark: '#000000',
@@ -57,6 +60,7 @@ const state = {
   repoSettings: null,
   repoScope: '',
   theme: 'light',
+  fabSide: 'right',
   authState: 'missingConfig',
   connectionError: '',
   tokenError: '',
@@ -92,6 +96,7 @@ export async function bootstrapApp() {
   registerPwaShell();
 
   state.theme = loadThemePreference();
+  state.fabSide = loadFabSidePreference();
   applyThemePreference();
   state.runtimeConfig = resolveRuntimeConfig();
   switchRepoContext(getEffectiveRepoSettings(state.runtimeConfig));
@@ -369,6 +374,7 @@ function bindGlobalUiListeners() {
   }
 
   document.addEventListener('submit', handleDocumentSubmit, true);
+  document.addEventListener('mousedown', handleDocumentMouseDown, true);
   document.addEventListener('click', handleDocumentClick, true);
   document.addEventListener('keydown', handleDocumentKeydown, true);
   document.addEventListener('change', handleDocumentChange, true);
@@ -410,6 +416,22 @@ async function handleDocumentSubmit(event) {
     default:
       return;
   }
+}
+
+function handleDocumentMouseDown(event) {
+  if (!(event.target instanceof Element)) {
+    return;
+  }
+
+  const actionElement = event.target.closest('[data-action="select-node"]');
+  if (!(actionElement instanceof HTMLElement)) {
+    return;
+  }
+
+  // Prevent the browser from setting focus on mousedown — this eliminates the
+  // one-frame gap where the focus ring would appear before the click handler runs.
+  event.preventDefault();
+  selectNode(actionElement.dataset.mapPath || '', actionElement.dataset.nodeId || '');
 }
 
 function handleDocumentClick(event) {
@@ -478,7 +500,10 @@ function handleDocumentClick(event) {
       navigateToMapsRoute({ replace: true });
       return;
     case 'select-node':
-      selectNode(clickableElement.dataset.mapPath || '', clickableElement.dataset.nodeId || '');
+      // Mouse clicks are handled in handleDocumentMouseDown; only handle keyboard-triggered clicks here.
+      if (event.detail === 0) {
+        selectNode(clickableElement.dataset.mapPath || '', clickableElement.dataset.nodeId || '');
+      }
       return;
     case 'toggle-node':
       toggleLocalNodeCollapse(clickableElement.dataset.mapPath || '', clickableElement.dataset.nodeId || '');
@@ -726,6 +751,15 @@ function loadThemePreference() {
 
 function saveThemePreference(theme) {
   window.localStorage?.setItem(THEME_STORAGE_KEY, theme === 'dark' ? 'dark' : 'light');
+}
+
+function loadFabSidePreference() {
+  const stored = window.localStorage?.getItem(FAB_SIDE_STORAGE_KEY);
+  return stored === 'left' ? 'left' : 'right';
+}
+
+function saveFabSidePreference(side) {
+  window.localStorage?.setItem(FAB_SIDE_STORAGE_KEY, side === 'left' ? 'left' : 'right');
 }
 
 function applyThemePreference() {
@@ -1698,18 +1732,48 @@ function openTaskNode(mapPath, nodeId) {
   });
 }
 
+function nodeNeedsActions(record) {
+  return Boolean(
+    record && (
+      record.node.taskState !== TASK_STATE.NONE ||
+      record.node.nodeType === NODE_TYPE.IDEA_BAG_ITEM ||
+      getNodeBadges(record.node).length > 0
+    ),
+  );
+}
+
 function selectNode(mapPath, nodeId) {
   const snapshot = state.mapsByPath[mapPath];
   if (!snapshot) {
     return;
   }
 
+  if (state.selectedMapPath === mapPath && state.selectedNodeId === nodeId) {
+    openNodeModal('editNode', mapPath, nodeId, buildNodeFocusKey(mapPath, nodeId));
+    return;
+  }
+
+  const prevNodeId = state.selectedNodeId;
   state.activeModal = null;
   state.currentView = 'map';
   state.selectedMapPath = mapPath;
   state.selectedNodeId = findNodeRecord(snapshot.document, nodeId)
     ? nodeId
     : snapshot.document.rootNode?.uniqueIdentifier || '';
+
+  const prevRecord = prevNodeId ? findNodeRecord(snapshot.document, prevNodeId) : null;
+  const nextRecord = findNodeRecord(snapshot.document, state.selectedNodeId);
+
+  if (!nodeNeedsActions(prevRecord) && !nodeNeedsActions(nextRecord)) {
+    if (prevNodeId) {
+      document.querySelector(`[data-action="select-node"][data-node-id="${prevNodeId}"]`)
+        ?.classList.remove('selected');
+    }
+    document.querySelector(`[data-action="select-node"][data-node-id="${state.selectedNodeId}"]`)
+      ?.classList.add('selected');
+    return;
+  }
+
   render();
 }
 
@@ -2163,6 +2227,7 @@ function renderSettingsPanel() {
   renderSettingsScreen({
     mountNode: ui.settingsRoot,
     repoSettings: state.repoSettings,
+    fabSide: state.fabSide,
     hasToken: Boolean(getToken(state.repoSettings.tokenStorageKey)),
     syncMetadata: getSyncMetadata(),
     onSaveSettings: async (nextSettings) => {
@@ -2172,6 +2237,9 @@ function renderSettingsPanel() {
       });
       saveRepoSettings(normalizedSettings, state.runtimeConfig?.auth?.settingsStorageKey);
       switchRepoContext(normalizedSettings);
+      const nextFabSide = nextSettings.fabSide === 'left' ? 'left' : 'right';
+      saveFabSidePreference(nextFabSide);
+      state.fabSide = nextFabSide;
       state.showSettings = false;
       const token = getToken(state.repoSettings.tokenStorageKey);
       if (!token) {
@@ -2358,7 +2426,7 @@ function renderMapView() {
 
       <button
         type="button"
-        class="add-note-fab"
+        class="add-note-fab add-note-fab--${state.fabSide}"
         data-action="open-modal"
         data-modal-kind="addChildNote"
         data-map-path="${escapeHtml(snapshot.filePath)}"
@@ -2424,35 +2492,20 @@ function renderTreeNode(snapshot, node, depth, selectedNodeState) {
 function renderSelectedNodeActions(snapshot, nodeUiState) {
   const nodeId = nodeUiState.node.uniqueIdentifier;
   const mapPath = snapshot.filePath;
-  const actionDisabled = nodeUiState.canEditNode ? '' : 'disabled';
   const taskDisabled = nodeUiState.canChangeTaskState ? '' : 'disabled';
-  const canDelete = nodeUiState.canChangeTaskState;
   const isTask = nodeUiState.node.taskState !== TASK_STATE.NONE;
   const badgesMarkup = nodeUiState.badges.length > 0
     ? `<div class="selected-node-meta">${renderBadgeMarkup(nodeUiState.badges)}</div>`
     : '';
   const hintMarkup = renderSelectedNodeHint(nodeUiState);
 
+  if (!isTask && !badgesMarkup && !hintMarkup) {
+    return '';
+  }
+
   return `
     <div class="selected-node-actions">
       <div class="selected-node-toolbar">
-        <button
-          type="button"
-          class="mini-action mini-action-icon"
-          data-action="open-modal"
-          data-modal-kind="editNode"
-          data-map-path="${escapeHtml(mapPath)}"
-          data-node-id="${escapeHtml(nodeId)}"
-          data-focus-key="${escapeHtml(buildModalTriggerKey('editNode', mapPath, nodeId))}"
-          aria-label="Edit"
-          title="Edit"
-          ${actionDisabled}
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-          </svg>
-        </button>
         ${isTask ? `
           <div class="task-dot-group" role="group" aria-label="Task state">
             ${renderTaskStateDotButton('Clear task state', TASK_STATE.NONE, nodeUiState, taskDisabled)}
@@ -2461,27 +2514,6 @@ function renderSelectedNodeActions(snapshot, nodeUiState) {
             ${renderTaskStateDotButton('Set Done', TASK_STATE.DONE, nodeUiState, taskDisabled)}
           </div>
         ` : ''}
-        ${canDelete
-          ? `<button
-              type="button"
-              class="mini-action mini-action-icon mini-action-icon--destructive"
-              data-action="open-modal"
-              data-modal-kind="deleteNode"
-              data-map-path="${escapeHtml(mapPath)}"
-              data-node-id="${escapeHtml(nodeId)}"
-              data-focus-key="${escapeHtml(buildModalTriggerKey('deleteNode', mapPath, nodeId))}"
-              aria-label="Remove"
-              title="Remove"
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <polyline points="3 6 5 6 21 6"/>
-                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-                <path d="M10 11v6"/>
-                <path d="M14 11v6"/>
-                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
-              </svg>
-            </button>`
-          : ''}
       </div>
       ${badgesMarkup}
       ${hintMarkup}
@@ -2595,7 +2627,7 @@ function renderActiveModal() {
       ? 'add-task-form'
       : 'add-note-form';
   const actionLabel = isEditModal
-    ? 'Save text'
+    ? 'Save'
     : isAddTaskModal
       ? 'Add task'
       : 'Add note';
@@ -2636,14 +2668,16 @@ function renderActiveModal() {
     <div class="modal-layer">
       <button type="button" class="modal-backdrop" data-action="close-modal" aria-label="Close dialog"></button>
       <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="map-modal-title">
+        ${isEditModal ? '' : `
         <div class="modal-header">
           <div>
-            <p class="eyebrow">${isEditModal ? 'Edit' : 'Add child'}</p>
+            <p class="eyebrow">Add child</p>
             <h3 id="map-modal-title">${escapeHtml(title)}</h3>
             <p class="node-path">${renderInlinePath(nodeUiState.pathSegments, 'formatted-path node-path-inline')}</p>
           </div>
           <button type="button" class="ghost-button compact-button" data-action="close-modal">Close</button>
         </div>
+        `}
 
         ${state.activeModal.errorMessage
           ? `<p class="form-error" role="alert">${escapeHtml(state.activeModal.errorMessage)}</p>`
@@ -2651,9 +2685,30 @@ function renderActiveModal() {
 
         <form id="${formId}" class="stack-form modal-form">
           ${inputMarkup}
-          <p class="security-note">${escapeHtml(description)}</p>
+          ${isEditModal ? '' : `<p class="security-note">${escapeHtml(description)}</p>`}
           <div class="form-actions">
             <button type="button" class="secondary-button" data-action="close-modal">Cancel</button>
+            ${isEditModal && nodeUiState.canChangeTaskState ? `
+            <button
+              type="button"
+              class="danger-button danger-button--icon"
+              data-action="open-modal"
+              data-modal-kind="deleteNode"
+              data-map-path="${escapeHtml(state.activeModal.mapPath)}"
+              data-node-id="${escapeHtml(nodeUiState.node.uniqueIdentifier)}"
+              data-focus-key="${escapeHtml(buildModalTriggerKey('deleteNode', state.activeModal.mapPath, nodeUiState.node.uniqueIdentifier))}"
+              aria-label="Delete node"
+              title="Delete"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                <path d="M10 11v6"/>
+                <path d="M14 11v6"/>
+                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+              </svg>
+            </button>
+            ` : ''}
             <button type="submit">${escapeHtml(actionLabel)}</button>
           </div>
         </form>

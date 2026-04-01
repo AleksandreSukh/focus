@@ -431,6 +431,26 @@ h3 {
   border: 1px solid rgba(181, 58, 47, 0.25);
 }
 
+.danger-button--icon {
+  align-self: stretch;
+  aspect-ratio: 1 / 1;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.danger-button--icon svg {
+  width: 0.95rem;
+  height: 0.95rem;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+  flex-shrink: 0;
+}
+
 .mini-action--destructive {
   color: var(--danger);
 }
@@ -997,7 +1017,6 @@ h3 {
 .add-note-fab {
   position: fixed;
   bottom: 1.5rem;
-  left: 1.5rem;
   width: 3.8rem;
   height: 3.8rem;
   border-radius: 999px;
@@ -1036,6 +1055,9 @@ h3 {
   opacity: 0.35;
   cursor: not-allowed;
 }
+
+.add-note-fab--right { right: 1.5rem; left: auto; }
+.add-note-fab--left  { left: 1.5rem;  right: auto; }
 
 .selected-node-actions {
   gap: 0.45rem;
