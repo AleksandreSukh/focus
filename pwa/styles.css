@@ -396,6 +396,7 @@ h3 {
 .form-actions button:not(.secondary-button):not(.ghost-button):not(.danger-button) {
   background: var(--accent);
   color: #ffffff;
+  border: 1px solid transparent;
 }
 
 .secondary-button,
@@ -435,25 +436,6 @@ h3 {
   border: 1px solid rgba(181, 58, 47, 0.25);
 }
 
-.danger-button--icon {
-  align-self: stretch;
-  aspect-ratio: 1 / 1;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.danger-button--icon svg {
-  width: 0.95rem;
-  height: 0.95rem;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  fill: none;
-  flex-shrink: 0;
-}
 
 .mini-action--destructive {
   color: var(--danger);
