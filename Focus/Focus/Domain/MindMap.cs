@@ -33,6 +33,8 @@ namespace Systems.Sanity.Focus.Domain
 
         public Node RootNode { get; set; }
 
+        public DateTimeOffset? UpdatedAt { get; set; }
+
         public override string ToString()
         {
             return JsonConvert.SerializeObject(this, JsonSerialization.CreateDefaultSettings());
@@ -41,21 +43,44 @@ namespace Systems.Sanity.Focus.Domain
         public Node AddAtCurrentNode(
             string input,
             string source = NodeMetadataSources.Manual,
-            string? device = null) => _currentNode.Add(input, NodeType.TextItem, source, device);
+            string? device = null)
+        {
+            var node = _currentNode.Add(input, NodeType.TextItem, source, device);
+            TouchMapTimestamp();
+            return node;
+        }
 
         public Node AddIdeaAtCurrentNode(
             string input,
             string source = NodeMetadataSources.Manual,
-            string? device = null) => _currentNode.Add(input, NodeType.IdeaBagItem, source, device);
+            string? device = null)
+        {
+            var node = _currentNode.Add(input, NodeType.IdeaBagItem, source, device);
+            TouchMapTimestamp();
+            return node;
+        }
 
-        public void EditCurrentNode(string newString) => _currentNode.EditNode(newString);
+        public void EditCurrentNode(string newString)
+        {
+            _currentNode.EditNode(newString);
+            TouchMapTimestamp();
+        }
 
-        public Node LoadAtCurrentNode(MindMap anotherMap) => _currentNode.Add(anotherMap.RootNode);
+        public Node LoadAtCurrentNode(MindMap anotherMap)
+        {
+            var node = _currentNode.Add(anotherMap.RootNode);
+            TouchMapTimestamp();
+            return node;
+        }
 
         public void LinkToCurrentNode(
             Node linkedNode,
             LinkRelationType relationType = LinkRelationType.Relates,
-            string? metadata = null) => _currentNode.AddLink(linkedNode, relationType, metadata);
+            string? metadata = null)
+        {
+            _currentNode.AddLink(linkedNode, relationType, metadata);
+            TouchMapTimestamp();
+        }
 
         public bool LinkToNode(
             string nodeIdentifier,
@@ -68,6 +93,7 @@ namespace Systems.Sanity.Focus.Domain
                 return false;
 
             nodeToLinkFrom.AddLink(nodeToLinkTo, relationType, metadata);
+            TouchMapTimestamp();
             return true;
         }
 
@@ -99,15 +125,25 @@ namespace Systems.Sanity.Focus.Domain
             if (nodeToDelete == null)
                 return false;
 
-            return DeleteChildNode(_currentNode, nodeToDelete);
+            var result = DeleteChildNode(_currentNode, nodeToDelete);
+            if (result) TouchMapTimestamp();
+            return result;
         }
 
-        public bool DeleteCurrentNodeIdeaTags() => ClearIdeaTagsOfNode(_currentNode);
+        public bool DeleteCurrentNodeIdeaTags()
+        {
+            var result = ClearIdeaTagsOfNode(_currentNode);
+            if (result) TouchMapTimestamp();
+            return result;
+        }
 
         public bool DeleteNodeIdeaTags(string nodeIdentifier)
         {
             var nodeToClear = FindNode(nodeIdentifier);
-            return nodeToClear != null && ClearIdeaTagsOfNode(nodeToClear);
+            if (nodeToClear == null) return false;
+            var result = ClearIdeaTagsOfNode(nodeToClear);
+            if (result) TouchMapTimestamp();
+            return result;
         }
 
         public MindMap? DetachCurrentNodeAsNewMap()
@@ -118,6 +154,7 @@ namespace Systems.Sanity.Focus.Domain
             if (detachedMap != null && parentNode != null)
             {
                 _currentNode = parentNode;
+                TouchMapTimestamp();
             }
 
             return detachedMap;
@@ -178,13 +215,18 @@ namespace Systems.Sanity.Focus.Domain
                 return false;
 
             node.Collapse();
+            TouchMapTimestamp();
             return true;
         }
 
         public bool IsAtRootNode() => _currentNode == RootNode;
 
-        public bool SetTaskState(TaskState taskState, out string errorMessage) =>
-            SetTaskState(_currentNode, taskState, out errorMessage);
+        public bool SetTaskState(TaskState taskState, out string errorMessage)
+        {
+            var result = SetTaskState(_currentNode, taskState, out errorMessage);
+            if (result) TouchMapTimestamp();
+            return result;
+        }
 
         public bool SetTaskState(string nodeIdentifier, TaskState taskState, out string errorMessage)
         {
@@ -195,11 +237,17 @@ namespace Systems.Sanity.Focus.Domain
                 return false;
             }
 
-            return SetTaskState(node, taskState, out errorMessage);
+            var result = SetTaskState(node, taskState, out errorMessage);
+            if (result) TouchMapTimestamp();
+            return result;
         }
 
-        public bool ToggleTaskState(out string errorMessage) =>
-            ToggleTaskState(_currentNode, out errorMessage);
+        public bool ToggleTaskState(out string errorMessage)
+        {
+            var result = ToggleTaskState(_currentNode, out errorMessage);
+            if (result) TouchMapTimestamp();
+            return result;
+        }
 
         public bool ToggleTaskState(string nodeIdentifier, out string errorMessage)
         {
@@ -210,7 +258,9 @@ namespace Systems.Sanity.Focus.Domain
                 return false;
             }
 
-            return ToggleTaskState(node, out errorMessage);
+            var result = ToggleTaskState(node, out errorMessage);
+            if (result) TouchMapTimestamp();
+            return result;
         }
 
         public void ResetCurrentNodeToRoot()
@@ -225,8 +275,11 @@ namespace Systems.Sanity.Focus.Domain
                 return false;
 
             node.Expand();
+            TouchMapTimestamp();
             return true;
         }
+
+        private void TouchMapTimestamp() => UpdatedAt = DateTimeOffset.UtcNow;
 
         private bool ClearIdeaTagsOfNode(Node nodeToClear)
         {

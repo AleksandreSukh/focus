@@ -2264,7 +2264,7 @@ function renderMapCard(summary) {
         <div class="compact-title-block">
           <h3>${renderInlineHtml(summary.rootTitle, { theme: state.theme, wrapperClass: 'formatted-inline card-title-inline' })}</h3>
           <p class="map-file-name">${escapeHtml(summary.fileName)}</p>
-          <p class="compact-meta">${escapeHtml(buildMapSummaryLine(summary))}</p>
+          <p class="compact-meta">${renderMapTaskCounts(summary)}</p>
         </div>
       </div>
       <div class="compact-row-actions">
@@ -2274,18 +2274,18 @@ function renderMapCard(summary) {
   `;
 }
 
-function buildMapSummaryLine(summary) {
+function renderMapTaskCounts(summary) {
+  const { open, todo, doing, done } = summary.taskCounts;
   const parts = [
-    `Open ${summary.taskCounts.open}`,
-    `Todo ${summary.taskCounts.todo}`,
-    `Doing ${summary.taskCounts.doing}`,
-    `Done ${summary.taskCounts.done}`,
+    `<span class="task-tone-open">${open}</span>`,
+    `<span class="task-tone-todo">${todo}</span>`,
+    `<span class="task-tone-doing">${doing}</span>`,
+    `<span class="task-tone-done">${done}</span>`,
   ];
   const pendingCount = getPendingCountForMap(summary.filePath);
   if (pendingCount > 0) {
     parts.push(`Pending ${pendingCount}`);
   }
-
   return parts.join(' · ');
 }
 
@@ -2355,6 +2355,24 @@ function renderMapView() {
       </article>
 
       ${renderActiveModal()}
+
+      <button
+        type="button"
+        class="add-note-fab"
+        data-action="open-modal"
+        data-modal-kind="addChildNote"
+        data-map-path="${escapeHtml(snapshot.filePath)}"
+        data-node-id="${escapeHtml(selectedNodeState.node.uniqueIdentifier)}"
+        data-focus-key="add-note-fab"
+        aria-label="Add note"
+        title="Add note"
+        ${selectedNodeState.canEditNode ? '' : 'disabled'}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <line x1="12" y1="5" x2="12" y2="19"/>
+          <line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+      </button>
     </section>
   `;
 }
@@ -2433,40 +2451,6 @@ function renderSelectedNodeActions(snapshot, nodeUiState) {
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
             <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-          </svg>
-        </button>
-        <button
-          type="button"
-          class="mini-action mini-action-icon"
-          data-action="open-modal"
-          data-modal-kind="addChildNote"
-          data-map-path="${escapeHtml(mapPath)}"
-          data-node-id="${escapeHtml(nodeId)}"
-          data-focus-key="${escapeHtml(buildModalTriggerKey('addChildNote', mapPath, nodeId))}"
-          aria-label="Add note"
-          title="Add note"
-          ${actionDisabled}
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <line x1="12" y1="5" x2="12" y2="19"/>
-            <line x1="5" y1="12" x2="19" y2="12"/>
-          </svg>
-        </button>
-        <button
-          type="button"
-          class="mini-action mini-action-icon mini-action-icon--task"
-          data-action="open-modal"
-          data-modal-kind="addChildTask"
-          data-map-path="${escapeHtml(mapPath)}"
-          data-node-id="${escapeHtml(nodeId)}"
-          data-focus-key="${escapeHtml(buildModalTriggerKey('addChildTask', mapPath, nodeId))}"
-          aria-label="Add task"
-          title="Add task"
-          ${actionDisabled}
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <line x1="12" y1="5" x2="12" y2="19"/>
-            <line x1="5" y1="12" x2="19" y2="12"/>
           </svg>
         </button>
         ${isTask ? `

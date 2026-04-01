@@ -60,13 +60,21 @@ export function normalizeMindMapDocument(rawDocument, options = {}) {
     number: 1,
   });
 
+  // Normalize the map-level updatedAt. For old maps that lack it, fall back to
+  // the root node's timestamp so the first load migrates gracefully.
+  document.updatedAt = normalizeTimestamp(
+    typeof document.updatedAt === 'string' && document.updatedAt
+      ? document.updatedAt
+      : getNodeUpdatedAt(document.rootNode) || legacyTimestamp,
+  );
+
   return document;
 }
 
 export function buildMapSummary(snapshot) {
   const rootNode = snapshot.document?.rootNode;
   const taskCounts = getTaskCounts(snapshot.document);
-  const updatedAt = getNodeUpdatedAt(rootNode);
+  const updatedAt = snapshot.document?.updatedAt ?? getNodeUpdatedAt(rootNode);
   return {
     filePath: snapshot.filePath,
     fileName: snapshot.fileName,
@@ -193,6 +201,7 @@ export function applyMapMutation(document, mutation) {
 export function createMapDocument(rootName) {
   const timestamp = nowIso();
   return {
+    updatedAt: timestamp,
     rootNode: {
       nodeType: NODE_TYPE.TEXT_ITEM,
       uniqueIdentifier: createGuid(),
@@ -360,6 +369,7 @@ function editNodeText(document, mutation, timestamp) {
 
   record.node.name = normalizedText;
   touchMetadata(record.node, timestamp);
+  touchDocumentTimestamp(document, timestamp);
   return {
     ok: true,
     value: {
@@ -384,6 +394,7 @@ function setNodeTaskState(document, mutation, timestamp) {
     ? mutation.taskState
     : TASK_STATE.NONE;
   touchMetadata(record.node, timestamp);
+  touchDocumentTimestamp(document, timestamp);
   return {
     ok: true,
     value: {
@@ -419,6 +430,7 @@ function addChildNode(document, mutation, timestamp, taskState) {
   parentRecord.node.children.push(childNode);
   renumberChildren(parentRecord.node);
   touchMetadata(parentRecord.node, timestamp);
+  touchDocumentTimestamp(document, timestamp);
 
   return {
     ok: true,
@@ -452,6 +464,7 @@ function deleteChildNode(document, mutation, timestamp) {
   parent.children.splice(index, 1);
   renumberChildren(parent);
   touchMetadata(parent, timestamp);
+  touchDocumentTimestamp(document, timestamp);
 
   return {
     ok: true,
@@ -502,6 +515,10 @@ function createMetadata(timestamp, source, device) {
 function touchMetadata(node, timestamp) {
   normalizeMetadata(node, timestamp);
   node.metadata.updatedAtUtc = normalizeTimestamp(timestamp);
+}
+
+function touchDocumentTimestamp(document, timestamp) {
+  document.updatedAt = normalizeTimestamp(timestamp);
 }
 
 function renumberChildren(node) {

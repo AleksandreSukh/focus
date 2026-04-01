@@ -29,6 +29,12 @@ internal static class MapNormalizer
             legacyTimestampUtc.Value.ToUniversalTime());
         RewriteLinkTargets(map.RootNode, remappedIdentifiers, normalizationResult);
 
+        // Backfill the map-level timestamp for maps saved before this field existed.
+        if (map.UpdatedAt == null)
+        {
+            map.UpdatedAt = map.RootNode.Metadata?.UpdatedAtUtc ?? legacyTimestampUtc.Value.ToUniversalTime();
+        }
+
         if (currentNodeIdentifier.HasValue &&
             remappedIdentifiers.TryGetValue(currentNodeIdentifier.Value, out var remappedCurrentNodeIdentifier))
         {

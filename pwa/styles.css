@@ -890,6 +890,7 @@ h3 {
 .reader-list {
   margin: 0;
   padding-left: 1.7rem;
+  list-style: none;
 }
 
 .reader-root-list {
@@ -986,6 +987,54 @@ h3 {
 
 .task-dot-button.active {
   box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.task-tone-open { color: var(--muted); }
+.task-tone-todo { color: var(--task-todo); }
+.task-tone-doing { color: var(--task-doing); }
+.task-tone-done { color: var(--task-done); }
+
+.add-note-fab {
+  position: fixed;
+  bottom: 1.5rem;
+  left: 1.5rem;
+  width: 3.8rem;
+  height: 3.8rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow);
+  z-index: 20;
+  cursor: pointer;
+  transition: background-color 140ms ease, box-shadow 140ms ease;
+}
+
+.add-note-fab svg {
+  width: 2rem;
+  height: 2rem;
+  stroke: currentColor;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  fill: none;
+}
+
+.add-note-fab:hover {
+  background: var(--accent-strong);
+  box-shadow: var(--shadow), 0 0 0 4px var(--accent-soft);
+}
+
+.add-note-fab:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 3px;
+}
+
+.add-note-fab:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 .selected-node-actions {
