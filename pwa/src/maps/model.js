@@ -241,10 +241,6 @@ export function getNodeBadges(node) {
     badges.push('Idea');
   }
 
-  if (node.collapsed) {
-    badges.push('Collapsed');
-  }
-
   if (node.links && typeof node.links === 'object' && Object.keys(node.links).length > 0) {
     badges.push('Links');
   }
