@@ -1,6 +1,7 @@
 import {
   buildConflictResolveCommitMessage,
   buildMapCreateCommitMessage,
+  buildMapDeleteCommitMessage,
   buildNodeAddCommitMessage,
   buildNodeDeleteCommitMessage,
   buildNodeEditCommitMessage,
@@ -85,6 +86,7 @@ const state = {
   localCollapsedByMap: {},
   activeModal: null,
   pendingFocusRequest: null,
+  openCardMenu: '',
 };
 
 const ui = {};
@@ -440,6 +442,11 @@ function handleDocumentClick(event) {
     return;
   }
 
+  if (state.openCardMenu && !target.closest('.card-menu')) {
+    state.openCardMenu = '';
+    render();
+  }
+
   const nestedLink = target.closest('a[href]');
   if (nestedLink instanceof HTMLAnchorElement) {
     return;
@@ -551,6 +558,19 @@ function handleDocumentClick(event) {
       return;
     case 'confirm-delete-node':
       void handleDeleteNodeConfirm();
+      return;
+    case 'toggle-card-menu':
+      toggleCardMenu(clickableElement.dataset.mapPath || '');
+      return;
+    case 'open-delete-map-modal':
+      state.openCardMenu = '';
+      openDeleteMapModal(
+        clickableElement.dataset.mapPath || '',
+        clickableElement.dataset.focusKey || '',
+      );
+      return;
+    case 'confirm-delete-map':
+      void handleDeleteMapConfirm();
       return;
     case 'open-task-node':
       openTaskNode(clickableElement.dataset.mapPath || '', clickableElement.dataset.nodeId || '');
@@ -1332,6 +1352,65 @@ async function handleDeleteNodeConfirm() {
   closeActiveModal({
     focusKey: buildNodeFocusKey(snapshot.filePath, parentId),
   });
+}
+
+function toggleCardMenu(mapPath) {
+  state.openCardMenu = state.openCardMenu === mapPath ? '' : mapPath;
+  render();
+}
+
+function openDeleteMapModal(mapPath, returnFocusKey = '') {
+  const snapshot = state.mapsByPath[mapPath];
+  if (!snapshot) {
+    return;
+  }
+
+  state.activeModal = {
+    kind: 'deleteMap',
+    mapPath,
+    nodeId: '',
+    draftText: '',
+    errorMessage: '',
+    returnFocusKey: returnFocusKey || 'maps-list',
+  };
+  state.pendingFocusRequest = {
+    type: 'modalAutofocus',
+  };
+  render();
+}
+
+async function handleDeleteMapConfirm() {
+  if (!state.activeModal || state.activeModal.kind !== 'deleteMap') {
+    return;
+  }
+
+  const filePath = state.activeModal.mapPath;
+  const snapshot = state.mapsByPath[filePath];
+  if (!snapshot) {
+    setActiveModalError('Map is no longer available.');
+    return;
+  }
+
+  const commitMessage = buildMapDeleteCommitMessage(snapshot.mapName);
+  const result = await state.service.deleteMap(filePath, commitMessage);
+  if (!result.ok) {
+    setActiveModalError(result.error.message || 'Failed to delete map. Try again.');
+    return;
+  }
+
+  setSnapshots(getSnapshots().filter((item) => item.filePath !== filePath));
+  state.service.hydrateSnapshots(getSnapshots());
+  persistRepoScopedState();
+  state.syncState = {
+    kind: 'success',
+    tone: 'success',
+    message: `Map "${snapshot.mapName}" deleted.`,
+    detail: buildStatusDetail(),
+    canRetry: false,
+  };
+  state.activeModal = null;
+  state.currentView = 'maps';
+  render();
 }
 
 async function openConflictModal() {
@@ -2338,6 +2417,27 @@ function renderMapCard(summary) {
       <div class="compact-row-actions">
         <p class="map-updated">Updated ${escapeHtml(formatRelativeTime(summary.updatedAt))}</p>
       </div>
+      <div class="card-menu">
+        <button
+          type="button"
+          class="ghost-button compact-button card-menu-trigger"
+          data-action="toggle-card-menu"
+          data-map-path="${escapeHtml(summary.filePath)}"
+          aria-label="Map options"
+          aria-expanded="${state.openCardMenu === summary.filePath}"
+        >&#x22EE;</button>
+        ${state.openCardMenu === summary.filePath ? `
+          <div class="card-menu-dropdown" role="menu">
+            <button
+              type="button"
+              class="card-menu-item mini-action--destructive"
+              role="menuitem"
+              data-action="open-delete-map-modal"
+              data-map-path="${escapeHtml(summary.filePath)}"
+            >Delete</button>
+          </div>
+        ` : ''}
+      </div>
     </article>
   `;
 }
@@ -2598,6 +2698,10 @@ function renderActiveModal() {
     return renderCreateMapModal();
   }
 
+  if (state.activeModal.kind === 'deleteMap') {
+    return renderDeleteMapModal();
+  }
+
   const modalContext = getActiveModalContext(state.activeModal.kind);
   if (!modalContext) {
     return '';
@@ -2783,6 +2887,41 @@ function renderDeleteNodeModal(nodeUiState) {
             class="danger-button"
             data-action="confirm-delete-node"
           >Remove</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderDeleteMapModal() {
+  const filePath = state.activeModal.mapPath;
+  const snapshot = state.mapsByPath[filePath];
+  const mapName = snapshot?.mapName || filePath;
+
+  return `
+    <div class="modal-layer">
+      <button type="button" class="modal-backdrop" data-action="close-modal" aria-label="Close dialog"></button>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="map-modal-title">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Delete map</p>
+            <h3 id="map-modal-title">${escapeHtml(mapName)}</h3>
+          </div>
+          <button type="button" class="ghost-button compact-button" data-action="close-modal">Close</button>
+        </div>
+
+        ${state.activeModal.errorMessage
+          ? `<p class="form-error" role="alert">${escapeHtml(state.activeModal.errorMessage)}</p>`
+          : ''}
+
+        <p class="security-note">This will permanently delete the map file from GitHub. This cannot be undone.</p>
+        <div class="form-actions">
+          <button type="button" class="secondary-button" data-action="close-modal" data-modal-autofocus="true">Cancel</button>
+          <button
+            type="button"
+            class="danger-button"
+            data-action="confirm-delete-map"
+          >Delete</button>
         </div>
       </div>
     </div>

@@ -790,6 +790,53 @@ h3 {
   justify-content: flex-end;
 }
 
+.map-row {
+  position: relative;
+}
+
+.card-menu {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+}
+
+.card-menu-trigger {
+  font-size: 1.5rem;
+  line-height: 1;
+  padding: 0.25rem 0.4rem;
+  min-width: 0;
+  border: none;
+}
+
+.card-menu-dropdown {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 10;
+  min-width: 7rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  padding: 0.25rem 0;
+}
+
+.card-menu-item {
+  display: block;
+  width: 100%;
+  padding: 0.45rem 0.85rem;
+  border: none;
+  background: none;
+  text-align: left;
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.card-menu-item:hover {
+  background: var(--panel-muted);
+}
+
 .compact-title-block {
   min-width: 0;
   display: grid;

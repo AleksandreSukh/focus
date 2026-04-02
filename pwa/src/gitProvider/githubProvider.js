@@ -48,6 +48,21 @@ export class GitHubProvider {
       throw error;
     }
   }
+  async deleteFile(path, versionToken, message) {
+    try {
+      const response = await this.adapter.deleteContent(path, {
+        message,
+        sha: versionToken,
+      }, `deleting remote file ${path}`);
+      recordSyncSuccess(`Deleted ${path} from GitHub.`);
+      return {
+        commitSha: response.commit?.sha,
+      };
+    } catch (error) {
+      recordSyncFailure(toErrorSummary('delete', path, error));
+      throw error;
+    }
+  }
 }
 
 function decodeContent(content, encoding) {

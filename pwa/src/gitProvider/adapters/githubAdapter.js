@@ -93,6 +93,20 @@ export class GitHubAdapter {
     );
   }
 
+  async deleteContent(path, payload, contextLabel = `deleting ${path}`) {
+    return this.requestJson(
+      `/repos/${this.owner}/${this.repo}/contents/${normalizePath(path)}`,
+      {
+        method: 'DELETE',
+        body: JSON.stringify({
+          ...payload,
+          branch: this.branch,
+        }),
+      },
+      { operation: 'deleteContent', contextLabel },
+    );
+  }
+
   async requestJson(endpoint, init, context = {}) {
     let response;
     const operation = context.operation || '';
@@ -219,6 +233,8 @@ function defaultContextLabel(operation) {
       return 'listing the configured maps directory';
     case 'putContent':
       return 'saving the remote file';
+    case 'deleteContent':
+      return 'deleting the remote file';
     default:
       return 'calling the GitHub API';
   }

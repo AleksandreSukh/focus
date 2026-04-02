@@ -47,6 +47,30 @@ export class GitHubMindMapProvider {
     };
   }
 
+  async deleteMap({ filePath, expectedRevision, commitMessage }) {
+    try {
+      const result = await this.gitProvider.deleteFile(
+        filePath,
+        expectedRevision,
+        commitMessage,
+      );
+
+      return {
+        ok: true,
+        commitSha: result.commitSha,
+      };
+    } catch (error) {
+      if (error instanceof GitHubApiError && error.code === 'CONFLICT') {
+        return {
+          ok: false,
+          reason: 'conflict',
+        };
+      }
+
+      throw error;
+    }
+  }
+
   async saveMap({ filePath, document, expectedRevision, commitMessage }) {
     try {
       const result = await this.gitProvider.putFile(

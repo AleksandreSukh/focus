@@ -89,6 +89,52 @@ export class MindMapRepository {
     }
   }
 
+  async deleteMap(filePath, expectedRevision, commitMessage) {
+    try {
+      const outcome = await this.provider.deleteMap({
+        filePath,
+        expectedRevision,
+        commitMessage,
+      });
+
+      if (outcome.ok) {
+        return {
+          ok: true,
+        };
+      }
+
+      if (outcome.reason === 'conflict') {
+        return {
+          ok: false,
+          error: {
+            code: 'STALE_STATE',
+            message: `Remote map "${filePath}" changed and must be refreshed before deleting.`,
+            retriable: true,
+          },
+        };
+      }
+
+      return {
+        ok: false,
+        error: {
+          code: 'PERSISTENCE_ERROR',
+          message: outcome.message || `Unable to delete map "${filePath}".`,
+          retriable: true,
+        },
+      };
+    } catch (cause) {
+      return {
+        ok: false,
+        error: {
+          code: 'PERSISTENCE_ERROR',
+          message: cause?.message || `Unable to delete map "${filePath}".`,
+          retriable: cause?.code === 'NETWORK' || cause?.code === 'RATE_LIMIT',
+          cause,
+        },
+      };
+    }
+  }
+
   async saveMap(filePath, document, expectedRevision, commitMessage) {
     try {
       const outcome = await this.provider.saveMap({

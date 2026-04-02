@@ -97,6 +97,30 @@ export class MindMapService {
     };
   }
 
+  async deleteMap(filePath, commitMessage) {
+    const snapshot = this.snapshotsByPath.get(filePath);
+    if (!snapshot) {
+      return {
+        ok: false,
+        error: {
+          code: 'NOT_FOUND',
+          message: `Map "${filePath}" is not loaded.`,
+          retriable: false,
+        },
+      };
+    }
+
+    const deleted = await this.repository.deleteMap(filePath, snapshot.revision, commitMessage);
+    if (!deleted.ok) {
+      return deleted;
+    }
+
+    this.snapshotsByPath.delete(filePath);
+    return {
+      ok: true,
+    };
+  }
+
   async saveResolved(filePath, document, revision, commitMessage) {
     const saved = await this.repository.saveMap(filePath, document, revision, commitMessage);
     if (!saved.ok) {
