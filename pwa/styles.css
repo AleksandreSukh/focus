@@ -1448,6 +1448,70 @@ h3 {
   gap: 0.9rem;
 }
 
+.note-composer-card {
+  width: min(100%, 38rem);
+  padding: 0.85rem;
+}
+
+.note-composer-form {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.note-composer-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.7rem;
+}
+
+.note-composer-input {
+  width: 100%;
+  min-height: 3.4rem;
+  max-height: min(40dvh, 16rem);
+  background: var(--input-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  padding: 0.9rem 1rem;
+  resize: vertical;
+  line-height: 1.45;
+  transition: border-color 200ms ease, box-shadow 200ms ease;
+}
+
+.note-composer-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft), 0 0 12px var(--glow-accent);
+  outline: none;
+}
+
+.note-composer-submit {
+  align-self: end;
+  background: var(--accent);
+  color: #ffffff;
+  border: 1px solid transparent;
+  box-shadow: 0 10px 24px var(--glow-accent);
+  transition: background-color 180ms ease, transform 180ms ease, box-shadow 200ms ease;
+}
+
+.note-composer-submit:hover {
+  background: var(--accent-strong);
+  box-shadow: 0 0 16px var(--glow-accent);
+}
+
+.note-composer-submit:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft), 0 0 16px var(--glow-accent);
+}
+
+.note-composer-submit:active {
+  transform: translateY(1px);
+}
+
+.note-composer-error {
+  margin: 0;
+}
+
 .preview-panel {
   min-height: 3.1rem;
   padding: 0.8rem 0.9rem;
@@ -1872,6 +1936,10 @@ textarea:disabled {
     max-height: min(100dvh, 100%);
     border-radius: 1rem 1rem 0 0;
     animation: slideUp 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  .note-composer-card {
+    padding: 0.8rem;
   }
 
   .modal-card.modal-exiting {

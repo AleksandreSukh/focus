@@ -56,6 +56,7 @@ const HASH_ROUTE = {
   maps: '#maps',
   tasks: '#tasks',
 };
+const MODAL_HISTORY_STATE_KEY = 'focusModal';
 
 const state = {
   runtimeConfig: null,
@@ -106,6 +107,7 @@ const renderCache = {
 };
 let globalUiListenersBound = false;
 let hashRoutingBound = false;
+let pendingModalHistoryClose = null;
 
 export async function bootstrapApp() {
   wireUi();
@@ -238,6 +240,8 @@ function initializeHashRouting() {
     applyRouteFromHash({ replaceInvalid: true });
   });
 
+  window.addEventListener('popstate', handleWindowPopState);
+
   hashRoutingBound = true;
 }
 
@@ -305,6 +309,7 @@ function applyRouteFromHash(options = {}) {
   const route = parseHashRoute(window.location.hash);
 
   state.activeModal = null;
+  pendingModalHistoryClose = null;
   state.showStatus = false;
   state.showSettings = false;
 
@@ -384,6 +389,68 @@ function navigateToMapRoute(mapPath, options = {}) {
   navigateToHashRoute(nextHash, { replace });
 }
 
+function getModalHistoryState(historyState) {
+  if (!historyState || typeof historyState !== 'object' || Array.isArray(historyState)) {
+    return null;
+  }
+
+  const modalState = historyState[MODAL_HISTORY_STATE_KEY];
+  if (
+    !modalState ||
+    typeof modalState !== 'object' ||
+    modalState.kind !== 'addChildNote' ||
+    typeof modalState.token !== 'string' ||
+    !modalState.token
+  ) {
+    return null;
+  }
+
+  return modalState;
+}
+
+function pushAddChildNoteHistoryEntry() {
+  const token = createClientNodeId();
+  const currentState =
+    window.history.state && typeof window.history.state === 'object' && !Array.isArray(window.history.state)
+      ? window.history.state
+      : {};
+  const nextState = {
+    ...currentState,
+    [MODAL_HISTORY_STATE_KEY]: {
+      kind: 'addChildNote',
+      token,
+    },
+  };
+  const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  window.history.pushState(nextState, '', currentUrl);
+  return token;
+}
+
+function handleWindowPopState(event) {
+  if (state.authState !== 'authenticated') {
+    return;
+  }
+
+  if (state.activeModal?.kind !== 'addChildNote') {
+    return;
+  }
+
+  const currentToken = state.activeModal.historyToken || '';
+  const nextToken = getModalHistoryState(event.state)?.token || '';
+  if (!currentToken || currentToken === nextToken) {
+    return;
+  }
+
+  const pendingClose = pendingModalHistoryClose?.token === currentToken
+    ? pendingModalHistoryClose
+    : null;
+  pendingModalHistoryClose = null;
+  closeActiveModal({
+    fromHistory: true,
+    focusKey: pendingClose?.focusKey || state.activeModal.returnFocusKey || '',
+  });
+}
+
 function bindGlobalUiListeners() {
   if (globalUiListenersBound) {
     return;
@@ -418,6 +485,7 @@ async function handleDocumentSubmit(event) {
       await handleEditNodeSubmit(form);
       return;
     case 'add-note-form':
+    case 'add-note-composer-form':
       event.preventDefault();
       await handleAddChildSubmit(form, 'addChildNote');
       return;
@@ -654,7 +722,10 @@ function handleDocumentInput(event) {
     return;
   }
 
-  if (state.activeModal && ['edit-node-form', 'add-note-form', 'add-task-form', 'create-map-form'].includes(form.id)) {
+  if (
+    state.activeModal &&
+    ['edit-node-form', 'add-note-form', 'add-note-composer-form', 'add-task-form', 'create-map-form'].includes(form.id)
+  ) {
     state.activeModal = {
       ...state.activeModal,
       draftText: target.value,
@@ -686,6 +757,20 @@ function handleDocumentKeydown(event) {
     event.preventDefault();
     closeActiveModal();
     return;
+  }
+
+  if (
+    state.activeModal?.kind === 'addChildNote' &&
+    event.key === 'Enter' &&
+    !event.shiftKey &&
+    !event.isComposing
+  ) {
+    const composerForm = target.closest('#add-note-composer-form');
+    if (composerForm instanceof HTMLFormElement) {
+      event.preventDefault();
+      composerForm.requestSubmit();
+      return;
+    }
   }
 
   if (event.key === 'Escape' && state.showSettings) {
@@ -840,6 +925,7 @@ function switchRepoContext(repoSettings) {
   state.localCollapsedByMap = {};
   state.activeModal = null;
   state.pendingFocusRequest = null;
+  pendingModalHistoryClose = null;
 }
 
 async function authenticateAndLoad() {
@@ -955,7 +1041,8 @@ async function loadWorkspace(forceRefresh) {
   }
 }
 
-function enqueueOperation(operation) {
+function enqueueOperation(operation, options = {}) {
+  const { selectedNodeIdOverride = '' } = options;
   const currentSnapshot = state.mapsByPath[operation.filePath];
   if (!currentSnapshot) {
     return {
@@ -988,7 +1075,7 @@ function enqueueOperation(operation) {
   replaceSnapshot(nextSnapshot);
   state.currentView = 'map';
   state.selectedMapPath = operation.filePath;
-  state.selectedNodeId = applied.value.selectedNodeId || state.selectedNodeId;
+  state.selectedNodeId = selectedNodeIdOverride || applied.value.selectedNodeId || state.selectedNodeId;
   persistRepoScopedState();
   state.syncState = {
     kind: 'syncing',
@@ -1221,7 +1308,12 @@ async function handleEditNodeSubmit(form) {
 }
 
 async function handleAddChildSubmit(form, type) {
-  const expectedModalKind = type === 'addChildTask' ? 'addChildTask' : 'addChildNote';
+  if (type === 'addChildNote') {
+    await handleAddChildNoteSubmit(form);
+    return;
+  }
+
+  const expectedModalKind = 'addChildTask';
   const modalContext = getActiveModalContext(expectedModalKind);
   if (!modalContext) {
     return;
@@ -1257,6 +1349,67 @@ async function handleAddChildSubmit(form, type) {
   closeActiveModal({
     focusKey: buildNodeFocusKey(operation.filePath, state.selectedNodeId || operation.parentNodeId),
   });
+}
+
+async function handleAddChildNoteSubmit(form) {
+  if (!state.activeModal || state.activeModal.kind !== 'addChildNote') {
+    return;
+  }
+
+  const rawText = String(new FormData(form).get('text') ?? '');
+  const text = rawText.trim();
+  const parentNodeId = state.activeModal.fixedParentNodeId || state.activeModal.nodeId || '';
+  const modalContext = getNodeUiStateForLocation(state.activeModal.mapPath, parentNodeId);
+
+  state.activeModal = {
+    ...state.activeModal,
+    draftText: rawText,
+    errorMessage: '',
+  };
+
+  if (!modalContext) {
+    setActiveModalError('The selected parent node is no longer available.');
+    return;
+  }
+
+  if (!text) {
+    setActiveModalError('Child note text cannot be empty.');
+    return;
+  }
+
+  const operation = {
+    type: 'addChildNote',
+    filePath: modalContext.snapshot.filePath,
+    parentNodeId,
+    newNodeId: createClientNodeId(),
+    text,
+    timestamp: nowIso(),
+    commitMessage: buildNodeAddCommitMessage(
+      modalContext.snapshot.mapName,
+      text,
+      'note',
+    ),
+  };
+
+  const result = enqueueOperation(operation, {
+    selectedNodeIdOverride: parentNodeId,
+  });
+  if (!result.ok) {
+    setActiveModalError(result.error.message);
+    return;
+  }
+
+  state.activeModal = {
+    ...state.activeModal,
+    nodeId: parentNodeId,
+    fixedParentNodeId: parentNodeId,
+    draftText: '',
+    errorMessage: '',
+  };
+  state.pendingFocusRequest = {
+    type: 'modalAutofocus',
+  };
+  render();
 }
 
 async function handleSetTaskState(taskStateValue, explicitMapPath, explicitNodeId) {
@@ -1959,6 +2112,7 @@ function openNodeModal(kind, mapPath, nodeId, returnFocusKey = '') {
     }
   }
 
+  const historyToken = kind === 'addChildNote' ? pushAddChildNoteHistoryEntry() : '';
   state.activeModal = {
     kind,
     mapPath,
@@ -1966,6 +2120,8 @@ function openNodeModal(kind, mapPath, nodeId, returnFocusKey = '') {
     draftText: kind === 'editNode' ? nodeUiState.node.name || '' : '',
     errorMessage: '',
     returnFocusKey: focusKey,
+    fixedParentNodeId: kind === 'addChildNote' ? nodeUiState.node.uniqueIdentifier : '',
+    historyToken,
   };
   state.pendingFocusRequest = {
     type: 'modalAutofocus',
@@ -1978,10 +2134,24 @@ function closeActiveModal(options = {}) {
     return;
   }
 
+  const { fromHistory = false } = options;
+  if (state.activeModal.kind === 'addChildNote' && state.activeModal.historyToken && !fromHistory) {
+    if (pendingModalHistoryClose?.token === state.activeModal.historyToken) {
+      return;
+    }
+    pendingModalHistoryClose = {
+      token: state.activeModal.historyToken,
+      focusKey: options.focusKey || state.activeModal.returnFocusKey || '',
+    };
+    window.history.back();
+    return;
+  }
+
   if (state.activeModal.kind === 'imageViewer' && state.activeModal.imageUrl) {
     URL.revokeObjectURL(state.activeModal.imageUrl);
   }
 
+  pendingModalHistoryClose = null;
   const focusKey = options.focusKey || state.activeModal.returnFocusKey || '';
   const modalCard = document.querySelector('.modal-card');
   const modalBackdrop = document.querySelector('.modal-backdrop');
@@ -3485,6 +3655,10 @@ function renderActiveModal() {
     return renderImageViewerModal();
   }
 
+  if (state.activeModal.kind === 'addChildNote') {
+    return renderAddChildNoteComposer();
+  }
+
   const modalContext = getActiveModalContext(state.activeModal.kind);
   if (!modalContext) {
     return '';
@@ -3497,27 +3671,18 @@ function renderActiveModal() {
   }
 
   const isEditModal = state.activeModal.kind === 'editNode';
-  const isAddTaskModal = state.activeModal.kind === 'addChildTask';
   const title = isEditModal
     ? 'Edit node text'
-    : isAddTaskModal
-      ? 'Add child task'
-      : 'Add child note';
+    : 'Add child task';
   const description = isEditModal
     ? 'Unsupported mind-map data stays preserved when you save supported edits.'
-    : isAddTaskModal
-      ? 'Create a new child task under the selected node. New tasks start in Todo.'
-      : 'Create a new child note under the selected node.';
+    : 'Create a new child task under the selected node. New tasks start in Todo.';
   const formId = isEditModal
     ? 'edit-node-form'
-    : isAddTaskModal
-      ? 'add-task-form'
-      : 'add-note-form';
+    : 'add-task-form';
   const actionLabel = isEditModal
     ? 'Save'
-    : isAddTaskModal
-      ? 'Add task'
-      : 'Add note';
+    : 'Add task';
   const inputMarkup = isEditModal
     ? `
       <label>
@@ -3539,13 +3704,13 @@ function renderActiveModal() {
     `
     : `
       <label>
-        <span>${isAddTaskModal ? 'Child task text' : 'Child note text'}</span>
+        <span>Child task text</span>
         <input
           type="text"
           name="text"
           maxlength="500"
           value="${escapeHtml(state.activeModal.draftText)}"
-          placeholder="${escapeHtml(isAddTaskModal ? 'Describe the new task' : 'Describe the new child note')}"
+          placeholder="Describe the new task"
           data-modal-autofocus="true"
         />
       </label>
@@ -3588,6 +3753,43 @@ function renderActiveModal() {
             ` : ''}
             <button type="submit">${escapeHtml(actionLabel)}</button>
           </div>
+        </form>
+      </div>
+    </div>
+  `;
+}
+
+function renderAddChildNoteComposer() {
+  if (!getActiveModalContext('addChildNote')) {
+    return '';
+  }
+
+  return `
+    <div class="modal-layer">
+      <button type="button" class="modal-backdrop" data-action="close-modal" aria-label="Close dialog"></button>
+      <div class="modal-card note-composer-card" role="dialog" aria-modal="true" aria-label="Add child notes">
+        <form id="add-note-composer-form" class="note-composer-form">
+          <div class="note-composer-shell">
+            <textarea
+              class="note-composer-input"
+              name="text"
+              rows="1"
+              maxlength="5000"
+              placeholder="Add a child note"
+              aria-label="Child note text"
+              data-modal-autofocus="true"
+            >${escapeHtml(state.activeModal.draftText)}</textarea>
+            <button type="submit" class="icon-button note-composer-submit" aria-label="Add child note">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 4v12"></path>
+                <path d="m7 9 5-5 5 5"></path>
+                <path d="M6 20h12"></path>
+              </svg>
+            </button>
+          </div>
+          ${state.activeModal.errorMessage
+            ? `<p class="form-error note-composer-error" role="alert">${escapeHtml(state.activeModal.errorMessage)}</p>`
+            : ''}
         </form>
       </div>
     </div>
