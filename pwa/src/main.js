@@ -3172,11 +3172,10 @@ function renderMapCard(summary) {
       <div class="compact-row-main">
         <div class="compact-title-block">
           <h3>${renderInlineHtml(summary.rootTitle, { theme: state.theme, wrapperClass: 'formatted-inline card-title-inline' })}</h3>
-          <p class="map-file-name">${escapeHtml(summary.fileName)}</p>
-          <p class="compact-meta">${renderMapTaskCounts(summary)}</p>
         </div>
       </div>
       <div class="compact-row-actions">
+        <p class="compact-meta">${renderMapTaskCounts(summary)}</p>
         <p class="map-updated">Updated ${escapeHtml(formatRelativeTime(summary.updatedAt))}</p>
       </div>
       <div class="card-menu">${renderMapCardMenu(summary)}</div>
