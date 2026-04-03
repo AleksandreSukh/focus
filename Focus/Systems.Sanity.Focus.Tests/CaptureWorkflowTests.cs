@@ -1,35 +1,63 @@
 using System.IO;
 using System.Linq;
+using System.Text;
 using Systems.Sanity.Focus.Application;
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.Infrastructure.Diagnostics;
 using Systems.Sanity.Focus.Infrastructure;
+using Systems.Sanity.Focus.Infrastructure.Input;
 
 namespace Systems.Sanity.Focus.Tests;
 
 public class CaptureWorkflowTests
 {
     [Fact]
-    public void Execute_CaptureText_AddsChildWithClipboardMetadata()
+    public void Execute_CaptureText_AddsAttachmentToCurrentNode()
     {
+        const string clipboardText = "Unicode note \u041f\u0440\u0438\u0432\u0435\u0442 \u043c\u0438\u0440\nwith multiple lines and more details for preview handling";
         using var workspace = new TestWorkspace(
             clipboardCaptureService: new FakeClipboardCaptureService(
-                ClipboardCaptureResult.TextContent("Captured from clipboard")));
+                ClipboardCaptureResult.TextContent(clipboardText)));
         var filePath = workspace.SaveMap("workflow-map", new MindMap("Root"));
         var workflow = new EditWorkflow(filePath, workspace.AppContext);
 
         var result = workflow.Execute(new ConsoleInput("capture"));
         workflow.Save(result.SyncCommitMessage!);
         var reopened = workspace.MapsStorage.OpenMap(filePath);
-        var child = reopened.GetNode("1");
+        var attachment = reopened.RootNode.Metadata!.Attachments.Single();
+        var attachmentPath = workspace.AppContext.MapsStorage.AttachmentStore.ResolveAttachmentPath(
+            filePath,
+            attachment.RelativePath);
 
         Assert.True(result.IsSuccess);
         Assert.True(result.ShouldPersist);
         Assert.Equal("Capture clipboard in workflow-map", result.SyncCommitMessage);
-        Assert.NotNull(child);
-        Assert.Equal("Captured from clipboard", child!.Name);
-        Assert.Equal(NodeMetadataSources.ClipboardText, child.Metadata!.Source);
-        Assert.Equal(Environment.MachineName, child.Metadata.Device);
+        Assert.Equal("Root", reopened.RootNode.Name);
+        Assert.Empty(reopened.GetChildren());
+        Assert.Equal("text/plain; charset=utf-8", attachment.MediaType);
+        Assert.StartsWith("Clipboard text ", attachment.DisplayName);
+        Assert.Equal(clipboardText, File.ReadAllText(attachmentPath, Encoding.UTF8));
+    }
+
+    [Fact]
+    public void Execute_CaptureImage_AddsAttachmentToCurrentNode()
+    {
+        using var workspace = new TestWorkspace(
+            clipboardCaptureService: new FakeClipboardCaptureService(
+                ClipboardCaptureResult.ImageContent(Encoding.UTF8.GetBytes("fake-png"))));
+        var filePath = workspace.SaveMap("workflow-map", new MindMap("Root"));
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("capture"));
+        workflow.Save(result.SyncCommitMessage!);
+        var reopened = workspace.MapsStorage.OpenMap(filePath);
+        var attachment = reopened.RootNode.Metadata!.Attachments.Single();
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.ShouldPersist);
+        Assert.Equal("image/png", attachment.MediaType);
+        Assert.EndsWith(".png", attachment.DisplayName);
+        Assert.Empty(reopened.GetChildren());
     }
 
     [Fact]
@@ -63,7 +91,7 @@ public class CaptureWorkflowTests
     }
 
     [Fact]
-    public void Execute_Attachments_OpensSelectedAttachment()
+    public void Execute_Attachments_OpensCurrentAttachmentByShortcut()
     {
         var fileOpener = new RecordingFileOpener();
         using var workspace = new TestWorkspace(fileOpener: fileOpener);
@@ -81,10 +109,34 @@ public class CaptureWorkflowTests
         Directory.CreateDirectory(Path.GetDirectoryName(attachmentPath)!);
         File.WriteAllText(attachmentPath, "attachment");
 
-        using var consoleScope = new AppConsoleScope(new ScriptedConsoleSession("1"));
         var workflow = new EditWorkflow(filePath, workspace.AppContext);
+        var result = workflow.Execute(new ConsoleInput("attachments 1"));
 
-        var result = workflow.Execute(new ConsoleInput("attachments"));
+        Assert.True(result.IsSuccess);
+        Assert.Equal(attachmentPath, fileOpener.OpenedFilePath);
+    }
+
+    [Fact]
+    public void Execute_AttachmentShortcut_OpensCurrentAttachmentWhenNoChildrenMatch()
+    {
+        var fileOpener = new RecordingFileOpener();
+        using var workspace = new TestWorkspace(fileOpener: fileOpener);
+        var map = new MindMap("Root");
+        map.RootNode.AddAttachment(new NodeAttachment
+        {
+            Id = Guid.NewGuid(),
+            RelativePath = "capture.png",
+            MediaType = "image/png",
+            DisplayName = "Capture.png",
+            CreatedAtUtc = DateTimeOffset.UtcNow
+        });
+        var filePath = workspace.SaveMap("workflow-map", map);
+        var attachmentPath = workspace.AppContext.MapsStorage.AttachmentStore.ResolveAttachmentPath(filePath, "capture.png");
+        Directory.CreateDirectory(Path.GetDirectoryName(attachmentPath)!);
+        File.WriteAllText(attachmentPath, "attachment");
+
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+        var result = workflow.Execute(new ConsoleInput(AccessibleKeyNumbering.GetStringFor(1)));
 
         Assert.True(result.IsSuccess);
         Assert.Equal(attachmentPath, fileOpener.OpenedFilePath);
@@ -104,10 +156,9 @@ public class CaptureWorkflowTests
             CreatedAtUtc = DateTimeOffset.UtcNow
         });
         var filePath = workspace.SaveMap("workflow-map", map);
-        using var consoleScope = new AppConsoleScope(new ScriptedConsoleSession("1"));
         var workflow = new EditWorkflow(filePath, workspace.AppContext);
 
-        var result = workflow.Execute(new ConsoleInput("attachments"));
+        var result = workflow.Execute(new ConsoleInput("attachments 1"));
 
         Assert.False(result.IsSuccess);
         Assert.Equal("Attachment \"Missing.png\" is missing", result.ErrorString);
@@ -170,7 +221,14 @@ public class CaptureWorkflowTests
     {
         using var workspace = new TestWorkspace();
         var map = new MindMap("Root");
-        map.AddAtCurrentNode("Child");
+        map.RootNode.AddAttachment(new NodeAttachment
+        {
+            Id = Guid.NewGuid(),
+            RelativePath = "capture.png",
+            MediaType = "image/png",
+            DisplayName = "Capture.png",
+            CreatedAtUtc = DateTimeOffset.UtcNow
+        });
         var filePath = workspace.SaveMap("workflow-map", map);
         var workflow = new EditWorkflow(filePath, workspace.AppContext);
 
@@ -179,7 +237,9 @@ public class CaptureWorkflowTests
         Assert.Contains("capture", suggestions);
         Assert.Contains("meta", suggestions);
         Assert.Contains("attachments", suggestions);
-        Assert.Contains("meta 1", suggestions);
         Assert.Contains("attachments 1", suggestions);
+        Assert.Contains($"attachments {AccessibleKeyNumbering.GetStringFor(1)}", suggestions);
+        Assert.Contains("1", suggestions);
+        Assert.Contains(AccessibleKeyNumbering.GetStringFor(1), suggestions);
     }
 }

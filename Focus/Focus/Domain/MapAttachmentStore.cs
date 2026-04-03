@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 
 namespace Systems.Sanity.Focus.Domain;
 
@@ -46,6 +47,30 @@ internal sealed class MapAttachmentStore
             Id = Guid.NewGuid(),
             RelativePath = fileName,
             MediaType = "image/png",
+            DisplayName = displayName,
+            CreatedAtUtc = timestampUtc
+        };
+    }
+
+    public NodeAttachment SaveTextAttachment(
+        string mapFilePath,
+        string text,
+        string displayName,
+        DateTimeOffset? createdAtUtc = null)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+
+        var timestampUtc = (createdAtUtc ?? DateTimeOffset.UtcNow).ToUniversalTime();
+        var fileName = $"{Guid.NewGuid():N}.txt";
+        var attachmentDirectory = EnsureAttachmentDirectory(mapFilePath);
+        var targetPath = Path.Combine(attachmentDirectory, fileName);
+        File.WriteAllText(targetPath, text, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+        return new NodeAttachment
+        {
+            Id = Guid.NewGuid(),
+            RelativePath = fileName,
+            MediaType = "text/plain; charset=utf-8",
             DisplayName = displayName,
             CreatedAtUtc = timestampUtc
         };

@@ -55,6 +55,8 @@ internal sealed class EditWorkflow
     private const string AttachmentsOption = "attachments";
     private const string ExportOption = "export";
     private const string ExitOption = "exit";
+    private const int ClipboardTextPreviewMinLength = 20;
+    private const int ClipboardTextPreviewMaxLength = 30;
 
     private readonly string[] _nodeOptions =
     {
@@ -74,8 +76,7 @@ internal sealed class EditWorkflow
         NoTaskOption,
         ToggleTaskOption,
         ToggleTaskAliasOption,
-        MetaOption,
-        AttachmentsOption
+        MetaOption
     };
 
     private readonly FocusAppContext _appContext;
@@ -111,6 +112,8 @@ internal sealed class EditWorkflow
             screenBuilder.Append(
                 $":Nodes to be linked> {string.Join("; ", _appContext.LinkIndex.QueuedLinkSources.Select(node => node.Name))}{Environment.NewLine}");
         }
+
+        screenBuilder.Append(BuildCurrentAttachmentSummary());
 
         if (showCommands)
         {
@@ -176,7 +179,7 @@ internal sealed class EditWorkflow
             $"{SearchOption} <query>",
             ExportOption,
             $"{MetaOption} [child]",
-            $"{AttachmentsOption} [child]"
+            $"{AttachmentsOption} [attachment]"
         }));
         helpGroups.Add(new CommandHelpGroup("System", new[]
         {
@@ -299,8 +302,19 @@ internal sealed class EditWorkflow
         return sb.ToString();
     }
 
-    private string[] GetCommandOptions() =>
-        new[]
+    private string[] GetCommandOptions()
+    {
+        var childNodes = _map.GetChildren();
+        var childSelectors = childNodes.Keys
+            .SelectMany(key => new[] { key.ToString(), AccessibleKeyNumbering.GetStringFor(key) })
+            .Where(selector => !string.IsNullOrWhiteSpace(selector))
+            .Cast<string>()
+            .ToHashSet(StringComparer.Ordinal);
+        var currentAttachmentSelectors = GetCurrentAttachmentSelectors().ToArray();
+        var bareAttachmentSelectors = currentAttachmentSelectors
+            .Where(selector => !childSelectors.Contains(selector));
+
+        return new[]
             {
                 AddOption,
                 AddIdeaOption,
@@ -334,9 +348,12 @@ internal sealed class EditWorkflow
                 UpOption,
                 RootOption
             }
-            .Union(_map.GetChildren().Keys.Select(key => key.ToString()))
-            .Union(_map.GetChildren().Keys.Select(AccessibleKeyNumbering.GetStringFor))
+            .Union(childNodes.Keys.Select(key => key.ToString()))
+            .Union(childNodes.Keys.Select(AccessibleKeyNumbering.GetStringFor))
+            .Union(bareAttachmentSelectors)
+            .Union(currentAttachmentSelectors.Select(selector => $"{AttachmentsOption} {selector}"))
             .ToArray();
+    }
 
     private CommandExecutionResult ProcessAdd()
     {
@@ -386,29 +403,21 @@ internal sealed class EditWorkflow
     {
         try
         {
-            if (!TryResolveNodeForMetadataCommand(parameters, out var node, out var errorMessage))
-                return CommandExecutionResult.Error(errorMessage!);
+            var attachments = GetCurrentAttachments();
+        if (attachments.Count == 0)
+            return CommandExecutionResult.Error("Current node has no attachments");
 
-            var attachments = node!.Metadata?.Attachments ?? new List<NodeAttachment>();
-            if (attachments.Count == 0)
-                return CommandExecutionResult.Error("Selected node has no attachments");
+        if (string.IsNullOrWhiteSpace(parameters))
+        {
+            return attachments.Count == 1
+                ? OpenAttachment(attachments[0])
+                : CommandExecutionResult.Error(
+                    $"Specify attachment shortcut: {string.Join(", ", GetCurrentAttachmentSelectors())}");
+        }
 
-            var selectedAttachment = new AttachmentSelectionPage(
-                attachments,
-                $"Attachments for {node.Name.GetContentPeek()}")
-                .SelectAttachment();
-            if (selectedAttachment == null)
-                return CommandExecutionResult.Success();
-
-            var attachmentPath = _appContext.MapsStorage.AttachmentStore.ResolveAttachmentPath(
-                _filePath,
-                selectedAttachment.RelativePath);
-            if (!File.Exists(attachmentPath))
-                return CommandExecutionResult.Error($"Attachment \"{selectedAttachment.DisplayName}\" is missing");
-
-            return _appContext.FileOpener.TryOpen(attachmentPath, out var openErrorMessage)
-                ? CommandExecutionResult.Success($"Opened attachment \"{selectedAttachment.DisplayName}\"")
-                : CommandExecutionResult.Error(openErrorMessage ?? ExceptionDiagnostics.BuildUserMessage("opening attachment"));
+        return TryResolveCurrentAttachment(parameters, out var attachment, out var errorMessage)
+            ? OpenAttachment(attachment!)
+            : CommandExecutionResult.Error(errorMessage!);
         }
         catch (Exception ex)
         {
@@ -603,29 +612,35 @@ internal sealed class EditWorkflow
             if (!captureResult.IsSuccess)
                 return CommandExecutionResult.Error(captureResult.ErrorMessage ?? "Clipboard capture failed");
 
-            if (captureResult.Kind == ClipboardCaptureKind.Image)
-            {
-                var timestampUtc = DateTimeOffset.UtcNow;
-                var nodeName = $"Screenshot {timestampUtc:yyyy-MM-dd HH:mm}";
-                var attachment = _appContext.MapsStorage.AttachmentStore.SavePngAttachment(
-                    _filePath,
-                    captureResult.ImageBytes ?? Array.Empty<byte>(),
-                    $"{nodeName}.png",
-                    timestampUtc);
-                var node = _map.AddAtCurrentNode(nodeName, NodeMetadataSources.ClipboardImage);
-                node.AddAttachment(attachment, timestampUtc);
+        var currentNode = _map.GetCurrentNode();
 
-                return PersistMapChange(
-                    "Capture clipboard",
-                    message: $"Captured clipboard image into \"{nodeName}\"");
-            }
+        if (captureResult.Kind == ClipboardCaptureKind.Image)
+        {
+            var timestampUtc = DateTimeOffset.UtcNow;
+            var attachment = _appContext.MapsStorage.AttachmentStore.SavePngAttachment(
+                _filePath,
+                captureResult.ImageBytes ?? Array.Empty<byte>(),
+                BuildClipboardImageAttachmentDisplayName(timestampUtc),
+                timestampUtc);
+            currentNode.AddAttachment(attachment, timestampUtc);
 
-            var addedNode = _map.AddAtCurrentNode(
-                captureResult.Text ?? string.Empty,
-                NodeMetadataSources.ClipboardText);
             return PersistMapChange(
                 "Capture clipboard",
-                message: $"Captured clipboard text into \"{addedNode.Name.GetContentPeek()}\"");
+                message: $"Captured clipboard image into \"{currentNode.Name.GetContentPeek()}\"");
+        }
+
+        var capturedAtUtc = DateTimeOffset.UtcNow;
+        var capturedText = captureResult.Text ?? string.Empty;
+        var textAttachment = _appContext.MapsStorage.AttachmentStore.SaveTextAttachment(
+            _filePath,
+            capturedText,
+            BuildClipboardTextAttachmentDisplayName(capturedText, capturedAtUtc),
+            capturedAtUtc);
+        currentNode.AddAttachment(textAttachment, capturedAtUtc);
+
+        return PersistMapChange(
+            "Capture clipboard",
+            message: $"Captured clipboard text into \"{currentNode.Name.GetContentPeek()}\"");
         }
         catch (Exception ex)
         {
@@ -636,11 +651,19 @@ internal sealed class EditWorkflow
     private CommandExecutionResult ProcessGoToChildOrAddCommandBasedOnTheContent(string command, ConsoleInput input)
     {
         if (!_map.GetChildren().Any())
+        {
+            if (TryOpenCurrentAttachmentShortcut(command, out var directAttachmentResult))
+                return directAttachmentResult;
+
             return ProcessAddCurrentInputString(input);
+        }
 
         var goToChildCommandResult = ProcessCommandGoToChild(command);
         if (goToChildCommandResult.IsSuccess)
             return goToChildCommandResult;
+
+        if (TryOpenCurrentAttachmentShortcut(command, out var attachmentResult))
+            return attachmentResult;
 
         return new Confirmation($"Did you mean to add new record? \"{input.InputString.GetContentPeek()}\"").Confirmed()
             ? ProcessAddCurrentInputString(input)
@@ -875,6 +898,182 @@ internal sealed class EditWorkflow
 
     private CommandExecutionResult PersistMapChange(string action, string relation = "in", string? message = null) =>
         CommandExecutionResult.SuccessAndPersist(message, BuildMapCommitMessage(action, relation));
+
+    private IReadOnlyList<NodeAttachment> GetCurrentAttachments() =>
+        _map.GetCurrentNode().Metadata?.Attachments ?? new List<NodeAttachment>();
+
+    private IEnumerable<string> GetCurrentAttachmentSelectors()
+    {
+        var attachments = GetCurrentAttachments();
+        for (var index = 1; index <= attachments.Count; index++)
+        {
+            yield return index.ToString();
+
+            var shortcut = AccessibleKeyNumbering.GetStringFor(index);
+            if (!string.IsNullOrWhiteSpace(shortcut))
+                yield return shortcut;
+        }
+    }
+
+    private string BuildCurrentAttachmentSummary()
+    {
+        var attachments = GetCurrentAttachments();
+        if (attachments.Count == 0)
+            return string.Empty;
+
+        var builder = new StringBuilder();
+        builder.Append(":Attachments> ");
+        for (var index = 0; index < attachments.Count; index++)
+        {
+            if (index > 0)
+                builder.Append("; ");
+
+            builder.Append(BuildAttachmentAddressMarkup(index + 1));
+            builder.Append(' ');
+            builder.Append(attachments[index].DisplayName.GetContentPeek());
+        }
+
+        builder.AppendLine();
+        builder.AppendLine();
+        return builder.ToString();
+    }
+
+    private bool TryOpenCurrentAttachmentShortcut(string command, out CommandExecutionResult result)
+    {
+        result = CommandExecutionResult.Success();
+        var attachments = GetCurrentAttachments();
+        if (attachments.Count == 0 || string.IsNullOrWhiteSpace(command))
+            return false;
+
+        if (!TryGetAttachmentIndex(command, out var attachmentIndex))
+            return false;
+
+        if (attachmentIndex > attachments.Count)
+        {
+            result = CommandExecutionResult.Error($"Can't find attachment \"{command}\"");
+            return true;
+        }
+
+        result = OpenAttachment(attachments[attachmentIndex - 1]);
+        return true;
+    }
+
+    private bool TryResolveCurrentAttachment(string parameters, out NodeAttachment? attachment, out string? errorMessage)
+    {
+        attachment = null;
+        var attachments = GetCurrentAttachments();
+        if (attachments.Count == 0)
+        {
+            errorMessage = "Current node has no attachments";
+            return false;
+        }
+
+        var normalizedParameters = parameters.Trim().ToCommandLanguage();
+        if (!TryGetAttachmentIndex(normalizedParameters, out var attachmentIndex))
+        {
+            errorMessage = $"Unknown attachment \"{parameters}\". Use a number or shortcut like \"{BuildAttachmentAddress(1)}\".";
+            return false;
+        }
+
+        if (attachmentIndex > attachments.Count)
+        {
+            errorMessage = $"Can't find attachment \"{parameters}\"";
+            return false;
+        }
+
+        attachment = attachments[attachmentIndex - 1];
+        errorMessage = null;
+        return true;
+    }
+
+    private static bool TryGetAttachmentIndex(string value, out int attachmentIndex)
+    {
+        if (int.TryParse(value, out attachmentIndex) && attachmentIndex > 0)
+            return true;
+
+        attachmentIndex = AccessibleKeyNumbering.GetNumberFor(value);
+        return attachmentIndex > 0;
+    }
+
+    private CommandExecutionResult OpenAttachment(NodeAttachment attachment)
+    {
+        var attachmentPath = _appContext.MapsStorage.AttachmentStore.ResolveAttachmentPath(
+            _filePath,
+            attachment.RelativePath);
+        if (!File.Exists(attachmentPath))
+            return CommandExecutionResult.Error($"Attachment \"{attachment.DisplayName}\" is missing");
+
+        return _appContext.FileOpener.TryOpen(attachmentPath, out var openErrorMessage)
+            ? CommandExecutionResult.Success($"Opened attachment \"{attachment.DisplayName}\"")
+            : CommandExecutionResult.Error(openErrorMessage ?? "The attachment could not be opened.");
+    }
+
+    private static string BuildClipboardImageAttachmentDisplayName(DateTimeOffset timestampUtc) =>
+        $"Screenshot {timestampUtc:yyyy-MM-dd HH:mm}.png";
+
+    private static string BuildClipboardTextAttachmentDisplayName(string clipboardText, DateTimeOffset timestampUtc) =>
+        $"Clipboard text {timestampUtc:yyyy-MM-dd HH:mm} - {BuildClipboardTextPreview(clipboardText)}";
+
+    private static string BuildAttachmentAddress(int index)
+    {
+        var shortcut = AccessibleKeyNumbering.GetStringFor(index);
+        return string.IsNullOrWhiteSpace(shortcut)
+            ? index.ToString()
+            : $"{shortcut}/{index}";
+    }
+
+    private static string BuildAttachmentAddressMarkup(int index)
+    {
+        var shortcut = AccessibleKeyNumbering.GetStringFor(index);
+        return string.IsNullOrWhiteSpace(shortcut)
+            ? $"[{ConfigurationConstants.CommandColor}]{index}[!]"
+            : $"[{ConfigurationConstants.CommandColor}]{shortcut}[!]/[{ConfigurationConstants.CommandColor}]{index}[!]";
+    }
+
+    private static string BuildClipboardTextPreview(string clipboardText)
+    {
+        var normalizedText = NormalizeWhitespace(clipboardText);
+        if (string.IsNullOrWhiteSpace(normalizedText))
+            return "Clipboard text...";
+
+        if (normalizedText.Length <= ClipboardTextPreviewMaxLength)
+            return normalizedText.EndsWith("...", StringComparison.Ordinal)
+                ? normalizedText
+                : $"{normalizedText}...";
+
+        var searchLength = Math.Min(ClipboardTextPreviewMaxLength, normalizedText.Length);
+        var preferredBreakIndex = normalizedText.LastIndexOf(' ', searchLength - 1, searchLength);
+        if (preferredBreakIndex >= ClipboardTextPreviewMinLength)
+            return $"{normalizedText[..preferredBreakIndex].TrimEnd()}...";
+
+        return $"{normalizedText[..ClipboardTextPreviewMaxLength].TrimEnd()}...";
+    }
+
+    private static string NormalizeWhitespace(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        var builder = new StringBuilder(value.Length);
+        var previousWasWhitespace = false;
+        foreach (var character in value)
+        {
+            if (char.IsWhiteSpace(character))
+            {
+                if (builder.Length == 0 || previousWasWhitespace)
+                    continue;
+
+                builder.Append(' ');
+                previousWasWhitespace = true;
+                continue;
+            }
+
+            builder.Append(character);
+            previousWasWhitespace = false;
+        }
+
+        return builder.ToString().Trim();
+    }
 
     private static bool InvokeLocalized(Func<string, bool> action, string parameters)
     {

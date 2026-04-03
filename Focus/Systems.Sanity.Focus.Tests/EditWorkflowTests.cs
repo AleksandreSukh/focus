@@ -61,6 +61,34 @@ public class EditWorkflowTests
     }
 
     [Fact]
+    public void Execute_AttachmentShortcut_PrefersChildNavigationWhenShortcutMatchesChild()
+    {
+        var fileOpener = new RecordingFileOpener();
+        using var workspace = new TestWorkspace(fileOpener: fileOpener);
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("Child");
+        map.RootNode.AddAttachment(new NodeAttachment
+        {
+            Id = Guid.NewGuid(),
+            RelativePath = "capture.png",
+            MediaType = "image/png",
+            DisplayName = "Capture.png",
+            CreatedAtUtc = DateTimeOffset.UtcNow
+        });
+        var filePath = workspace.SaveMap("workflow-map", map);
+        var attachmentPath = workspace.AppContext.MapsStorage.AttachmentStore.ResolveAttachmentPath(filePath, "capture.png");
+        Directory.CreateDirectory(Path.GetDirectoryName(attachmentPath)!);
+        File.WriteAllText(attachmentPath, "attachment");
+
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+        var result = workflow.Execute(new ConsoleInput("1"));
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(fileOpener.OpenedFilePath);
+        Assert.Contains("Child", workflow.BuildScreen());
+    }
+
+    [Fact]
     public void Execute_TodoAndNotask_OnCurrentNodeUpdatesSavedMap()
     {
         using var workspace = new TestWorkspace();
@@ -197,6 +225,30 @@ public class EditWorkflowTests
         Assert.DoesNotContain("...", goToLine);
         Assert.Contains(ColorLabel("To Do"), screen);
         Assert.Contains(ColorLabel("Navigate"), screen);
+    }
+
+    [Fact]
+    public void BuildScreen_ShowsCurrentAttachmentShortcuts()
+    {
+        using var workspace = new TestWorkspace();
+        var map = new MindMap("Root");
+        map.RootNode.AddAttachment(new NodeAttachment
+        {
+            Id = Guid.NewGuid(),
+            RelativePath = "capture.png",
+            MediaType = "image/png",
+            DisplayName = "Capture.png",
+            CreatedAtUtc = DateTimeOffset.UtcNow
+        });
+        var filePath = workspace.SaveMap("workflow-map", map);
+
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+        var screen = workflow.BuildScreen();
+
+        Assert.Contains(":Attachments>", screen);
+        Assert.Contains("Capture.png", screen);
+        Assert.Contains(ColorLabel("Search/Export"), screen);
+        Assert.Contains("attachments [attachment]", screen);
     }
 
     [Fact]
