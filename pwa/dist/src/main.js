@@ -1391,14 +1391,6 @@ async function handleAddChildNoteSubmit(form) {
     ),
   };
 
-  const result = enqueueOperation(operation, {
-    selectedNodeIdOverride: parentNodeId,
-  });
-  if (!result.ok) {
-    setActiveModalError(result.error.message);
-    return;
-  }
-
   state.activeModal = {
     ...state.activeModal,
     nodeId: parentNodeId,
@@ -1406,10 +1398,23 @@ async function handleAddChildNoteSubmit(form) {
     draftText: '',
     errorMessage: '',
   };
+  const result = enqueueOperation(operation, {
+    selectedNodeIdOverride: parentNodeId,
+  });
+  if (!result.ok) {
+    state.activeModal = {
+      ...state.activeModal,
+      draftText: rawText,
+      errorMessage: '',
+    };
+    setActiveModalError(result.error.message);
+    return;
+  }
+
   state.pendingFocusRequest = {
     type: 'modalAutofocus',
   };
-  render();
+  focusPendingElement();
 }
 
 async function handleSetTaskState(taskStateValue, explicitMapPath, explicitNodeId) {
@@ -3027,6 +3032,18 @@ function getWorkspaceOverlayState() {
     };
   }
 
+  if (state.activeModal.kind === 'addChildNote') {
+    return {
+      kind: 'addChildNote',
+      key: JSON.stringify({
+        kind: state.activeModal.kind,
+        mapPath: state.activeModal.mapPath || '',
+        nodeId: state.activeModal.fixedParentNodeId || state.activeModal.nodeId || '',
+        historyToken: state.activeModal.historyToken || '',
+      }),
+    };
+  }
+
   return {
     kind: state.activeModal.kind,
     key: JSON.stringify({
@@ -3056,6 +3073,34 @@ function buildImageViewerBodyMarkup() {
     style="transform: scale(${zoom}) translate(${state.activeModal.panX}px, ${state.activeModal.panY}px)"
     draggable="false"
   />`;
+}
+
+function updateRenderedAddChildNoteComposer() {
+  if (!(ui.workspaceOverlay instanceof HTMLElement) || state.activeModal?.kind !== 'addChildNote') {
+    return;
+  }
+
+  const form = ui.workspaceOverlay.querySelector('#add-note-composer-form');
+  const textarea = ui.workspaceOverlay.querySelector('.note-composer-input');
+  const feedback = ui.workspaceOverlay.querySelector('.note-composer-feedback');
+  if (!(form instanceof HTMLFormElement) || !(textarea instanceof HTMLTextAreaElement) || !(feedback instanceof HTMLElement)) {
+    ui.workspaceOverlay.innerHTML = renderAddChildNoteComposer();
+    return;
+  }
+
+  const nextValue = state.activeModal.draftText || '';
+  if (textarea.value !== nextValue) {
+    const isFocused = document.activeElement === textarea;
+    const nextCursor = Math.min(textarea.selectionStart ?? nextValue.length, nextValue.length);
+    textarea.value = nextValue;
+    if (isFocused) {
+      textarea.setSelectionRange(nextCursor, nextCursor);
+    }
+  }
+
+  feedback.innerHTML = state.activeModal.errorMessage
+    ? `<p class="form-error note-composer-error" role="alert">${escapeHtml(state.activeModal.errorMessage)}</p>`
+    : '';
 }
 
 function updateRenderedImageViewerModal() {
@@ -3149,6 +3194,15 @@ function renderWorkspaceOverlay() {
     }
     renderCache.workspaceOverlayKind = '';
     renderCache.workspaceOverlayKey = '';
+    return;
+  }
+
+  if (
+    overlayState.kind === 'addChildNote' &&
+    renderCache.workspaceOverlayKind === 'addChildNote' &&
+    renderCache.workspaceOverlayKey === overlayState.key
+  ) {
+    updateRenderedAddChildNoteComposer();
     return;
   }
 
@@ -3787,9 +3841,11 @@ function renderAddChildNoteComposer() {
               </svg>
             </button>
           </div>
-          ${state.activeModal.errorMessage
-            ? `<p class="form-error note-composer-error" role="alert">${escapeHtml(state.activeModal.errorMessage)}</p>`
-            : ''}
+          <div class="note-composer-feedback" aria-live="polite">
+            ${state.activeModal.errorMessage
+              ? `<p class="form-error note-composer-error" role="alert">${escapeHtml(state.activeModal.errorMessage)}</p>`
+              : ''}
+          </div>
         </form>
       </div>
     </div>
