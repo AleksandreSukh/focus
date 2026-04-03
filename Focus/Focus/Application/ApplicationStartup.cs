@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using Systems.Sanity.Focus.Infrastructure.Diagnostics;
 
 namespace Systems.Sanity.Focus.Application;
 
@@ -26,7 +27,10 @@ internal static class ApplicationStartup
     internal static Task StartStartupSyncInBackground(FocusAppContext appContext)
     {
         var initialSnapshot = CaptureMapSnapshot(appContext.MapsStorage);
-        return Task.Run(() => RunStartupSync(appContext, initialSnapshot));
+        return Task.Run(() => ExceptionDiagnostics.Guard(
+            "running startup sync",
+            () => RunStartupSync(appContext, initialSnapshot),
+            message => AppConsole.Current.WriteBackgroundMessage(message)));
     }
 
     internal static IReadOnlyCollection<string> DetectChangedMapFiles(
@@ -54,7 +58,13 @@ internal static class ApplicationStartup
     {
         var startupSyncResult = appContext.MapsStorage.PullLatestAtStartup();
         if (startupSyncResult.Status != StartupSyncStatus.Succeeded)
+        {
+            if (!string.IsNullOrWhiteSpace(startupSyncResult.ErrorMessage))
+            {
+                AppConsole.Current.WriteBackgroundMessage(startupSyncResult.ErrorMessage);
+            }
             return;
+        }
 
         var currentSnapshot = CaptureMapSnapshot(appContext.MapsStorage);
         var changedFiles = DetectChangedMapFiles(initialSnapshot, currentSnapshot);

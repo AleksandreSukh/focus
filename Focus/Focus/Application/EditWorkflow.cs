@@ -8,6 +8,7 @@ using System.Text;
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.DomainServices;
 using Systems.Sanity.Focus.Infrastructure;
+using Systems.Sanity.Focus.Infrastructure.Diagnostics;
 using Systems.Sanity.Focus.Infrastructure.Input;
 using Systems.Sanity.Focus.Pages;
 using Systems.Sanity.Focus.Pages.Edit;
@@ -220,37 +221,44 @@ internal sealed class EditWorkflow
         var command = input.FirstWord.ToCommandLanguage();
         var parameters = input.Parameters;
 
-        return command switch
+        try
         {
-            ExitOption => CommandExecutionResult.ExitCommand,
-            EditOption => ProcessEdit(parameters),
-            AddOption => ProcessAdd(),
-            AddIdeaOption => ProcessAddIdea(parameters),
-            ClearIdeasOption => ProcessClearIdeas(parameters),
-            SliceOption => ProcessSlice(parameters),
-            LinkFromOption => ProcessLinkFrom(parameters),
-            LinkToOption => ProcessLinkTo(parameters),
-            OpenLinkOption => ProcessOpenLink(),
-            BacklinksOption => ProcessBacklinks(),
-            HideOption => ProcessHide(parameters),
-            UnhideOption => ProcessUnhide(parameters),
-            SearchOption => ProcessSearch(parameters),
-            TodoOption or TodoAliasOption => ProcessSetTaskState(parameters, TaskState.Todo),
-            DoingOption => ProcessSetTaskState(parameters, TaskState.Doing),
-            DoneOption or DoneAliasOption => ProcessSetTaskState(parameters, TaskState.Done),
-            NoTaskOption => ProcessSetTaskState(parameters, TaskState.None),
-            ToggleTaskOption or ToggleTaskAliasOption => ProcessToggleTaskState(parameters),
-            TasksOption or TasksAliasOption => ProcessTasks(parameters),
-            CaptureOption => ProcessCapture(),
-            MetaOption => ProcessMeta(parameters),
-            AttachmentsOption => ProcessAttachments(parameters),
-            ExportOption => ProcessExport(),
-            GoToOption => ProcessGoTo(parameters),
-            DelOption => ProcessCommandDel(parameters),
-            RootOption => ProcessGoToRoot(),
-            UpOption => ProcessCommandGoUp(),
-            _ => ProcessGoToChildOrAddCommandBasedOnTheContent(command, input)
-        };
+            return command switch
+            {
+                ExitOption => CommandExecutionResult.ExitCommand,
+                EditOption => ProcessEdit(parameters),
+                AddOption => ProcessAdd(),
+                AddIdeaOption => ProcessAddIdea(parameters),
+                ClearIdeasOption => ProcessClearIdeas(parameters),
+                SliceOption => ProcessSlice(parameters),
+                LinkFromOption => ProcessLinkFrom(parameters),
+                LinkToOption => ProcessLinkTo(parameters),
+                OpenLinkOption => ProcessOpenLink(),
+                BacklinksOption => ProcessBacklinks(),
+                HideOption => ProcessHide(parameters),
+                UnhideOption => ProcessUnhide(parameters),
+                SearchOption => ProcessSearch(parameters),
+                TodoOption or TodoAliasOption => ProcessSetTaskState(parameters, TaskState.Todo),
+                DoingOption => ProcessSetTaskState(parameters, TaskState.Doing),
+                DoneOption or DoneAliasOption => ProcessSetTaskState(parameters, TaskState.Done),
+                NoTaskOption => ProcessSetTaskState(parameters, TaskState.None),
+                ToggleTaskOption or ToggleTaskAliasOption => ProcessToggleTaskState(parameters),
+                TasksOption or TasksAliasOption => ProcessTasks(parameters),
+                CaptureOption => ProcessCapture(),
+                MetaOption => ProcessMeta(parameters),
+                AttachmentsOption => ProcessAttachments(parameters),
+                ExportOption => ProcessExport(),
+                GoToOption => ProcessGoTo(parameters),
+                DelOption => ProcessCommandDel(parameters),
+                RootOption => ProcessGoToRoot(),
+                UpOption => ProcessCommandGoUp(),
+                _ => ProcessGoToChildOrAddCommandBasedOnTheContent(command, input)
+            };
+        }
+        catch (Exception ex)
+        {
+            return CommandExecutionResult.Error(ExceptionDiagnostics.LogException(ex, "executing map command"));
+        }
     }
 
     public IEnumerable<string> GetSuggestions()
@@ -376,29 +384,36 @@ internal sealed class EditWorkflow
 
     private CommandExecutionResult ProcessAttachments(string parameters)
     {
-        if (!TryResolveNodeForMetadataCommand(parameters, out var node, out var errorMessage))
-            return CommandExecutionResult.Error(errorMessage!);
+        try
+        {
+            if (!TryResolveNodeForMetadataCommand(parameters, out var node, out var errorMessage))
+                return CommandExecutionResult.Error(errorMessage!);
 
-        var attachments = node!.Metadata?.Attachments ?? new List<NodeAttachment>();
-        if (attachments.Count == 0)
-            return CommandExecutionResult.Error("Selected node has no attachments");
+            var attachments = node!.Metadata?.Attachments ?? new List<NodeAttachment>();
+            if (attachments.Count == 0)
+                return CommandExecutionResult.Error("Selected node has no attachments");
 
-        var selectedAttachment = new AttachmentSelectionPage(
-            attachments,
-            $"Attachments for {node.Name.GetContentPeek()}")
-            .SelectAttachment();
-        if (selectedAttachment == null)
-            return CommandExecutionResult.Success();
+            var selectedAttachment = new AttachmentSelectionPage(
+                attachments,
+                $"Attachments for {node.Name.GetContentPeek()}")
+                .SelectAttachment();
+            if (selectedAttachment == null)
+                return CommandExecutionResult.Success();
 
-        var attachmentPath = _appContext.MapsStorage.AttachmentStore.ResolveAttachmentPath(
-            _filePath,
-            selectedAttachment.RelativePath);
-        if (!File.Exists(attachmentPath))
-            return CommandExecutionResult.Error($"Attachment \"{selectedAttachment.DisplayName}\" is missing");
+            var attachmentPath = _appContext.MapsStorage.AttachmentStore.ResolveAttachmentPath(
+                _filePath,
+                selectedAttachment.RelativePath);
+            if (!File.Exists(attachmentPath))
+                return CommandExecutionResult.Error($"Attachment \"{selectedAttachment.DisplayName}\" is missing");
 
-        return _appContext.FileOpener.TryOpen(attachmentPath, out var openErrorMessage)
-            ? CommandExecutionResult.Success($"Opened attachment \"{selectedAttachment.DisplayName}\"")
-            : CommandExecutionResult.Error(openErrorMessage ?? "The attachment could not be opened.");
+            return _appContext.FileOpener.TryOpen(attachmentPath, out var openErrorMessage)
+                ? CommandExecutionResult.Success($"Opened attachment \"{selectedAttachment.DisplayName}\"")
+                : CommandExecutionResult.Error(openErrorMessage ?? ExceptionDiagnostics.BuildUserMessage("opening attachment"));
+        }
+        catch (Exception ex)
+        {
+            return CommandExecutionResult.Error(ExceptionDiagnostics.LogException(ex, "opening attachment"));
+        }
     }
 
     private CommandExecutionResult ProcessBacklinks()
@@ -514,13 +529,20 @@ internal sealed class EditWorkflow
 
     private CommandExecutionResult ProcessExport()
     {
-        var exportPage = new ExportPage(MapFileHelper.SanitizeFileName(_map.GetCurrentNodeName(), fallbackFileName: "export"));
-        exportPage.Show();
+        try
+        {
+            var exportPage = new ExportPage(MapFileHelper.SanitizeFileName(_map.GetCurrentNodeName(), fallbackFileName: "export"));
+            exportPage.Show();
 
-        if (exportPage.SelectedExport == null)
-            return CommandExecutionResult.Success();
+            if (exportPage.SelectedExport == null)
+                return CommandExecutionResult.Success();
 
-        return ProcessExport(exportPage.SelectedExport);
+            return ProcessExport(exportPage.SelectedExport);
+        }
+        catch (Exception ex)
+        {
+            return CommandExecutionResult.Error(ExceptionDiagnostics.LogException(ex, "exporting map"));
+        }
     }
 
     private CommandExecutionResult ProcessExport(ExportRequest exportRequest)
@@ -562,7 +584,7 @@ internal sealed class EditWorkflow
         }
         catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException)
         {
-            return CommandExecutionResult.Error($"Couldn't export {exportRequest.Format.ToExportVerb()}: {ex.Message}");
+            return CommandExecutionResult.Error(ExceptionDiagnostics.LogException(ex, "exporting map"));
         }
     }
 
@@ -575,33 +597,40 @@ internal sealed class EditWorkflow
 
     private CommandExecutionResult ProcessCapture()
     {
-        var captureResult = _appContext.ClipboardCaptureService.Capture();
-        if (!captureResult.IsSuccess)
-            return CommandExecutionResult.Error(captureResult.ErrorMessage ?? "Clipboard capture failed");
-
-        if (captureResult.Kind == ClipboardCaptureKind.Image)
+        try
         {
-            var timestampUtc = DateTimeOffset.UtcNow;
-            var nodeName = $"Screenshot {timestampUtc:yyyy-MM-dd HH:mm}";
-            var attachment = _appContext.MapsStorage.AttachmentStore.SavePngAttachment(
-                _filePath,
-                captureResult.ImageBytes ?? Array.Empty<byte>(),
-                $"{nodeName}.png",
-                timestampUtc);
-            var node = _map.AddAtCurrentNode(nodeName, NodeMetadataSources.ClipboardImage);
-            node.AddAttachment(attachment, timestampUtc);
+            var captureResult = _appContext.ClipboardCaptureService.Capture();
+            if (!captureResult.IsSuccess)
+                return CommandExecutionResult.Error(captureResult.ErrorMessage ?? "Clipboard capture failed");
 
+            if (captureResult.Kind == ClipboardCaptureKind.Image)
+            {
+                var timestampUtc = DateTimeOffset.UtcNow;
+                var nodeName = $"Screenshot {timestampUtc:yyyy-MM-dd HH:mm}";
+                var attachment = _appContext.MapsStorage.AttachmentStore.SavePngAttachment(
+                    _filePath,
+                    captureResult.ImageBytes ?? Array.Empty<byte>(),
+                    $"{nodeName}.png",
+                    timestampUtc);
+                var node = _map.AddAtCurrentNode(nodeName, NodeMetadataSources.ClipboardImage);
+                node.AddAttachment(attachment, timestampUtc);
+
+                return PersistMapChange(
+                    "Capture clipboard",
+                    message: $"Captured clipboard image into \"{nodeName}\"");
+            }
+
+            var addedNode = _map.AddAtCurrentNode(
+                captureResult.Text ?? string.Empty,
+                NodeMetadataSources.ClipboardText);
             return PersistMapChange(
                 "Capture clipboard",
-                message: $"Captured clipboard image into \"{nodeName}\"");
+                message: $"Captured clipboard text into \"{addedNode.Name.GetContentPeek()}\"");
         }
-
-        var addedNode = _map.AddAtCurrentNode(
-            captureResult.Text ?? string.Empty,
-            NodeMetadataSources.ClipboardText);
-        return PersistMapChange(
-            "Capture clipboard",
-            message: $"Captured clipboard text into \"{addedNode.Name.GetContentPeek()}\"");
+        catch (Exception ex)
+        {
+            return CommandExecutionResult.Error(ExceptionDiagnostics.LogException(ex, "capturing clipboard"));
+        }
     }
 
     private CommandExecutionResult ProcessGoToChildOrAddCommandBasedOnTheContent(string command, ConsoleInput input)

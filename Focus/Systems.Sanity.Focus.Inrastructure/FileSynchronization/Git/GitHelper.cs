@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using Systems.Sanity.Focus.Infrastructure.Diagnostics;
 using Systems.Sanity.Focus.Infrastructure.FileSynchronization;
 
 namespace Systems.Sanity.Focus.Infrastructure.FileSynchronization.Git;
@@ -95,7 +96,8 @@ public class GitHelper
             }
             catch (Exception e)
             {
-                return StartupSyncResult.Failed(e.Message);
+                return StartupSyncResult.Failed(
+                    ExceptionDiagnostics.LogException(e, "refreshing maps from git"));
             }
             finally
             {
@@ -153,7 +155,10 @@ public class GitHelper
             }
             catch (Exception e)
             {
-                ReportSyncFailure(e.Message, _writeBackgroundMessage);
+                ExceptionDiagnostics.ReportBackgroundException(
+                    e,
+                    "synchronizing changes to git",
+                    _writeBackgroundMessage);
                 lock (_syncStateLock)
                 {
                     _syncWorkerRunning = false;
@@ -323,22 +328,6 @@ public class GitHelper
 
         if (!string.IsNullOrWhiteSpace(result.StandardError))
             writeBackgroundMessage(result.StandardError.TrimEnd('\r', '\n'));
-    }
-
-    private static void ReportSyncFailure(string message, Action<string>? writeBackgroundMessage)
-    {
-        var failureMessage = $"Git sync failed: {message}";
-
-        writeBackgroundMessage?.Invoke(failureMessage);
-
-        if (OperatingSystem.IsWindows())
-        {
-            TrySetConsoleTitle($"Syncing failed - {message}");
-            return;
-        }
-
-        if (writeBackgroundMessage == null)
-            Console.Error.WriteLine(failureMessage);
     }
 
     private static string? TryGetConsoleTitle()

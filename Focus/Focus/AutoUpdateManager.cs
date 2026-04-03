@@ -1,5 +1,7 @@
 using System;
 using System.Threading.Tasks;
+using Systems.Sanity.Focus.Application;
+using Systems.Sanity.Focus.Infrastructure.Diagnostics;
 using Velopack;
 using Velopack.Sources;
 
@@ -51,7 +53,6 @@ internal class AutoUpdateManager
         if (versionToUpdateTo != null)
         {
             githubUpdateManager.DownloadUpdates(versionToUpdateTo);
-
             githubUpdateManager.ApplyUpdatesAndRestart(versionToUpdateTo);
         }
     }
@@ -81,7 +82,10 @@ internal class AutoUpdateManager
         }
         catch (Exception e)
         {
-            Console.WriteLine(e);
+            ExceptionDiagnostics.ReportBackgroundException(
+                e,
+                "checking for updates",
+                message => AppConsole.Current.WriteBackgroundMessage(message));
         }
     }
 }

@@ -2,6 +2,7 @@ using System.IO;
 using System.Linq;
 using Systems.Sanity.Focus.Application;
 using Systems.Sanity.Focus.Domain;
+using Systems.Sanity.Focus.Infrastructure.Diagnostics;
 using Systems.Sanity.Focus.Infrastructure;
 
 namespace Systems.Sanity.Focus.Tests;
@@ -110,6 +111,58 @@ public class CaptureWorkflowTests
 
         Assert.False(result.IsSuccess);
         Assert.Equal("Attachment \"Missing.png\" is missing", result.ErrorString);
+    }
+
+    [Fact]
+    public void Execute_Attachments_WhenOpenerThrows_ReturnsGenericErrorAndLogsException()
+    {
+        using var diagnosticsScope = new ExceptionDiagnosticsScope();
+        var fileOpener = new RecordingFileOpener
+        {
+            ExceptionToThrow = new InvalidOperationException("shell launch failed")
+        };
+        using var workspace = new TestWorkspace(fileOpener: fileOpener);
+        var map = new MindMap("Root");
+        map.RootNode.AddAttachment(new NodeAttachment
+        {
+            Id = Guid.NewGuid(),
+            RelativePath = "capture.png",
+            MediaType = "image/png",
+            DisplayName = "Capture.png",
+            CreatedAtUtc = DateTimeOffset.UtcNow
+        });
+        var filePath = workspace.SaveMap("workflow-map", map);
+        var attachmentPath = workspace.AppContext.MapsStorage.AttachmentStore.ResolveAttachmentPath(filePath, "capture.png");
+        Directory.CreateDirectory(Path.GetDirectoryName(attachmentPath)!);
+        File.WriteAllText(attachmentPath, "attachment");
+
+        using var consoleScope = new AppConsoleScope(new ScriptedConsoleSession("1"));
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("attachments"));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(ExceptionDiagnostics.BuildUserMessage("opening attachment"), result.ErrorString);
+        Assert.Contains("Action: opening attachment", diagnosticsScope.ReadLog());
+        Assert.Contains("shell launch failed", diagnosticsScope.ReadLog());
+    }
+
+    [Fact]
+    public void Execute_Capture_WhenClipboardServiceThrows_ReturnsGenericErrorAndLogsException()
+    {
+        using var diagnosticsScope = new ExceptionDiagnosticsScope();
+        using var workspace = new TestWorkspace(
+            clipboardCaptureService: new ThrowingClipboardCaptureService(
+                new InvalidOperationException("clipboard service unavailable")));
+        var filePath = workspace.SaveMap("workflow-map", new MindMap("Root"));
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("capture"));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(ExceptionDiagnostics.BuildUserMessage("capturing clipboard"), result.ErrorString);
+        Assert.Contains("Action: capturing clipboard", diagnosticsScope.ReadLog());
+        Assert.Contains("clipboard service unavailable", diagnosticsScope.ReadLog());
     }
 
     [Fact]

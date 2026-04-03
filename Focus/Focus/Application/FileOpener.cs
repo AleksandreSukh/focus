@@ -2,6 +2,7 @@
 
 using System;
 using System.Diagnostics;
+using Systems.Sanity.Focus.Infrastructure.Diagnostics;
 
 namespace Systems.Sanity.Focus.Application;
 
@@ -58,7 +59,7 @@ internal sealed class DefaultFileOpener : IFileOpener
         }
         catch (Exception ex)
         {
-            errorMessage = $"The attachment could not be opened: {ex.Message}";
+            errorMessage = ExceptionDiagnostics.LogException(ex, "opening attachment");
             return false;
         }
     }

@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using Systems.Sanity.Focus.Application;
 using Systems.Sanity.Focus.Infrastructure;
+using Systems.Sanity.Focus.Infrastructure.Diagnostics;
 using Systems.Sanity.Focus.Pages.Shared;
 using Systems.Sanity.Focus.Pages.Shared.Dialogs;
 
@@ -31,28 +32,47 @@ internal sealed class EditMapPage : PageWithSuggestedOptions
 
         while (!shouldExit)
         {
-            if (ShouldReturnToHomePageForUpdatedFile())
-                return;
-
-            RenderScreen(message, isError);
-
-            var commandResult = _workflow.Execute(ReadCommand(() => RenderScreen(message, isError)));
-            shouldExit = commandResult.ShouldExit;
-            if (shouldExit)
-                continue;
-
-            if (commandResult.IsSuccess)
+            try
             {
-                if (commandResult.ShouldPersist)
-                    _workflow.Save(commandResult.SyncCommitMessage
-                        ?? throw new InvalidOperationException("Sync commit message is required for persisted commands."));
+                if (ShouldReturnToHomePageForUpdatedFile())
+                    return;
 
-                message = commandResult.Message;
-                isError = false;
+                RenderScreen(message, isError);
+
+                var commandResult = _workflow.Execute(ReadCommand(() => RenderScreen(message, isError)));
+                shouldExit = commandResult.ShouldExit;
+                if (shouldExit)
+                    continue;
+
+                if (commandResult.IsSuccess)
+                {
+                    if (commandResult.ShouldPersist)
+                    {
+                        try
+                        {
+                            _workflow.Save(commandResult.SyncCommitMessage
+                                ?? throw new InvalidOperationException("Sync commit message is required for persisted commands."));
+                        }
+                        catch (Exception ex)
+                        {
+                            message = ExceptionDiagnostics.LogException(ex, "saving map changes");
+                            isError = true;
+                            continue;
+                        }
+                    }
+
+                    message = commandResult.Message;
+                    isError = false;
+                }
+                else
+                {
+                    message = commandResult.ErrorString;
+                    isError = true;
+                }
             }
-            else
+            catch (Exception ex)
             {
-                message = commandResult.ErrorString;
+                message = ExceptionDiagnostics.LogException(ex, "executing map command");
                 isError = true;
             }
         }

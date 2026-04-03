@@ -3,6 +3,7 @@ using System.IO;
 using System.Threading;
 using Systems.Sanity.Focus.Application;
 using Systems.Sanity.Focus.Domain;
+using Systems.Sanity.Focus.Infrastructure.Diagnostics;
 using Systems.Sanity.Focus.Infrastructure.FileSynchronization;
 using Systems.Sanity.Focus.Infrastructure.FileSynchronization.Git;
 
@@ -30,6 +31,7 @@ public class StartupSynchronizationTests
     [Fact]
     public void PullLatestAtStartup_ReturnsFailure_WhenPullCommandFails()
     {
+        using var diagnosticsScope = new ExceptionDiagnosticsScope();
         var gitHelper = new GitHelper(
             gitRepositoryPath: @"C:\repo",
             executeGitCommand: (_, _, _, arguments) =>
@@ -43,7 +45,9 @@ public class StartupSynchronizationTests
         var result = gitHelper.PullLatestAtStartup();
 
         Assert.Equal(StartupSyncStatus.Failed, result.Status);
-        Assert.Contains("git pull failed", result.ErrorMessage);
+        Assert.Equal(ExceptionDiagnostics.BuildUserMessage("refreshing maps from git"), result.ErrorMessage);
+        Assert.Contains("Action: refreshing maps from git", diagnosticsScope.ReadLog());
+        Assert.Contains("git pull failed with exit code 1", diagnosticsScope.ReadLog());
     }
 
     [Fact]
@@ -144,6 +148,27 @@ public class StartupSynchronizationTests
         Assert.False(appContext.StartupSyncNotificationState.TryConsumeCurrentFileUpdateWarning(
             openFilePath,
             out _));
+    }
+
+    [Fact]
+    public async Task StartStartupSyncInBackground_WritesGenericBackgroundMessage_WhenSyncThrowsUnexpectedly()
+    {
+        using var diagnosticsScope = new ExceptionDiagnosticsScope();
+        var consoleSession = new ScriptedConsoleSession();
+        using var consoleScope = new AppConsoleScope(consoleSession);
+        var syncHandler = new ThrowingFileSynchronizationHandler
+        {
+            PullLatestAtStartupException = new InvalidOperationException("startup sync exploded")
+        };
+        using var workspace = new TestWorkspace(fileSynchronizationHandler: syncHandler);
+
+        await ApplicationStartup.StartStartupSyncInBackground(workspace.AppContext);
+
+        Assert.Contains(
+            ExceptionDiagnostics.BuildUserMessage("running startup sync"),
+            consoleSession.BackgroundMessages);
+        Assert.Contains("Action: running startup sync", diagnosticsScope.ReadLog());
+        Assert.Contains("startup sync exploded", diagnosticsScope.ReadLog());
     }
 
     [Fact]

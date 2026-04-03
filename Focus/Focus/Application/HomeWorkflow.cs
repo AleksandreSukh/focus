@@ -7,6 +7,7 @@ using System.Linq;
 using System.Text;
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.DomainServices;
+using Systems.Sanity.Focus.Infrastructure.Diagnostics;
 using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Infrastructure.Input;
 using Systems.Sanity.Focus.Pages;
@@ -109,20 +110,43 @@ internal sealed class HomeWorkflow
 
     private HomeWorkflowResult HandleRefresh()
     {
-        _appContext.MapsStorage.PullLatestAtStartup();
-        return HomeWorkflowResult.Continue;
+        try
+        {
+            var result = _appContext.MapsStorage.PullLatestAtStartup();
+            return result.Status == Infrastructure.FileSynchronization.StartupSyncStatus.Failed
+                ? HomeWorkflowResult.Error(result.ErrorMessage)
+                : HomeWorkflowResult.Continue;
+        }
+        catch (Exception ex)
+        {
+            return HomeWorkflowResult.Error(ExceptionDiagnostics.LogException(ex, "refreshing maps"));
+        }
     }
 
     private static HomeWorkflowResult HandleUpdateApp()
     {
-        AutoUpdateManager.HandleUpdate();
-        return HomeWorkflowResult.Continue;
+        try
+        {
+            AutoUpdateManager.HandleUpdate();
+            return HomeWorkflowResult.Continue;
+        }
+        catch (Exception ex)
+        {
+            return HomeWorkflowResult.Error(ExceptionDiagnostics.LogException(ex, "updating application"));
+        }
     }
 
     private HomeWorkflowResult HandleCreateFile(ConsoleInput input)
     {
-        _appContext.Navigator.OpenCreateMap(input.Parameters, new MindMap(input.Parameters));
-        return HomeWorkflowResult.Continue;
+        try
+        {
+            _appContext.Navigator.OpenCreateMap(input.Parameters, new MindMap(input.Parameters));
+            return HomeWorkflowResult.Continue;
+        }
+        catch (Exception ex)
+        {
+            return HomeWorkflowResult.Error(ExceptionDiagnostics.LogException(ex, "creating map"));
+        }
     }
 
     private HomeWorkflowResult HandleDeleteFile(ConsoleInput input, IReadOnlyDictionary<int, FileInfo> fileSelection)
@@ -131,12 +155,19 @@ internal sealed class HomeWorkflow
         if (file == null)
             return HomeWorkflowResult.Error($"File \"{input.Parameters}\" wasn't found. Try again.");
 
-        if (new Confirmation($"Are you sure you want to delete: \"{file.Name}\"?").Confirmed())
+        try
         {
-            _appContext.MapRepository.DeleteMap(file);
-        }
+            if (new Confirmation($"Are you sure you want to delete: \"{file.Name}\"?").Confirmed())
+            {
+                _appContext.MapRepository.DeleteMap(file);
+            }
 
-        return HomeWorkflowResult.Continue;
+            return HomeWorkflowResult.Continue;
+        }
+        catch (Exception ex)
+        {
+            return HomeWorkflowResult.Error(ExceptionDiagnostics.LogException(ex, "deleting map"));
+        }
     }
 
     private HomeWorkflowResult HandleOpenFile(ConsoleInput input, IReadOnlyDictionary<int, FileInfo> fileSelection)
@@ -145,8 +176,15 @@ internal sealed class HomeWorkflow
         if (file == null)
             return HomeWorkflowResult.Error($"File \"{input.FirstWord}\" wasn't found. Try again.");
 
-        _appContext.Navigator.OpenEditMap(file.FullName);
-        return HomeWorkflowResult.Continue;
+        try
+        {
+            _appContext.Navigator.OpenEditMap(file.FullName);
+            return HomeWorkflowResult.Continue;
+        }
+        catch (Exception ex)
+        {
+            return HomeWorkflowResult.Error(ExceptionDiagnostics.LogException(ex, "opening map"));
+        }
     }
 
     private HomeWorkflowResult HandleRenameFile(ConsoleInput input, IReadOnlyDictionary<int, FileInfo> fileSelection)
@@ -155,55 +193,76 @@ internal sealed class HomeWorkflow
         if (file == null)
             return HomeWorkflowResult.Error($"File \"{input.Parameters}\" wasn't found. Try again.");
 
-        new RenameFileDialog(_appContext.MapRepository, file).Show();
-        return HomeWorkflowResult.Continue;
+        try
+        {
+            new RenameFileDialog(_appContext.MapRepository, file).Show();
+            return HomeWorkflowResult.Continue;
+        }
+        catch (Exception ex)
+        {
+            return HomeWorkflowResult.Error(ExceptionDiagnostics.LogException(ex, "renaming map"));
+        }
     }
 
     private HomeWorkflowResult HandleSearch(ConsoleInput input)
     {
-        var searchResult = SearchCommandHelper.Run(
-            input.Parameters,
-            query => MapsSearchService.Search(_appContext.MapRepository, query),
-            includeMapName: true);
-
-        if (searchResult.HasError)
-            return HomeWorkflowResult.Error(searchResult.ErrorMessage);
-
-        if (searchResult.SelectedResult != null)
+        try
         {
-            _appContext.Navigator.OpenEditMap(
-                searchResult.SelectedResult.MapFilePath,
-                searchResult.SelectedResult.NodeId);
-        }
+            var searchResult = SearchCommandHelper.Run(
+                input.Parameters,
+                query => MapsSearchService.Search(_appContext.MapRepository, query),
+                includeMapName: true);
 
-        return HomeWorkflowResult.Continue;
+            if (searchResult.HasError)
+                return HomeWorkflowResult.Error(searchResult.ErrorMessage);
+
+            if (searchResult.SelectedResult != null)
+            {
+                _appContext.Navigator.OpenEditMap(
+                    searchResult.SelectedResult.MapFilePath,
+                    searchResult.SelectedResult.NodeId);
+            }
+
+            return HomeWorkflowResult.Continue;
+        }
+        catch (Exception ex)
+        {
+            return HomeWorkflowResult.Error(ExceptionDiagnostics.LogException(ex, "searching maps"));
+        }
     }
 
     private HomeWorkflowResult HandleTasks(ConsoleInput input)
     {
-        if (!TaskCommandHelper.TryParseFilter(input.Parameters, out var filter, out var errorMessage))
-            return HomeWorkflowResult.Error(errorMessage!);
-
-        var tasks = TaskQueryService.GetTasks(_appContext.MapRepository, filter);
-        if (!tasks.Any())
-            return HomeWorkflowResult.Error(TaskCommandHelper.BuildEmptyTasksMessage(filter, acrossAllMaps: true));
-
-        var selectedResult = new SearchResultsPage(
-            tasks,
-            TaskCommandHelper.GetTasksTitle(filter, acrossAllMaps: true),
-            new SearchResultDisplayOptions(
-                includeMapName: true,
-                colorizeAncestorPath: true,
-                highlightTerms: Array.Empty<string>()))
-            .SelectResult();
-
-        if (selectedResult != null)
+        try
         {
-            _appContext.Navigator.OpenEditMap(
-                selectedResult.MapFilePath,
-                selectedResult.NodeId);
-        }
+            if (!TaskCommandHelper.TryParseFilter(input.Parameters, out var filter, out var errorMessage))
+                return HomeWorkflowResult.Error(errorMessage!);
 
-        return HomeWorkflowResult.Continue;
+            var tasks = TaskQueryService.GetTasks(_appContext.MapRepository, filter);
+            if (!tasks.Any())
+                return HomeWorkflowResult.Error(TaskCommandHelper.BuildEmptyTasksMessage(filter, acrossAllMaps: true));
+
+            var selectedResult = new SearchResultsPage(
+                tasks,
+                TaskCommandHelper.GetTasksTitle(filter, acrossAllMaps: true),
+                new SearchResultDisplayOptions(
+                    includeMapName: true,
+                    colorizeAncestorPath: true,
+                    highlightTerms: Array.Empty<string>()))
+                .SelectResult();
+
+            if (selectedResult != null)
+            {
+                _appContext.Navigator.OpenEditMap(
+                    selectedResult.MapFilePath,
+                    selectedResult.NodeId);
+            }
+
+            return HomeWorkflowResult.Continue;
+        }
+        catch (Exception ex)
+        {
+            return HomeWorkflowResult.Error(ExceptionDiagnostics.LogException(ex, "listing tasks"));
+        }
     }
 }

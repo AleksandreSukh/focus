@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using Systems.Sanity.Focus.Infrastructure.Diagnostics;
 using Systems.Sanity.Focus.Infrastructure.FileSynchronization;
 using Systems.Sanity.Focus.Infrastructure.FileSynchronization.Git;
 
@@ -231,6 +232,7 @@ public class GitHelperSyncCommitMessageTests
     [Fact]
     public void SynchronizeToRemote_ReportsFailureThroughBackgroundNotifier()
     {
+        using var diagnosticsScope = new ExceptionDiagnosticsScope();
         using var failureReported = new ManualResetEventSlim(false);
         string? reportedMessage = null;
         var gitHelper = new GitHelper(
@@ -255,7 +257,8 @@ public class GitHelperSyncCommitMessageTests
         gitHelper.SynchronizeToRemote("Hide node in alpha");
 
         Assert.True(failureReported.Wait(TimeSpan.FromSeconds(2)));
-        Assert.Contains("Git sync failed", reportedMessage);
-        Assert.Contains("remote rejected the push", reportedMessage);
+        Assert.Equal(ExceptionDiagnostics.BuildUserMessage("synchronizing changes to git"), reportedMessage);
+        Assert.Contains("Action: synchronizing changes to git", diagnosticsScope.ReadLog());
+        Assert.Contains("remote rejected the push", diagnosticsScope.ReadLog());
     }
 }

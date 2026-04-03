@@ -1,6 +1,8 @@
 using Systems.Sanity.Focus.Application;
 using Systems.Sanity.Focus.Application.Console;
 using Systems.Sanity.Focus.Domain;
+using Systems.Sanity.Focus.Infrastructure.Diagnostics;
+using Systems.Sanity.Focus.Infrastructure.FileSynchronization;
 using Systems.Sanity.Focus.Infrastructure.Input.ReadLine;
 
 namespace Systems.Sanity.Focus.Tests;
@@ -97,14 +99,24 @@ internal sealed class RecordingPageNavigator : IPageNavigator
 
     public string? OpenedCreateMapSourceFilePath { get; private set; }
 
+    public Exception? OpenEditMapException { get; set; }
+
+    public Exception? OpenCreateMapException { get; set; }
+
     public void OpenCreateMap(string fileName, MindMap mindMap, string? sourceMapFilePath = null)
     {
+        if (OpenCreateMapException != null)
+            throw OpenCreateMapException;
+
         OpenedCreateMapFileName = fileName;
         OpenedCreateMapSourceFilePath = sourceMapFilePath;
     }
 
     public void OpenEditMap(string filePath, Guid? initialNodeIdentifier = null)
     {
+        if (OpenEditMapException != null)
+            throw OpenEditMapException;
+
         OpenedEditMapFilePath = filePath;
         OpenedEditMapNodeIdentifier = initialNodeIdentifier;
     }
@@ -209,8 +221,13 @@ internal sealed class RecordingFileOpener : IFileOpener
 
     public string? ErrorMessage { get; set; }
 
+    public Exception? ExceptionToThrow { get; set; }
+
     public bool TryOpen(string filePath, out string? errorMessage)
     {
+        if (ExceptionToThrow != null)
+            throw ExceptionToThrow;
+
         OpenedFilePath = filePath;
         errorMessage = ErrorMessage;
         return string.IsNullOrWhiteSpace(ErrorMessage);
@@ -281,4 +298,110 @@ internal sealed class InitialKeyAwareCommandLineEditor : ICommandLineEditor
     }
 
     public IReadOnlyList<string> GetHistory() => Array.Empty<string>();
+}
+
+internal sealed class ThrowingCommandLineEditor : ICommandLineEditor
+{
+    private readonly Queue<object> _readSteps;
+
+    public ThrowingCommandLineEditor(params object[] readSteps)
+    {
+        _readSteps = new Queue<object>(readSteps);
+    }
+
+    public bool HistoryEnabled { get; set; }
+
+    public void SetAutoCompletionHandler(IAutoCompleteHandler handler)
+    {
+    }
+
+    public void WriteInterleavedMessage(string text)
+    {
+    }
+
+    public string Read(
+        string prompt,
+        string defaultInput = "",
+        Action<string>? beforeEachAutoCompleteSuggestionWrite = null,
+        Action<string>? afterEachAutoCompleteSuggestionWrite = null,
+        Func<ConsoleKeyInfo, string, bool>? previewKeyHandler = null,
+        ConsoleKeyInfo? initialKeyInfo = null)
+    {
+        if (_readSteps.Count == 0)
+            return string.Empty;
+
+        var next = _readSteps.Dequeue();
+        if (next is Exception exception)
+            throw exception;
+
+        return next as string ?? string.Empty;
+    }
+
+    public IReadOnlyList<string> GetHistory() => Array.Empty<string>();
+}
+
+internal sealed class ThrowingClipboardCaptureService : IClipboardCaptureService
+{
+    private readonly Exception _exception;
+
+    public ThrowingClipboardCaptureService(Exception exception)
+    {
+        _exception = exception;
+    }
+
+    public ClipboardCaptureResult Capture()
+    {
+        throw _exception;
+    }
+}
+
+internal sealed class ThrowingFileSynchronizationHandler : IFileSynchronizationHandler
+{
+    public Exception? SynchronizeException { get; set; }
+
+    public Exception? PullLatestAtStartupException { get; set; }
+
+    public StartupSyncResult PullLatestAtStartup()
+    {
+        if (PullLatestAtStartupException != null)
+            throw PullLatestAtStartupException;
+
+        return StartupSyncResult.Succeeded;
+    }
+
+    public void Synchronize(string commitMessage)
+    {
+        if (SynchronizeException != null)
+            throw SynchronizeException;
+    }
+}
+
+internal sealed class ExceptionDiagnosticsScope : IDisposable
+{
+    private readonly string _directoryPath;
+
+    public ExceptionDiagnosticsScope(Action<string>? userMessageWriter = null)
+    {
+        _directoryPath = Path.Combine(Path.GetTempPath(), "focus-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(_directoryPath);
+        LogFilePath = Path.Combine(_directoryPath, "focus-errors.log");
+        ExceptionDiagnostics.ResetForTests(LogFilePath, userMessageWriter);
+    }
+
+    public string LogFilePath { get; }
+
+    public string ReadLog() =>
+        File.Exists(LogFilePath)
+            ? File.ReadAllText(LogFilePath)
+            : string.Empty;
+
+    public void Dispose()
+    {
+        ExceptionDiagnostics.ResetForTests(ExceptionDiagnostics.BuildDefaultLogFilePath(), null);
+
+        if (Directory.Exists(_directoryPath))
+        {
+            Directory.Delete(_directoryPath, recursive: true);
+        }
+    }
 }

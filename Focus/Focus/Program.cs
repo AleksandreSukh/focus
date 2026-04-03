@@ -7,6 +7,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
 using Systems.Sanity.Focus.Application;
 using Systems.Sanity.Focus.Domain;
+using Systems.Sanity.Focus.Infrastructure.Diagnostics;
 using Systems.Sanity.Focus.Infrastructure.Input;
 using Systems.Sanity.Focus.Infrastructure.Input.ReadLine;
 using Systems.Sanity.Focus.Pages;
@@ -18,23 +19,59 @@ internal static class Program
 {
     private static void Main(string[] args)
     {
-        Task.Run(AutoUpdateManager.StartUpdateChecker);
-        VelopackApp.Build().Run();
+        ExceptionDiagnostics.Initialize(
+            ExceptionDiagnostics.BuildDefaultLogFilePath(),
+            WriteUserMessage);
+        _ = ExceptionDiagnostics.RunInBackgroundAsync(
+            "checking for updates",
+            AutoUpdateManager.StartUpdateChecker,
+            WriteUserMessage);
 
-        Console.OutputEncoding = System.Text.Encoding.Default;
-        JsonConvert.DefaultSettings = () => new JsonSerializerSettings
-        {
-            Formatting = Formatting.Indented,
-            ContractResolver = new CamelCasePropertyNamesContractResolver()
-        };
+        var startupReady = ExceptionDiagnostics.Guard(
+            "starting application",
+            () =>
+            {
+                VelopackApp.Build().Run();
+                Console.OutputEncoding = System.Text.Encoding.Default;
+                JsonConvert.DefaultSettings = () => new JsonSerializerSettings
+                {
+                    Formatting = Formatting.Indented,
+                    ContractResolver = new CamelCasePropertyNamesContractResolver()
+                };
+
+                return true;
+            },
+            message =>
+            {
+                WriteUserMessage(message);
+                return false;
+            });
+        if (!startupReady)
+            return;
 
         var userDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         var configFile = Path.Combine(userDirectory, "focus-config.json");
 
-        var userConfig = ParseUserConfig(configFile);
-        CommandLanguageExtensions.Configure(userConfig.Translations);
-        var startPage = ApplicationStartup.CreateHomePage(userConfig);
-        startPage.Show();
+        UserConfig? userConfig = ExceptionDiagnostics.Guard<UserConfig?>(
+            "loading configuration",
+            () => ParseUserConfig(configFile),
+            message =>
+            {
+                WriteUserMessage(message);
+                return null;
+            });
+        if (userConfig == null)
+            return;
+
+        ExceptionDiagnostics.Guard(
+            "starting application",
+            () =>
+            {
+                CommandLanguageExtensions.Configure(userConfig.Translations);
+                var startPage = ApplicationStartup.CreateHomePage(userConfig);
+                startPage.Show();
+            },
+            WriteUserMessage);
     }
 
     private static UserConfig ParseUserConfig(string configFile)
@@ -69,5 +106,17 @@ internal static class Program
         }
 
         return userConfig;
+    }
+
+    private static void WriteUserMessage(string message)
+    {
+        try
+        {
+            AppConsole.Current.WriteBackgroundMessage(message);
+        }
+        catch
+        {
+            Console.Error.WriteLine(message);
+        }
     }
 }

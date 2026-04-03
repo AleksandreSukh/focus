@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using Systems.Sanity.Focus.Application;
 using Systems.Sanity.Focus.Infrastructure;
+using Systems.Sanity.Focus.Infrastructure.Diagnostics;
 using Systems.Sanity.Focus.Infrastructure.Input;
 using Systems.Sanity.Focus.Pages.Shared;
 
@@ -41,25 +42,32 @@ internal sealed class HomePage : PageWithExclusiveOptions
 
         while (!shouldExit)
         {
-            AppConsole.Current.Clear();
-            AppConsole.Current.SetTitle(_appContext.StartupSyncNotificationState.BuildTitle(ApplicationInfo.DefaultConsoleTitle));
-            ColorfulConsole.WriteLine(GetHeaderRibbonString("Welcome"));
-
-            _fileSelection = _workflow.GetFileSelection();
-            _appContext.StartupSyncNotificationState.AcknowledgeHomePageRefresh();
-
-            var input = GetCommand(_workflow.BuildHomePageText(_fileSelection));
-
-            if (string.IsNullOrWhiteSpace(input.InputString))
-                continue;
-
-            var result = _workflow.Execute(input, _fileSelection);
-            if (!string.IsNullOrWhiteSpace(result.Message))
+            try
             {
-                ShowMessage(result.Message, result.IsError);
-            }
+                AppConsole.Current.Clear();
+                AppConsole.Current.SetTitle(_appContext.StartupSyncNotificationState.BuildTitle(ApplicationInfo.DefaultConsoleTitle));
+                ColorfulConsole.WriteLine(GetHeaderRibbonString("Welcome"));
 
-            shouldExit = result.ShouldExit;
+                _fileSelection = _workflow.GetFileSelection();
+                _appContext.StartupSyncNotificationState.AcknowledgeHomePageRefresh();
+
+                var input = GetCommand(_workflow.BuildHomePageText(_fileSelection));
+
+                if (string.IsNullOrWhiteSpace(input.InputString))
+                    continue;
+
+                var result = _workflow.Execute(input, _fileSelection);
+                if (!string.IsNullOrWhiteSpace(result.Message))
+                {
+                    ShowMessage(result.Message, result.IsError);
+                }
+
+                shouldExit = result.ShouldExit;
+            }
+            catch (Exception ex)
+            {
+                ShowMessage(ExceptionDiagnostics.LogException(ex, "executing home page command"), isError: true);
+            }
         }
     }
 

@@ -1,6 +1,7 @@
 using Systems.Sanity.Focus.Application;
 using Systems.Sanity.Focus;
 using Systems.Sanity.Focus.Domain;
+using Systems.Sanity.Focus.Infrastructure.Diagnostics;
 using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Infrastructure.Input;
 
@@ -115,6 +116,27 @@ public class HomeWorkflowTests
         Assert.False(result.ShouldExit);
         Assert.False(result.IsError);
         Assert.Equal(filePath, navigator.OpenedEditMapFilePath);
+    }
+
+    [Fact]
+    public void Execute_WhenOpeningMapThrows_ReturnsGenericErrorAndLogsException()
+    {
+        using var diagnosticsScope = new ExceptionDiagnosticsScope();
+        var navigator = new RecordingPageNavigator
+        {
+            OpenEditMapException = new InvalidOperationException("navigator failed")
+        };
+        using var workspace = new TestWorkspace(navigator);
+        workspace.SaveMap("alpha", new MindMap("Alpha"));
+        var workflow = new HomeWorkflow(workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("1"), workflow.GetFileSelection());
+
+        Assert.False(result.ShouldExit);
+        Assert.True(result.IsError);
+        Assert.Equal(ExceptionDiagnostics.BuildUserMessage("opening map"), result.Message);
+        Assert.Contains("Action: opening map", diagnosticsScope.ReadLog());
+        Assert.Contains("navigator failed", diagnosticsScope.ReadLog());
     }
 
     [Fact]

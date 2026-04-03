@@ -1,5 +1,6 @@
 using Systems.Sanity.Focus.Application;
 using Systems.Sanity.Focus.Domain;
+using Systems.Sanity.Focus.Infrastructure.FileSynchronization;
 
 namespace Systems.Sanity.Focus.Tests;
 
@@ -8,16 +9,20 @@ internal sealed class TestWorkspace : IDisposable
     public TestWorkspace(
         IPageNavigator? navigator = null,
         IClipboardCaptureService? clipboardCaptureService = null,
-        IFileOpener? fileOpener = null)
+        IFileOpener? fileOpener = null,
+        IFileSynchronizationHandler? fileSynchronizationHandler = null)
     {
         RootDirectory = Path.Combine(Path.GetTempPath(), "focus-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(RootDirectory);
 
-        MapsStorage = new MapsStorage(new UserConfig
+        var userConfig = new UserConfig
         {
             DataFolder = RootDirectory,
             GitRepository = string.Empty
-        });
+        };
+        MapsStorage = fileSynchronizationHandler == null
+            ? new MapsStorage(userConfig)
+            : new MapsStorage(userConfig, fileSynchronizationHandler);
 
         Directory.CreateDirectory(MapsStorage.UserMindMapsDirectory);
         AppContext = new FocusAppContext(MapsStorage, navigator, clipboardCaptureService, fileOpener);
