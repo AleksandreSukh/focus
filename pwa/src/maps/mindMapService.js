@@ -97,6 +97,10 @@ export class MindMapService {
     };
   }
 
+  async loadAttachment(mapFilePath, relativePath, mediaType) {
+    return this.repository.loadAttachment(mapFilePath, relativePath, mediaType);
+  }
+
   async deleteMap(filePath, commitMessage) {
     const snapshot = this.snapshotsByPath.get(filePath);
     if (!snapshot) {

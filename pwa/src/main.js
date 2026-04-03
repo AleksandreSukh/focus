@@ -572,6 +572,28 @@ function handleDocumentClick(event) {
     case 'confirm-delete-map':
       void handleDeleteMapConfirm();
       return;
+    case 'open-attachment':
+      void handleOpenAttachment(
+        clickableElement.dataset.mapPath || '',
+        clickableElement.dataset.nodeId || '',
+        clickableElement.dataset.attachmentId || '',
+      );
+      return;
+    case 'viewer-zoom-in':
+      if (state.activeModal?.kind === 'imageViewer') {
+        state.activeModal = { ...state.activeModal, zoom: Math.min(state.activeModal.zoom + 0.25, 5) };
+        render();
+      }
+      return;
+    case 'viewer-zoom-out':
+      if (state.activeModal?.kind === 'imageViewer') {
+        state.activeModal = { ...state.activeModal, zoom: Math.max(state.activeModal.zoom - 0.25, 0.25), panX: 0, panY: 0 };
+        render();
+      }
+      return;
+    case 'viewer-download':
+      handleViewerDownload();
+      return;
     case 'open-task-node':
       openTaskNode(clickableElement.dataset.mapPath || '', clickableElement.dataset.nodeId || '');
       return;
@@ -1413,6 +1435,129 @@ async function handleDeleteMapConfirm() {
   render();
 }
 
+async function handleOpenAttachment(mapPath, nodeId, attachmentId) {
+  const snapshot = state.mapsByPath[mapPath];
+  if (!snapshot) {
+    return;
+  }
+
+  const record = findNodeRecord(snapshot.document, nodeId);
+  if (!record) {
+    return;
+  }
+
+  const attachments = Array.isArray(record.node.metadata?.attachments) ? record.node.metadata.attachments : [];
+  const attachment = attachments.find((a) => a.id === attachmentId);
+  if (!attachment) {
+    return;
+  }
+
+  state.activeModal = {
+    kind: 'imageViewer',
+    mapPath,
+    nodeId: '',
+    draftText: '',
+    errorMessage: '',
+    returnFocusKey: buildNodeFocusKey(mapPath, nodeId),
+    displayName: attachment.displayName || attachment.relativePath,
+    imageUrl: null,
+    loading: true,
+    zoom: 1,
+    panX: 0,
+    panY: 0,
+  };
+  render();
+
+  const result = await state.service.loadAttachment(mapPath, attachment.relativePath, attachment.mediaType);
+  if (!result.ok) {
+    if (state.activeModal?.kind === 'imageViewer') {
+      state.activeModal = {
+        ...state.activeModal,
+        loading: false,
+        errorMessage: result.error.message || 'Failed to load attachment.',
+      };
+      render();
+    }
+    return;
+  }
+
+  if (state.activeModal?.kind === 'imageViewer') {
+    state.activeModal = {
+      ...state.activeModal,
+      loading: false,
+      imageUrl: URL.createObjectURL(result.value),
+    };
+    render();
+    bindImageViewerDrag();
+  }
+}
+
+function handleViewerDownload() {
+  if (!state.activeModal || state.activeModal.kind !== 'imageViewer' || !state.activeModal.imageUrl) {
+    return;
+  }
+
+  const link = document.createElement('a');
+  link.href = state.activeModal.imageUrl;
+  link.download = state.activeModal.displayName || 'attachment.png';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+function bindImageViewerDrag() {
+  const container = document.querySelector('.image-viewer-body');
+  if (!container) {
+    return;
+  }
+
+  let dragging = false;
+  let startX = 0;
+  let startY = 0;
+  let startPanX = 0;
+  let startPanY = 0;
+
+  container.addEventListener('pointerdown', (event) => {
+    if (!state.activeModal || state.activeModal.kind !== 'imageViewer' || state.activeModal.zoom <= 1) {
+      return;
+    }
+
+    dragging = true;
+    startX = event.clientX;
+    startY = event.clientY;
+    startPanX = state.activeModal.panX;
+    startPanY = state.activeModal.panY;
+    container.classList.add('dragging');
+    container.setPointerCapture(event.pointerId);
+  });
+
+  container.addEventListener('pointermove', (event) => {
+    if (!dragging || !state.activeModal || state.activeModal.kind !== 'imageViewer') {
+      return;
+    }
+
+    const dx = event.clientX - startX;
+    const dy = event.clientY - startY;
+    state.activeModal.panX = startPanX + dx;
+    state.activeModal.panY = startPanY + dy;
+
+    const img = container.querySelector('.image-viewer-img');
+    if (img) {
+      img.style.transform = `scale(${state.activeModal.zoom}) translate(${state.activeModal.panX}px, ${state.activeModal.panY}px)`;
+    }
+  });
+
+  container.addEventListener('pointerup', () => {
+    dragging = false;
+    container.classList.remove('dragging');
+  });
+
+  container.addEventListener('pointercancel', () => {
+    dragging = false;
+    container.classList.remove('dragging');
+  });
+}
+
 async function openConflictModal() {
   const failingOp = state.pendingOperations[0];
   if (!failingOp || state.syncState.kind !== 'conflict') {
@@ -1768,6 +1913,10 @@ function openNodeModal(kind, mapPath, nodeId, returnFocusKey = '') {
 function closeActiveModal(options = {}) {
   if (!state.activeModal) {
     return;
+  }
+
+  if (state.activeModal.kind === 'imageViewer' && state.activeModal.imageUrl) {
+    URL.revokeObjectURL(state.activeModal.imageUrl);
   }
 
   const focusKey = options.focusKey || state.activeModal.returnFocusKey || '';
@@ -2618,8 +2767,22 @@ function renderSelectedNodeActions(snapshot, nodeUiState) {
     ? `<div class="selected-node-meta">${renderBadgeMarkup(nodeUiState.badges)}</div>`
     : '';
   const hintMarkup = renderSelectedNodeHint(nodeUiState);
+  const attachments = Array.isArray(nodeUiState.node.metadata?.attachments) ? nodeUiState.node.metadata.attachments : [];
+  const attachmentsMarkup = attachments.length > 0
+    ? `<div class="attachment-list">${attachments.map((att) => `
+        <button
+          type="button"
+          class="attachment-item"
+          data-action="open-attachment"
+          data-map-path="${escapeHtml(mapPath)}"
+          data-node-id="${escapeHtml(nodeId)}"
+          data-attachment-id="${escapeHtml(att.id)}"
+          title="${escapeHtml(att.displayName || att.relativePath)}"
+        >${escapeHtml(att.displayName || att.relativePath)}</button>
+      `).join('')}</div>`
+    : '';
 
-  if (!isTask && !badgesMarkup && !hintMarkup) {
+  if (!isTask && !badgesMarkup && !hintMarkup && !attachmentsMarkup) {
     return '';
   }
 
@@ -2636,6 +2799,7 @@ function renderSelectedNodeActions(snapshot, nodeUiState) {
         ` : ''}
       </div>
       ${badgesMarkup}
+      ${attachmentsMarkup}
       ${hintMarkup}
     </div>
   `;
@@ -2720,6 +2884,10 @@ function renderActiveModal() {
 
   if (state.activeModal.kind === 'deleteMap') {
     return renderDeleteMapModal();
+  }
+
+  if (state.activeModal.kind === 'imageViewer') {
+    return renderImageViewerModal();
   }
 
   const modalContext = getActiveModalContext(state.activeModal.kind);
@@ -2942,6 +3110,44 @@ function renderDeleteMapModal() {
             class="danger-button"
             data-action="confirm-delete-map"
           >Delete</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderImageViewerModal() {
+  const { displayName, imageUrl, loading, errorMessage, zoom } = state.activeModal;
+  const zoomPercent = Math.round(zoom * 100);
+
+  const bodyContent = loading
+    ? '<div class="image-viewer-loading shimmer"></div>'
+    : errorMessage
+      ? `<p class="form-error" role="alert">${escapeHtml(errorMessage)}</p>`
+      : `<img
+          class="image-viewer-img"
+          src="${escapeHtml(imageUrl)}"
+          alt="${escapeHtml(displayName)}"
+          style="transform: scale(${zoom}) translate(${state.activeModal.panX}px, ${state.activeModal.panY}px)"
+          draggable="false"
+        />`;
+
+  return `
+    <div class="modal-layer">
+      <button type="button" class="modal-backdrop" data-action="close-modal" aria-label="Close dialog"></button>
+      <div class="modal-card image-viewer-card" role="dialog" aria-modal="true" aria-labelledby="viewer-title">
+        <div class="image-viewer-header">
+          <h3 id="viewer-title" class="image-viewer-title">${escapeHtml(displayName)}</h3>
+          <div class="image-viewer-controls">
+            <button type="button" class="ghost-button compact-button" data-action="viewer-zoom-out" ${zoom <= 0.25 ? 'disabled' : ''} aria-label="Zoom out">&minus;</button>
+            <span class="image-viewer-zoom-label">${zoomPercent}%</span>
+            <button type="button" class="ghost-button compact-button" data-action="viewer-zoom-in" ${zoom >= 5 ? 'disabled' : ''} aria-label="Zoom in">&plus;</button>
+            <button type="button" class="ghost-button compact-button" data-action="viewer-download" ${!imageUrl ? 'disabled' : ''} aria-label="Download">Download</button>
+            <button type="button" class="ghost-button compact-button" data-action="close-modal">Close</button>
+          </div>
+        </div>
+        <div class="image-viewer-body${zoom > 1 ? ' zoomable' : ''}">
+          ${bodyContent}
         </div>
       </div>
     </div>

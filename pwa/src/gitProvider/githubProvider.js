@@ -48,6 +48,17 @@ export class GitHubProvider {
       throw error;
     }
   }
+  async getFileAsBlob(path, mediaType = 'application/octet-stream') {
+    try {
+      const response = await this.adapter.getContent(path, `loading attachment ${path}`);
+      recordSyncSuccess(`Loaded attachment ${path} from GitHub.`);
+      return decodeBlobContent(response.content, response.encoding, mediaType);
+    } catch (error) {
+      recordSyncFailure(toErrorSummary('read', path, error));
+      throw error;
+    }
+  }
+
   async deleteFile(path, versionToken, message) {
     try {
       const response = await this.adapter.deleteContent(path, {
@@ -74,6 +85,17 @@ function decodeContent(content, encoding) {
   const binary = atob(sanitized);
   const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
   return new TextDecoder().decode(bytes);
+}
+
+function decodeBlobContent(content, encoding, mediaType) {
+  if (encoding !== 'base64') {
+    throw new Error(`Unsupported GitHub content encoding: ${encoding}`);
+  }
+
+  const sanitized = content.replace(/\n/g, '');
+  const binary = atob(sanitized);
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  return new Blob([bytes], { type: mediaType });
 }
 
 function encodeContent(content) {

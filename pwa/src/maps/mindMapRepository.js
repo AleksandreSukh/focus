@@ -89,6 +89,26 @@ export class MindMapRepository {
     }
   }
 
+  async loadAttachment(mapFilePath, relativePath, mediaType) {
+    try {
+      const blob = await this.provider.getAttachmentBlob(mapFilePath, relativePath, mediaType);
+      return {
+        ok: true,
+        value: blob,
+      };
+    } catch (cause) {
+      return {
+        ok: false,
+        error: {
+          code: 'PERSISTENCE_ERROR',
+          message: cause?.message || `Unable to load attachment "${relativePath}".`,
+          retriable: cause?.code === 'NETWORK' || cause?.code === 'RATE_LIMIT',
+          cause,
+        },
+      };
+    }
+  }
+
   async deleteMap(filePath, expectedRevision, commitMessage) {
     try {
       const outcome = await this.provider.deleteMap({
