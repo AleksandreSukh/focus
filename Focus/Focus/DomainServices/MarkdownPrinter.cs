@@ -16,11 +16,19 @@ namespace Systems.Sanity.Focus.DomainServices
             sb.Append("# ");
             sb.AppendLine(FormatNodeName(node));
 
+            var rootAttachments = NodeExportHelpers.GetAttachments(node, options);
             var visibleChildren = NodeExportHelpers.GetVisibleChildren(node).ToArray();
-            if (!visibleChildren.Any())
+            if (!rootAttachments.Any() && !visibleChildren.Any())
                 return;
 
             sb.AppendLine();
+            AppendAttachments(rootAttachments, level: 0, sb, options, isRoot: true);
+            if (rootAttachments.Any() && visibleChildren.Any())
+                sb.AppendLine();
+
+            if (!visibleChildren.Any())
+                return;
+
             PrintChildren(visibleChildren, level: 1, sb, options);
         }
 
@@ -52,6 +60,8 @@ namespace Systems.Sanity.Focus.DomainServices
             sb.Append(prefix);
             sb.AppendLine(FormatNodeName(node));
 
+            AppendAttachments(NodeExportHelpers.GetAttachments(node, options), level, sb, options, isRoot: false);
+
             var visibleChildren = NodeExportHelpers.GetVisibleChildren(node).ToArray();
             if (!visibleChildren.Any())
                 return;
@@ -60,6 +70,120 @@ namespace Systems.Sanity.Focus.DomainServices
                 return;
 
             PrintChildren(visibleChildren, level + 1, sb, options);
+        }
+
+        private static void AppendAttachments(
+            IReadOnlyList<NodeAttachment> attachments,
+            int level,
+            StringBuilder sb,
+            NodeExportOptions options,
+            bool isRoot)
+        {
+            if (attachments.Count == 0)
+                return;
+
+            foreach (var attachment in attachments)
+            {
+                AppendAttachment(AttachmentExportHelper.Build(attachment, options), level, sb, isRoot);
+            }
+        }
+
+        private static void AppendAttachment(
+            AttachmentExportItem attachment,
+            int level,
+            StringBuilder sb,
+            bool isRoot)
+        {
+            switch (attachment.Kind)
+            {
+                case AttachmentExportKind.Text:
+                    AppendQuotedText(attachment.TextContent ?? string.Empty, level, sb, isRoot);
+                    break;
+                case AttachmentExportKind.Image:
+                    AppendIndentedLine(BuildMarkdownImage(attachment), level, sb, isRoot);
+                    break;
+                default:
+                    AppendIndentedLine(BuildMarkdownLink(attachment), level, sb, isRoot);
+                    break;
+            }
+        }
+
+        private static void AppendQuotedText(string text, int level, StringBuilder sb, bool isRoot)
+        {
+            var quoteIndent = BuildAttachmentIndent(level, isRoot);
+            var lines = (text ?? string.Empty).ReplaceLineEndings("\n").Split('\n');
+            foreach (var line in lines)
+            {
+                sb.Append(quoteIndent);
+                sb.Append("> ");
+                sb.AppendLine(EscapeMarkdownLiteral(line));
+            }
+        }
+
+        private static void AppendIndentedLine(string line, int level, StringBuilder sb, bool isRoot)
+        {
+            sb.Append(BuildAttachmentIndent(level, isRoot));
+            sb.AppendLine(line);
+        }
+
+        private static string BuildAttachmentIndent(int level, bool isRoot) =>
+            isRoot
+                ? string.Empty
+                : new string(' ', level * Indentation.Length);
+
+        private static string BuildMarkdownImage(AttachmentExportItem attachment)
+        {
+            var label = EscapeMarkdownLabel(attachment.DisplayName);
+            var destination = FormatMarkdownDestination(attachment.RelativePath);
+            return $"[![{label}]({destination})]({destination})";
+        }
+
+        private static string BuildMarkdownLink(AttachmentExportItem attachment) =>
+            $"[{EscapeMarkdownLabel(attachment.DisplayName)}]({FormatMarkdownDestination(attachment.RelativePath)})";
+
+        private static string FormatMarkdownDestination(string relativePath) =>
+            $"<{relativePath.Replace(">", "\\>", System.StringComparison.Ordinal)}>";
+
+        private static string EscapeMarkdownLabel(string value) =>
+            EscapeMarkdownLiteral(value);
+
+        private static string EscapeMarkdownLiteral(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+                return string.Empty;
+
+            var escaped = new StringBuilder(value.Length * 2);
+            foreach (var character in value)
+            {
+                if (character is '\\' or '`' or '*' or '_' or '{' or '}' or '[' or ']' or '(' or ')' or '#' or '+' or '-' or '!' or '|' or '>')
+                    escaped.Append('\\');
+
+                escaped.Append(character);
+            }
+
+            return EscapeLeadingOrderedList(escaped.ToString());
+        }
+
+        private static string EscapeLeadingOrderedList(string value)
+        {
+            if (string.IsNullOrEmpty(value) || !char.IsDigit(value[0]))
+                return value;
+
+            var index = 0;
+            while (index < value.Length && char.IsDigit(value[index]))
+            {
+                index++;
+            }
+
+            if (index > 0 &&
+                index + 1 < value.Length &&
+                value[index] == '.' &&
+                value[index + 1] == ' ')
+            {
+                return $"{value[..index]}\\.{value[(index + 1)..]}";
+            }
+
+            return value;
         }
 
         private static string FormatNodeName(Node node) =>

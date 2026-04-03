@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Systems.Sanity.Focus.Domain;
@@ -6,7 +7,10 @@ namespace Systems.Sanity.Focus.DomainServices;
 
 internal sealed record NodeExportOptions(
     bool SkipCollapsedDescendants = false,
-    bool UseBlackBackground = false);
+    bool UseBlackBackground = false,
+    bool IncludeAttachments = false,
+    string? MapFilePath = null,
+    string? ExportFilePath = null);
 
 internal static class NodeExportHelpers
 {
@@ -25,4 +29,12 @@ internal static class NodeExportHelpers
 
     public static string FormatNodeName(Node node) =>
         node.TaskState.WithDisplayMarker(NormalizeNodeName(node.Name));
+
+    public static IReadOnlyList<NodeAttachment> GetAttachments(Node node, NodeExportOptions options)
+    {
+        if (!options.IncludeAttachments || node.Metadata?.Attachments == null)
+            return Array.Empty<NodeAttachment>();
+       
+        return node.Metadata.Attachments;
+    }
 }

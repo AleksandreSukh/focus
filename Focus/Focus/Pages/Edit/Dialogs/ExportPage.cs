@@ -20,6 +20,8 @@ internal class ExportPage : Page
     private const string LightBackgroundOption = "lightbg";
     private const string FullOption = "full";
     private const string CollapsedOption = "collapsed";
+    private const string AttachmentsOption = "attachments";
+    private const string NoAttachmentsOption = "noattachments";
     private const string NameOption = "name";
     private const string SaveOption = "save";
     private const string CancelOption = "cancel";
@@ -29,6 +31,7 @@ internal class ExportPage : Page
     private ExportFormat _format = ExportFormat.Markdown;
     private bool _skipCollapsedDescendants;
     private bool _useBlackBackground;
+    private bool _includeAttachments;
     private string? _message;
     private bool _isError;
     private bool _cancelled;
@@ -84,6 +87,12 @@ internal class ExportPage : Page
             case CollapsedOption:
                 SetScope(skipCollapsedDescendants: true);
                 return;
+            case AttachmentsOption:
+                SetAttachments(includeAttachments: true);
+                return;
+            case NoAttachmentsOption:
+                SetAttachments(includeAttachments: false);
+                return;
             case NameOption:
                 UpdateFileName(input.Parameters);
                 return;
@@ -92,7 +101,8 @@ internal class ExportPage : Page
                     _format,
                     _fileName,
                     _skipCollapsedDescendants,
-                    _format == ExportFormat.Html && _useBlackBackground);
+                    _format == ExportFormat.Html && _useBlackBackground,
+                    _includeAttachments);
                 return;
             case CancelOption:
                 _cancelled = true;
@@ -168,6 +178,22 @@ internal class ExportPage : Page
             : "Scope set to full subtree";
     }
 
+    private void SetAttachments(bool includeAttachments)
+    {
+        if (_includeAttachments == includeAttachments)
+        {
+            _message = includeAttachments
+                ? "Attachments are already included"
+                : "Attachments are already excluded";
+            return;
+        }
+
+        _includeAttachments = includeAttachments;
+        _message = includeAttachments
+            ? "Attachments will be included"
+            : "Attachments will be excluded";
+    }
+
     private IEnumerable<ExportOption> GetVisibleOptions()
     {
         if (_format == ExportFormat.Markdown)
@@ -200,6 +226,15 @@ internal class ExportPage : Page
             yield return new ExportOption(CollapsedOption, CollapsedOption, "skip descendants under collapsed nodes");
         }
 
+        if (_includeAttachments)
+        {
+            yield return new ExportOption(NoAttachmentsOption, NoAttachmentsOption, "exclude attachments from export");
+        }
+        else
+        {
+            yield return new ExportOption(AttachmentsOption, AttachmentsOption, "include attachments in export");
+        }
+
         yield return new ExportOption($"{NameOption} <file name>", $"{NameOption} {_fileName}", "set exported file name");
         yield return new ExportOption(SaveOption, SaveOption, "create exported file");
         yield return new ExportOption(CancelOption, CancelOption, "return without exporting");
@@ -217,6 +252,7 @@ internal class ExportPage : Page
         if (_format == ExportFormat.Html)
             builder.AppendLine($"Background: {(_useBlackBackground ? "Black" : "Light")}");
         builder.AppendLine($"Scope: {(_skipCollapsedDescendants ? "Skip descendants under collapsed nodes" : "Full subtree")}");
+        builder.AppendLine($"Attachments: {(_includeAttachments ? "Included" : "Excluded")}");
         builder.AppendLine();
         foreach (var option in GetVisibleOptions())
         {

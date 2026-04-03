@@ -259,11 +259,6 @@ export function getNodeBadges(node) {
     badges.push('Links');
   }
 
-  const attachments = Array.isArray(node.metadata?.attachments) ? node.metadata.attachments : [];
-  if (attachments.length > 0 && !isClipboardImageNode(node)) {
-    badges.push(`Attachments ${attachments.length}`);
-  }
-
   return badges;
 }
 

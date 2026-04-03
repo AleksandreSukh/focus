@@ -33,6 +33,7 @@ internal static class HtmlPrinter
         AppendLine(sb, 1, "<body>");
         AppendLine(sb, 2, "<article class=\"mindmap-export\">");
         AppendLine(sb, 3, $"<h1>{HtmlInlineFormatter.ToHtml(NodeExportHelpers.FormatNodeName(node))}</h1>");
+        AppendAttachments(node, sb, options, indentationLevel: 3);
 
         var visibleChildren = NodeExportHelpers.GetVisibleChildren(node).ToArray();
         if (visibleChildren.Any())
@@ -59,21 +60,74 @@ internal static class HtmlPrinter
         int indentationLevel)
     {
         AppendLine(sb, indentationLevel, "<li>");
-        AppendLine(sb, indentationLevel + 1, HtmlInlineFormatter.ToHtml(NodeExportHelpers.FormatNodeName(node)));
+        AppendLine(sb, indentationLevel + 1, "<div class=\"node-content\">");
+        AppendLine(sb, indentationLevel + 2, $"<div class=\"node-text\">{HtmlInlineFormatter.ToHtml(NodeExportHelpers.FormatNodeName(node))}</div>");
+        AppendAttachments(node, sb, options, indentationLevel + 2);
 
         var visibleChildren = NodeExportHelpers.GetVisibleChildren(node).ToArray();
         if (visibleChildren.Any() && !(options.SkipCollapsedDescendants && node.IsCollapsed()))
         {
-            AppendLine(sb, indentationLevel + 1, "<ul>");
+            AppendLine(sb, indentationLevel + 2, "<ul>");
             foreach (var childNode in visibleChildren)
             {
-                PrintNode(childNode, level + 1, sb, options, indentationLevel + 2);
+                PrintNode(childNode, level + 1, sb, options, indentationLevel + 3);
             }
 
-            AppendLine(sb, indentationLevel + 1, "</ul>");
+            AppendLine(sb, indentationLevel + 2, "</ul>");
         }
 
+        AppendLine(sb, indentationLevel + 1, "</div>");
         AppendLine(sb, indentationLevel, "</li>");
+    }
+
+    private static void AppendAttachments(Node node, StringBuilder sb, NodeExportOptions options, int indentationLevel)
+    {
+        var attachments = NodeExportHelpers.GetAttachments(node, options);
+        if (attachments.Count == 0)
+            return;
+
+        AppendLine(sb, indentationLevel, "<div class=\"node-attachments\">");
+        foreach (var attachment in attachments)
+        {
+            AppendAttachment(AttachmentExportHelper.Build(attachment, options), sb, indentationLevel + 1);
+        }
+
+        AppendLine(sb, indentationLevel, "</div>");
+    }
+
+    private static void AppendAttachment(AttachmentExportItem attachment, StringBuilder sb, int indentationLevel)
+    {
+        switch (attachment.Kind)
+        {
+            case AttachmentExportKind.Text:
+                AppendLine(
+                    sb,
+                    indentationLevel,
+                    $"<blockquote class=\"attachment-quote\">{WebUtility.HtmlEncode(attachment.TextContent ?? string.Empty)}</blockquote>");
+                break;
+            case AttachmentExportKind.Image:
+            {
+                var encodedPath = WebUtility.HtmlEncode(attachment.RelativePath);
+                var encodedAlt = WebUtility.HtmlEncode(attachment.DisplayName);
+                AppendLine(sb, indentationLevel, "<div class=\"attachment-image-box\">");
+                AppendLine(
+                    sb,
+                    indentationLevel + 1,
+                    $"<a class=\"attachment-image-link\" href=\"{encodedPath}\"><img class=\"attachment-image\" src=\"{encodedPath}\" alt=\"{encodedAlt}\" /></a>");
+                AppendLine(sb, indentationLevel, "</div>");
+                break;
+            }
+            default:
+            {
+                var encodedPath = WebUtility.HtmlEncode(attachment.RelativePath);
+                var encodedLabel = WebUtility.HtmlEncode(attachment.DisplayName);
+                AppendLine(
+                    sb,
+                    indentationLevel,
+                    $"<div class=\"attachment-link\"><a href=\"{encodedPath}\">{encodedLabel}</a></div>");
+                break;
+            }
+        }
     }
 
     private static void AppendStyles(StringBuilder sb, NodeExportOptions options)
@@ -89,6 +143,19 @@ internal static class HtmlPrinter
         AppendLine(sb, 3, "h1 { margin-bottom: 1rem; font-size: 2rem; }");
         AppendLine(sb, 3, "ol, ul { padding-left: 1.5rem; }");
         AppendLine(sb, 3, "li { margin: 0.4rem 0; }");
+        AppendLine(sb, 3, ".node-content { max-width: 100%; }");
+        AppendLine(sb, 3, ".node-text { min-width: 0; }");
+        AppendLine(sb, 3, ".node-attachments { margin-top: 0.55rem; }");
+        AppendLine(
+            sb,
+            3,
+            useBlackBackground
+                ? ".attachment-quote { margin: 0.5rem 0 0; padding: 0.6rem 0.9rem; border-left: 3px solid #334155; background: rgba(148, 163, 184, 0.12); border-radius: 0.6rem; white-space: pre-wrap; }"
+                : ".attachment-quote { margin: 0.5rem 0 0; padding: 0.6rem 0.9rem; border-left: 3px solid #cbd5e1; background: #f8fafc; border-radius: 0.6rem; white-space: pre-wrap; }");
+        AppendLine(sb, 3, ".attachment-image-box { margin-top: 0.65rem; max-width: min(100%, 42rem); }");
+        AppendLine(sb, 3, ".attachment-image-link { display: block; }");
+        AppendLine(sb, 3, ".attachment-image { display: block; width: 100%; height: auto; border-radius: 0.9rem; }");
+        AppendLine(sb, 3, ".attachment-link { margin-top: 0.55rem; }");
         AppendLine(
             sb,
             3,

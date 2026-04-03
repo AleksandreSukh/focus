@@ -1837,6 +1837,25 @@ textarea:disabled {
   border-radius: 0.5rem;
 }
 
+.text-viewer-card {
+  max-width: min(100%, 48rem);
+}
+
+.text-viewer-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 1rem 1.2rem 1.25rem;
+  min-height: 16rem;
+}
+
+.text-viewer-content {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: inherit;
+  line-height: 1.55;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;

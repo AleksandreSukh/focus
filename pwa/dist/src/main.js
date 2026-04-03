@@ -1616,6 +1616,14 @@ function getPrimaryNodeAttachment(node) {
   return attachments.find((attachment) => typeof attachment?.relativePath === 'string' && attachment.relativePath) || attachments[0] || null;
 }
 
+function isTextAttachment(attachment) {
+  return typeof attachment?.mediaType === 'string' && attachment.mediaType.toLowerCase().startsWith('text/');
+}
+
+function isClipboardTextNode(node) {
+  return typeof node?.metadata?.source === 'string' && node.metadata.source === 'clipboard-text';
+}
+
 async function openImageViewerForAttachment(mapPath, nodeId, attachment, returnFocusKey = '') {
   if (!attachment) {
     return;
@@ -1672,6 +1680,75 @@ async function openImageViewerForAttachment(mapPath, nodeId, attachment, returnF
   }
 }
 
+async function openTextViewerForAttachment(mapPath, nodeId, attachment, returnFocusKey = '') {
+  if (!attachment) {
+    return;
+  }
+
+  state.activeModal = {
+    kind: 'textViewer',
+    mapPath,
+    nodeId,
+    draftText: '',
+    errorMessage: '',
+    returnFocusKey: returnFocusKey || buildNodeFocusKey(mapPath, nodeId),
+    attachmentRelativePath: attachment.relativePath,
+    displayName: attachment.displayName || attachment.relativePath,
+    textContent: '',
+    downloadUrl: null,
+    loading: true,
+  };
+  render();
+
+  const result = await state.service.loadAttachment(mapPath, attachment.relativePath, attachment.mediaType);
+  if (!result.ok) {
+    if (
+      state.activeModal?.kind === 'textViewer' &&
+      state.activeModal.mapPath === mapPath &&
+      state.activeModal.nodeId === nodeId &&
+      state.activeModal.attachmentRelativePath === attachment.relativePath
+    ) {
+      state.activeModal = {
+        ...state.activeModal,
+        loading: false,
+        errorMessage: result.error.message || 'Failed to load attachment.',
+      };
+      render();
+    }
+    return;
+  }
+
+  const textContent = await result.value.text();
+  const downloadUrl = URL.createObjectURL(result.value);
+
+  if (
+    state.activeModal?.kind === 'textViewer' &&
+    state.activeModal.mapPath === mapPath &&
+    state.activeModal.nodeId === nodeId &&
+    state.activeModal.attachmentRelativePath === attachment.relativePath
+  ) {
+    state.activeModal = {
+      ...state.activeModal,
+      loading: false,
+      textContent,
+      downloadUrl,
+    };
+    render();
+    return;
+  }
+
+  URL.revokeObjectURL(downloadUrl);
+}
+
+async function openAttachmentViewerForAttachment(mapPath, nodeId, attachment, returnFocusKey = '') {
+  if (isTextAttachment(attachment)) {
+    await openTextViewerForAttachment(mapPath, nodeId, attachment, returnFocusKey);
+    return;
+  }
+
+  await openImageViewerForAttachment(mapPath, nodeId, attachment, returnFocusKey);
+}
+
 async function handleOpenAttachment(mapPath, nodeId, attachmentId) {
   const snapshot = state.mapsByPath[mapPath];
   if (!snapshot) {
@@ -1688,7 +1765,7 @@ async function handleOpenAttachment(mapPath, nodeId, attachmentId) {
     return;
   }
 
-  await openImageViewerForAttachment(
+  await openAttachmentViewerForAttachment(
     mapPath,
     record.node.uniqueIdentifier,
     attachment,
@@ -1697,13 +1774,24 @@ async function handleOpenAttachment(mapPath, nodeId, attachmentId) {
 }
 
 function handleViewerDownload() {
-  if (!state.activeModal || state.activeModal.kind !== 'imageViewer' || !state.activeModal.imageUrl) {
+  if (!state.activeModal) {
+    return;
+  }
+
+  const viewerUrl = state.activeModal.kind === 'imageViewer'
+    ? state.activeModal.imageUrl
+    : state.activeModal.kind === 'textViewer'
+      ? state.activeModal.downloadUrl
+      : '';
+
+  if (!viewerUrl) {
     return;
   }
 
   const link = document.createElement('a');
-  link.href = state.activeModal.imageUrl;
-  link.download = state.activeModal.displayName || 'attachment.png';
+  link.href = viewerUrl;
+  link.download = state.activeModal.displayName
+    || (state.activeModal.kind === 'textViewer' ? 'attachment.txt' : 'attachment.png');
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
@@ -2104,10 +2192,10 @@ function openNodeModal(kind, mapPath, nodeId, returnFocusKey = '') {
   state.selectedNodeId = nodeUiState.node.uniqueIdentifier;
   const focusKey = returnFocusKey || buildNodeFocusKey(mapPath, nodeUiState.node.uniqueIdentifier);
 
-  if (kind === 'editNode' && isClipboardImageNode(nodeUiState.node)) {
+  if (kind === 'editNode' && (isClipboardImageNode(nodeUiState.node) || isClipboardTextNode(nodeUiState.node))) {
     const attachment = getPrimaryNodeAttachment(nodeUiState.node);
     if (attachment) {
-      void openImageViewerForAttachment(
+      void openAttachmentViewerForAttachment(
         mapPath,
         nodeUiState.node.uniqueIdentifier,
         attachment,
@@ -2154,6 +2242,10 @@ function closeActiveModal(options = {}) {
 
   if (state.activeModal.kind === 'imageViewer' && state.activeModal.imageUrl) {
     URL.revokeObjectURL(state.activeModal.imageUrl);
+  }
+
+  if (state.activeModal.kind === 'textViewer' && state.activeModal.downloadUrl) {
+    URL.revokeObjectURL(state.activeModal.downloadUrl);
   }
 
   pendingModalHistoryClose = null;
@@ -3032,6 +3124,22 @@ function getWorkspaceOverlayState() {
     };
   }
 
+  if (state.activeModal.kind === 'textViewer') {
+    return {
+      kind: 'textViewer',
+      key: JSON.stringify({
+        kind: state.activeModal.kind,
+        mapPath: state.activeModal.mapPath,
+        nodeId: state.activeModal.nodeId,
+        attachmentRelativePath: state.activeModal.attachmentRelativePath || '',
+        displayName: state.activeModal.displayName || '',
+        loading: state.activeModal.loading,
+        errorMessage: state.activeModal.errorMessage || '',
+        textLength: (state.activeModal.textContent || '').length,
+      }),
+    };
+  }
+
   if (state.activeModal.kind === 'addChildNote') {
     return {
       kind: 'addChildNote',
@@ -3709,6 +3817,10 @@ function renderActiveModal() {
     return renderImageViewerModal();
   }
 
+  if (state.activeModal.kind === 'textViewer') {
+    return renderTextViewerModal();
+  }
+
   if (state.activeModal.kind === 'addChildNote') {
     return renderAddChildNoteComposer();
   }
@@ -3999,6 +4111,33 @@ function renderImageViewerModal() {
           </div>
         </div>
         <div class="image-viewer-body${zoom > 1 ? ' zoomable' : ''}">
+          ${bodyContent}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderTextViewerModal() {
+  const { textContent, loading, errorMessage, downloadUrl } = state.activeModal;
+
+  const bodyContent = loading
+    ? '<div class="image-viewer-loading shimmer"></div>'
+    : errorMessage
+      ? `<p class="form-error" role="alert">${escapeHtml(errorMessage)}</p>`
+      : `<pre class="text-viewer-content">${escapeHtml(textContent)}</pre>`;
+
+  return `
+    <div class="modal-layer">
+      <button type="button" class="modal-backdrop" data-action="close-modal" aria-label="Close dialog"></button>
+      <div class="modal-card image-viewer-card text-viewer-card" role="dialog" aria-modal="true" aria-labelledby="viewer-title">
+        <div class="image-viewer-header">
+          <div class="image-viewer-controls">
+            <button type="button" class="ghost-button compact-button" data-action="viewer-download" ${!downloadUrl ? 'disabled' : ''} aria-label="Download">Download</button>
+            <button type="button" class="ghost-button compact-button" data-action="close-modal">Close</button>
+          </div>
+        </div>
+        <div class="text-viewer-body">
           ${bodyContent}
         </div>
       </div>

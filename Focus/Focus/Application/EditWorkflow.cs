@@ -566,10 +566,6 @@ internal sealed class EditWorkflow
 
         try
         {
-            var exportedContent = MapExportService.Export(
-                _map.GetCurrentNode(),
-                exportRequest.Format,
-                new NodeExportOptions(exportRequest.SkipCollapsedDescendants, exportRequest.UseBlackBackground));
             string? exportedFilePath = null;
 
             new RequestRenameUntilFileNameIsAvailableDialog(
@@ -577,6 +573,15 @@ internal sealed class EditWorkflow
                 targetFileName,
                 filePath =>
                 {
+                    var exportedContent = MapExportService.Export(
+                        _map.GetCurrentNode(),
+                        exportRequest.Format,
+                        new NodeExportOptions(
+                            SkipCollapsedDescendants: exportRequest.SkipCollapsedDescendants,
+                            UseBlackBackground: exportRequest.UseBlackBackground,
+                            IncludeAttachments: exportRequest.IncludeAttachments,
+                            MapFilePath: _filePath,
+                            ExportFilePath: filePath));
                     File.WriteAllText(filePath, exportedContent);
                     exportedFilePath = filePath;
                 },

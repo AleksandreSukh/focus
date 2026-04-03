@@ -1,3 +1,5 @@
+using System.IO;
+using System.Text;
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.DomainServices;
 
@@ -39,5 +41,106 @@ public class HtmlExportTests
         Assert.Contains("<article class=\"mindmap-export\">", html);
         Assert.Contains("<ol>", html);
         Assert.Contains("[~] Ship feature", html);
+    }
+
+    [Fact]
+    public void Export_HtmlWithAttachments_RendersRootTextAndImageAttachmentsUsingRelativePaths()
+    {
+        using var workspace = new TestWorkspace();
+        var map = new MindMap("Root");
+        var filePath = workspace.SaveMap("alpha", map);
+
+        var textAttachment = workspace.AppContext.MapsStorage.AttachmentStore.SaveTextAttachment(
+            filePath,
+            "First line\nSecond line",
+            "Clipboard text.txt");
+        var imageAttachment = workspace.AppContext.MapsStorage.AttachmentStore.SavePngAttachment(
+            filePath,
+            Encoding.UTF8.GetBytes("fake-png"),
+            "Capture.png");
+        map.RootNode.AddAttachment(textAttachment);
+        map.RootNode.AddAttachment(imageAttachment);
+        workspace.MapsStorage.SaveMap(filePath, map);
+
+        var exportFilePath = Path.Combine(workspace.MapsStorage.UserMindMapsDirectory, "alpha.html");
+        var html = MapExportService.Export(
+            map.RootNode,
+            ExportFormat.Html,
+            new NodeExportOptions(
+                IncludeAttachments: true,
+                MapFilePath: filePath,
+                ExportFilePath: exportFilePath));
+
+        var expectedImagePath = $"alpha_attachments/{imageAttachment.RelativePath}";
+
+        Assert.Contains("<blockquote class=\"attachment-quote\">First line", html);
+        Assert.Contains("Second line", html);
+        Assert.Contains($"href=\"{expectedImagePath}\"", html);
+        Assert.Contains($"src=\"{expectedImagePath}\"", html);
+        Assert.Contains("class=\"attachment-image\"", html);
+        Assert.True(html.IndexOf("<h1>Root</h1>", System.StringComparison.Ordinal) <
+                    html.IndexOf("attachment-quote", System.StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Export_HtmlWithCollapsedNode_IncludesVisibleNodeAttachmentsButSkipsCollapsedDescendants()
+    {
+        using var workspace = new TestWorkspace();
+        var map = new MindMap("Root");
+        var child = map.AddAtCurrentNode("Child");
+        child.Collapse();
+        child.Add("Grandchild");
+        var filePath = workspace.SaveMap("alpha", map);
+
+        var attachment = workspace.AppContext.MapsStorage.AttachmentStore.SaveTextAttachment(
+            filePath,
+            "Attached note",
+            "Clipboard text.txt");
+        child.AddAttachment(attachment);
+        workspace.MapsStorage.SaveMap(filePath, map);
+
+        var exportFilePath = Path.Combine(workspace.MapsStorage.UserMindMapsDirectory, "alpha.html");
+        var html = MapExportService.Export(
+            map.RootNode,
+            ExportFormat.Html,
+            new NodeExportOptions(
+                SkipCollapsedDescendants: true,
+                IncludeAttachments: true,
+                MapFilePath: filePath,
+                ExportFilePath: exportFilePath));
+
+        Assert.Contains("Attached note", html);
+        Assert.Contains("Child", html);
+        Assert.DoesNotContain("Grandchild", html);
+    }
+
+    [Fact]
+    public void Export_HtmlWithMissingAttachment_FallsBackToRelativeLink()
+    {
+        using var workspace = new TestWorkspace();
+        var map = new MindMap("Root");
+        map.RootNode.AddAttachment(new NodeAttachment
+        {
+            Id = Guid.NewGuid(),
+            RelativePath = "missing.txt",
+            MediaType = "text/plain; charset=utf-8",
+            DisplayName = "Missing clipboard text.txt",
+            CreatedAtUtc = DateTimeOffset.UtcNow
+        });
+        var filePath = workspace.SaveMap("alpha", map);
+        var exportFilePath = Path.Combine(workspace.MapsStorage.UserMindMapsDirectory, "alpha.html");
+
+        var html = MapExportService.Export(
+            map.RootNode,
+            ExportFormat.Html,
+            new NodeExportOptions(
+                IncludeAttachments: true,
+                MapFilePath: filePath,
+                ExportFilePath: exportFilePath));
+
+        Assert.Contains("alpha_attachments/missing.txt", html);
+        Assert.Contains(">Missing clipboard text.txt</a>", html);
+        Assert.DoesNotContain("attachment-quote", html);
+        Assert.DoesNotContain("attachment-image", html);
     }
 }

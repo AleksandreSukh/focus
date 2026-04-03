@@ -6,4 +6,5 @@ internal sealed record ExportRequest(
     ExportFormat Format,
     string FileName,
     bool SkipCollapsedDescendants,
-    bool UseBlackBackground = false);
+    bool UseBlackBackground = false,
+    bool IncludeAttachments = false);
