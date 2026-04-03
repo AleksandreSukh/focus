@@ -1771,14 +1771,34 @@ function closeActiveModal(options = {}) {
   }
 
   const focusKey = options.focusKey || state.activeModal.returnFocusKey || '';
-  state.activeModal = null;
-  if (focusKey) {
-    state.pendingFocusRequest = {
-      type: 'focusKey',
-      value: focusKey,
-    };
+  const modalCard = document.querySelector('.modal-card');
+  const modalBackdrop = document.querySelector('.modal-backdrop');
+
+  if (modalCard) {
+    modalCard.classList.add('modal-exiting');
+    if (modalBackdrop) {
+      modalBackdrop.classList.add('modal-exiting');
+    }
+    modalCard.addEventListener('animationend', () => {
+      state.activeModal = null;
+      if (focusKey) {
+        state.pendingFocusRequest = {
+          type: 'focusKey',
+          value: focusKey,
+        };
+      }
+      render();
+    }, { once: true });
+  } else {
+    state.activeModal = null;
+    if (focusKey) {
+      state.pendingFocusRequest = {
+        type: 'focusKey',
+        value: focusKey,
+      };
+    }
+    render();
   }
-  render();
 }
 
 function setActiveModalError(message) {
