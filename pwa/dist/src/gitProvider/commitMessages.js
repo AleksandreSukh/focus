@@ -51,6 +51,10 @@ export function buildNodeDeleteCommitMessage(mapName, nodeId) {
   return `map:delete ${normalizeMapName(mapName)} ${normalizeValue(nodeId)}`;
 }
 
+export function buildMapDeleteCommitMessage(mapName) {
+  return `map:drop ${normalizeMapName(mapName)}`;
+}
+
 export function buildMapCreateCommitMessage(mapName) {
   return `map:create ${normalizeMapName(mapName)}`;
 }

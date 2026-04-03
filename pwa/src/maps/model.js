@@ -19,6 +19,7 @@ export const MAP_ERROR = Object.freeze({
 const DEFAULT_DEVICE = 'focus-pwa-web';
 const LEGACY_SOURCE = 'legacy-import';
 const MANUAL_SOURCE = 'manual';
+const CLIPBOARD_IMAGE_SOURCE = 'clipboard-image';
 const UNTITLED_NODE_NAME = 'Untitled';
 
 export function cloneMapDocument(document) {
@@ -244,6 +245,10 @@ export function normalizeNodeDisplayText(value) {
   return text.replace(/\r\n|\r|\n/g, ' ').trim();
 }
 
+export function isClipboardImageNode(node) {
+  return typeof node?.metadata?.source === 'string' && node.metadata.source === CLIPBOARD_IMAGE_SOURCE;
+}
+
 export function getNodeBadges(node) {
   const badges = [];
   if (node.nodeType === NODE_TYPE.IDEA_BAG_ITEM) {
@@ -255,7 +260,7 @@ export function getNodeBadges(node) {
   }
 
   const attachments = Array.isArray(node.metadata?.attachments) ? node.metadata.attachments : [];
-  if (attachments.length > 0) {
+  if (attachments.length > 0 && !isClipboardImageNode(node)) {
     badges.push(`Attachments ${attachments.length}`);
   }
 

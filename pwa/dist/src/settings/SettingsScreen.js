@@ -19,6 +19,7 @@ function formatSyncTime(value) {
 export function renderSettingsScreen({
   mountNode,
   repoSettings,
+  fabSide,
   hasToken,
   syncMetadata,
   onSaveSettings,
@@ -56,6 +57,13 @@ export function renderSettingsScreen({
           <label>
             <span>FocusMaps folder path inside repository</span>
             <input name="repoPath" type="text" value="${escapeHtml(repoSettings.repoPath)}" />
+          </label>
+          <label>
+            <span>Add item button location</span>
+            <select name="fabSide">
+              <option value="right" ${fabSide !== 'left' ? 'selected' : ''}>Right</option>
+              <option value="left" ${fabSide === 'left' ? 'selected' : ''}>Left</option>
+            </select>
           </label>
           <div class="form-actions">
             <button type="submit">Save settings</button>
@@ -120,6 +128,7 @@ export function renderSettingsScreen({
         repoName: String(formData.get('repoName') ?? '').trim(),
         repoBranch: String(formData.get('repoBranch') ?? '').trim(),
         repoPath: String(formData.get('repoPath') ?? '').trim() || '/',
+        fabSide: String(formData.get('fabSide') ?? ''),
       });
     });
   }

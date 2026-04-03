@@ -38,6 +38,7 @@ import {
   findNodeRecord,
   getNodeBadges,
   getNodeUiState,
+  isClipboardImageNode,
   NODE_TYPE,
   normalizeNodeDisplayText,
   nowIso,
@@ -90,6 +91,19 @@ const state = {
 };
 
 const ui = {};
+const renderCache = {
+  headerThemeKey: '',
+  statusKey: '',
+  settingsKey: '',
+  workspaceMounted: false,
+  workspaceViewKind: '',
+  workspaceViewKey: '',
+  workspaceSelectionKey: '',
+  workspaceSelectedNodeId: '',
+  workspaceOverlayKind: '',
+  workspaceOverlayKey: '',
+  workspaceOpenCardMenu: '',
+};
 let globalUiListenersBound = false;
 let hashRoutingBound = false;
 
@@ -1435,19 +1449,16 @@ async function handleDeleteMapConfirm() {
   render();
 }
 
-async function handleOpenAttachment(mapPath, nodeId, attachmentId) {
-  const snapshot = state.mapsByPath[mapPath];
-  if (!snapshot) {
-    return;
-  }
+function getNodeAttachments(node) {
+  return Array.isArray(node?.metadata?.attachments) ? node.metadata.attachments : [];
+}
 
-  const record = findNodeRecord(snapshot.document, nodeId);
-  if (!record) {
-    return;
-  }
+function getPrimaryNodeAttachment(node) {
+  const attachments = getNodeAttachments(node);
+  return attachments.find((attachment) => typeof attachment?.relativePath === 'string' && attachment.relativePath) || attachments[0] || null;
+}
 
-  const attachments = Array.isArray(record.node.metadata?.attachments) ? record.node.metadata.attachments : [];
-  const attachment = attachments.find((a) => a.id === attachmentId);
+async function openImageViewerForAttachment(mapPath, nodeId, attachment, returnFocusKey = '') {
   if (!attachment) {
     return;
   }
@@ -1455,10 +1466,11 @@ async function handleOpenAttachment(mapPath, nodeId, attachmentId) {
   state.activeModal = {
     kind: 'imageViewer',
     mapPath,
-    nodeId: '',
+    nodeId,
     draftText: '',
     errorMessage: '',
-    returnFocusKey: buildNodeFocusKey(mapPath, nodeId),
+    returnFocusKey: returnFocusKey || buildNodeFocusKey(mapPath, nodeId),
+    attachmentRelativePath: attachment.relativePath,
     displayName: attachment.displayName || attachment.relativePath,
     imageUrl: null,
     loading: true,
@@ -1470,7 +1482,12 @@ async function handleOpenAttachment(mapPath, nodeId, attachmentId) {
 
   const result = await state.service.loadAttachment(mapPath, attachment.relativePath, attachment.mediaType);
   if (!result.ok) {
-    if (state.activeModal?.kind === 'imageViewer') {
+    if (
+      state.activeModal?.kind === 'imageViewer' &&
+      state.activeModal.mapPath === mapPath &&
+      state.activeModal.nodeId === nodeId &&
+      state.activeModal.attachmentRelativePath === attachment.relativePath
+    ) {
       state.activeModal = {
         ...state.activeModal,
         loading: false,
@@ -1481,7 +1498,12 @@ async function handleOpenAttachment(mapPath, nodeId, attachmentId) {
     return;
   }
 
-  if (state.activeModal?.kind === 'imageViewer') {
+  if (
+    state.activeModal?.kind === 'imageViewer' &&
+    state.activeModal.mapPath === mapPath &&
+    state.activeModal.nodeId === nodeId &&
+    state.activeModal.attachmentRelativePath === attachment.relativePath
+  ) {
     state.activeModal = {
       ...state.activeModal,
       loading: false,
@@ -1490,6 +1512,30 @@ async function handleOpenAttachment(mapPath, nodeId, attachmentId) {
     render();
     bindImageViewerDrag();
   }
+}
+
+async function handleOpenAttachment(mapPath, nodeId, attachmentId) {
+  const snapshot = state.mapsByPath[mapPath];
+  if (!snapshot) {
+    return;
+  }
+
+  const record = findNodeRecord(snapshot.document, nodeId);
+  if (!record) {
+    return;
+  }
+
+  const attachment = getNodeAttachments(record.node).find((item) => item.id === attachmentId);
+  if (!attachment) {
+    return;
+  }
+
+  await openImageViewerForAttachment(
+    mapPath,
+    record.node.uniqueIdentifier,
+    attachment,
+    buildNodeFocusKey(mapPath, record.node.uniqueIdentifier),
+  );
 }
 
 function handleViewerDownload() {
@@ -1507,9 +1553,11 @@ function handleViewerDownload() {
 
 function bindImageViewerDrag() {
   const container = document.querySelector('.image-viewer-body');
-  if (!container) {
+  if (!(container instanceof HTMLElement) || container.dataset.dragBound === 'true') {
     return;
   }
+
+  container.dataset.dragBound = 'true';
 
   let dragging = false;
   let startX = 0;
@@ -1896,13 +1944,28 @@ function openNodeModal(kind, mapPath, nodeId, returnFocusKey = '') {
   state.currentView = 'map';
   state.selectedMapPath = mapPath;
   state.selectedNodeId = nodeUiState.node.uniqueIdentifier;
+  const focusKey = returnFocusKey || buildNodeFocusKey(mapPath, nodeUiState.node.uniqueIdentifier);
+
+  if (kind === 'editNode' && isClipboardImageNode(nodeUiState.node)) {
+    const attachment = getPrimaryNodeAttachment(nodeUiState.node);
+    if (attachment) {
+      void openImageViewerForAttachment(
+        mapPath,
+        nodeUiState.node.uniqueIdentifier,
+        attachment,
+        focusKey,
+      );
+      return;
+    }
+  }
+
   state.activeModal = {
     kind,
     mapPath,
     nodeId: nodeUiState.node.uniqueIdentifier,
     draftText: kind === 'editNode' ? nodeUiState.node.name || '' : '',
     errorMessage: '',
-    returnFocusKey: returnFocusKey || buildNodeFocusKey(mapPath, nodeUiState.node.uniqueIdentifier),
+    returnFocusKey: focusKey,
   };
   state.pendingFocusRequest = {
     type: 'modalAutofocus',
@@ -2008,19 +2071,6 @@ function selectNode(mapPath, nodeId) {
   state.selectedNodeId = findNodeRecord(snapshot.document, nodeId)
     ? nodeId
     : snapshot.document.rootNode?.uniqueIdentifier || '';
-
-  const prevRecord = prevNodeId ? findNodeRecord(snapshot.document, prevNodeId) : null;
-  const nextRecord = findNodeRecord(snapshot.document, state.selectedNodeId);
-
-  if (!nodeNeedsActions(prevRecord) && !nodeNeedsActions(nextRecord)) {
-    if (prevNodeId) {
-      document.querySelector(`[data-action="select-node"][data-node-id="${prevNodeId}"]`)
-        ?.classList.remove('selected');
-    }
-    document.querySelector(`[data-action="select-node"][data-node-id="${state.selectedNodeId}"]`)
-      ?.classList.add('selected');
-    return;
-  }
 
   render();
 }
@@ -2228,6 +2278,20 @@ function focusPendingElement() {
   });
 }
 
+function resetWorkspaceDomState() {
+  ui.workspaceShell = null;
+  ui.workspaceView = null;
+  ui.workspaceOverlay = null;
+  renderCache.workspaceMounted = false;
+  renderCache.workspaceViewKind = '';
+  renderCache.workspaceViewKey = '';
+  renderCache.workspaceSelectionKey = '';
+  renderCache.workspaceSelectedNodeId = '';
+  renderCache.workspaceOverlayKind = '';
+  renderCache.workspaceOverlayKey = '';
+  renderCache.workspaceOpenCardMenu = '';
+}
+
 function render() {
   renderStatusPanel();
   renderHeaderThemeControl();
@@ -2258,13 +2322,16 @@ function render() {
     ui.appRoot.hidden = true;
     ui.appRoot.innerHTML = '';
   }
+  resetWorkspaceDomState();
   if (ui.settingsRoot) {
     ui.settingsRoot.hidden = true;
     ui.settingsRoot.innerHTML = '';
+    renderCache.settingsKey = '';
   }
-  if (ui.statusRoot && !state.showStatus) {
+  if (ui.statusRoot) {
     ui.statusRoot.hidden = true;
     ui.statusRoot.innerHTML = '';
+    renderCache.statusKey = '';
   }
 
   renderGateScreen();
@@ -2276,14 +2343,23 @@ function renderHeaderThemeControl() {
     return;
   }
 
+  const nextKey = state.authState === 'authenticated'
+    ? `authenticated|${state.theme}`
+    : 'hidden';
+  if (nextKey === renderCache.headerThemeKey) {
+    return;
+  }
+
   if (state.authState !== 'authenticated') {
     ui.themeRoot.hidden = true;
     ui.themeRoot.innerHTML = '';
+    renderCache.headerThemeKey = nextKey;
     return;
   }
 
   ui.themeRoot.hidden = false;
   ui.themeRoot.innerHTML = renderThemeModeControl('theme-switcher--header');
+  renderCache.headerThemeKey = nextKey;
 }
 
 function renderStatusPanel() {
@@ -2300,13 +2376,30 @@ function renderStatusPanel() {
     return;
   }
 
-  if (!state.showStatus) {
+  const syncMetadata = getSyncMetadata();
+  const nextKey = state.showStatus && state.authState === 'authenticated'
+    ? JSON.stringify({
+      syncState: state.syncState,
+      repo: describeRepoSettings(state.repoSettings),
+      lastSyncAt: syncMetadata.lastSyncAt,
+      lastErrorSummary: syncMetadata.lastErrorSummary,
+    })
+    : '';
+
+  if (!nextKey) {
     ui.statusRoot.hidden = true;
-    ui.statusRoot.innerHTML = '';
+    if (renderCache.statusKey || ui.statusRoot.innerHTML) {
+      ui.statusRoot.innerHTML = '';
+    }
+    renderCache.statusKey = '';
     return;
   }
 
-  const syncMetadata = getSyncMetadata();
+  if (nextKey === renderCache.statusKey) {
+    ui.statusRoot.hidden = false;
+    return;
+  }
+
   const lastSyncText = syncMetadata.lastSyncAt ? formatDateTime(syncMetadata.lastSyncAt) : 'Never synced';
   const lastErrorText = syncMetadata.lastErrorSummary || 'None';
 
@@ -2378,6 +2471,7 @@ function renderStatusPanel() {
   ui.statusRoot.querySelector('#retry-sync-modal')?.addEventListener('click', () => {
     void handleRetryButtonClick();
   });
+  renderCache.statusKey = nextKey;
 }
 
 function renderGateScreen() {
@@ -2412,6 +2506,509 @@ function renderGateScreen() {
   `;
 }
 
+function ensureWorkspaceShell() {
+  if (!ui.appRoot) {
+    return false;
+  }
+
+  if (
+    ui.workspaceShell instanceof HTMLElement &&
+    ui.workspaceView instanceof HTMLElement &&
+    ui.workspaceOverlay instanceof HTMLElement &&
+    ui.appRoot.contains(ui.workspaceShell)
+  ) {
+    return true;
+  }
+
+  ui.appRoot.innerHTML = `
+    <section class="workspace-shell" aria-label="Mind map workspace">
+      <nav class="workspace-nav" aria-label="Workspace navigation">
+        <div class="nav-tabs" data-active-view="maps">
+          <button
+            type="button"
+            class="nav-tab active"
+            data-action="switch-view"
+            data-view="maps"
+          >
+            <span class="nav-tab-title">Maps</span>
+          </button>
+          <button
+            type="button"
+            class="nav-tab"
+            data-action="switch-view"
+            data-view="tasks"
+          >
+            <span class="nav-tab-title">Tasks</span>
+          </button>
+        </div>
+      </nav>
+      <div data-workspace-region="view"></div>
+      <div data-workspace-region="overlay"></div>
+    </section>
+  `;
+
+  ui.workspaceShell = ui.appRoot.querySelector('.workspace-shell');
+  ui.workspaceView = ui.appRoot.querySelector('[data-workspace-region="view"]');
+  ui.workspaceOverlay = ui.appRoot.querySelector('[data-workspace-region="overlay"]');
+  renderCache.workspaceMounted = true;
+  renderCache.workspaceViewKind = '';
+  renderCache.workspaceViewKey = '';
+  renderCache.workspaceSelectionKey = '';
+  renderCache.workspaceSelectedNodeId = '';
+  renderCache.workspaceOverlayKind = '';
+  renderCache.workspaceOverlayKey = '';
+  renderCache.workspaceOpenCardMenu = '';
+  return Boolean(ui.workspaceShell && ui.workspaceView && ui.workspaceOverlay);
+}
+
+function renderWorkspaceNavigation() {
+  if (!(ui.workspaceShell instanceof HTMLElement)) {
+    return;
+  }
+
+  const activeView = state.currentView === 'tasks' ? 'tasks' : 'maps';
+  const navTabs = ui.workspaceShell.querySelector('.nav-tabs');
+  if (navTabs instanceof HTMLElement) {
+    navTabs.dataset.activeView = activeView;
+  }
+
+  Array.from(ui.workspaceShell.querySelectorAll('.nav-tab')).forEach((button) => {
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+
+    const isActive = activeView === 'tasks'
+      ? button.dataset.view === 'tasks'
+      : button.dataset.view === 'maps';
+    button.classList.toggle('active', isActive);
+  });
+}
+
+function buildMapsViewKey(summaries) {
+  return JSON.stringify(
+    summaries.map((summary) => [
+      summary.filePath,
+      summary.rootTitle,
+      summary.updatedAt,
+      summary.taskCounts.total,
+      summary.taskCounts.open,
+      summary.taskCounts.todo,
+      summary.taskCounts.doing,
+      summary.taskCounts.done,
+      getPendingCountForMap(summary.filePath),
+    ]),
+  );
+}
+
+function buildTasksViewKey(entries) {
+  return JSON.stringify({
+    filter: state.taskFilter || '',
+    entries: entries.map((entry) => [
+      entry.filePath,
+      entry.nodeId,
+      entry.nodePath,
+      entry.taskState,
+      entry.mapName,
+    ]),
+  });
+}
+
+function buildMapViewKey(snapshot) {
+  return JSON.stringify({
+    mapPath: snapshot.filePath,
+    revision: snapshot.revision || '',
+    loadedAt: snapshot.loadedAt || 0,
+    updatedAt: snapshot.document?.updatedAt || '',
+    collapsed: state.localCollapsedByMap[snapshot.filePath] || {},
+  });
+}
+
+function buildMapSelectionKey(snapshot) {
+  const selectedNodeState = getSelectedNodeUiState(snapshot);
+  return JSON.stringify({
+    selectedNodeId: state.selectedNodeId,
+    fabSide: state.fabSide,
+    canEditNode: Boolean(selectedNodeState?.canEditNode),
+  });
+}
+
+function renderMapsViewRegion() {
+  if (!(ui.workspaceView instanceof HTMLElement)) {
+    return;
+  }
+
+  const summaries = getSnapshots().map((snapshot) => buildMapSummary(snapshot));
+  const nextKey = buildMapsViewKey(summaries);
+
+  if (renderCache.workspaceViewKind !== 'maps' || renderCache.workspaceViewKey !== nextKey) {
+    ui.workspaceView.innerHTML = renderMapsView(summaries);
+    renderCache.workspaceViewKind = 'maps';
+    renderCache.workspaceViewKey = nextKey;
+  } else if (renderCache.workspaceOpenCardMenu !== state.openCardMenu) {
+    updateRenderedMapCardMenus(summaries, renderCache.workspaceOpenCardMenu, state.openCardMenu);
+  }
+
+  renderCache.workspaceSelectionKey = '';
+  renderCache.workspaceSelectedNodeId = '';
+  renderCache.workspaceOpenCardMenu = state.openCardMenu;
+}
+
+function renderTasksViewRegion() {
+  if (!(ui.workspaceView instanceof HTMLElement)) {
+    return;
+  }
+
+  const entries = buildTaskEntriesForView(state.taskFilter);
+  const nextKey = buildTasksViewKey(entries);
+
+  if (renderCache.workspaceViewKind !== 'tasks' || renderCache.workspaceViewKey !== nextKey) {
+    ui.workspaceView.innerHTML = renderTasksView(entries);
+    renderCache.workspaceViewKind = 'tasks';
+    renderCache.workspaceViewKey = nextKey;
+  }
+
+  renderCache.workspaceSelectionKey = '';
+  renderCache.workspaceSelectedNodeId = '';
+  renderCache.workspaceOpenCardMenu = '';
+}
+
+function findDirectChildByClass(parent, className) {
+  if (!(parent instanceof HTMLElement)) {
+    return null;
+  }
+
+  return Array.from(parent.children).find((child) =>
+    child instanceof HTMLElement && child.classList.contains(className)
+  ) || null;
+}
+
+function applyRenderedNodeSelection(snapshot, nodeId, isSelected) {
+  if (!(ui.workspaceView instanceof HTMLElement) || !nodeId) {
+    return;
+  }
+
+  const control = Array.from(ui.workspaceView.querySelectorAll('[data-action="select-node"]'))
+    .find((candidate) => candidate instanceof HTMLElement && candidate.dataset.nodeId === nodeId);
+  if (!(control instanceof HTMLElement)) {
+    return;
+  }
+
+  control.classList.toggle('selected', isSelected);
+
+  const selectionContainer = control.closest('.reader-node, .map-document-header');
+  if (selectionContainer instanceof HTMLElement) {
+    selectionContainer.classList.toggle('selected', isSelected);
+  }
+
+  const actionContainer = control.closest('.reader-node-body, .map-document-body');
+  if (!(actionContainer instanceof HTMLElement)) {
+    return;
+  }
+
+  const existingActions = findDirectChildByClass(actionContainer, 'selected-node-actions');
+  if (!isSelected) {
+    existingActions?.remove();
+    return;
+  }
+
+  const nodeUiState = getNodeUiState(snapshot.document, nodeId);
+  const nextActionsMarkup = nodeUiState ? renderSelectedNodeActions(snapshot, nodeUiState) : '';
+  if (!nextActionsMarkup) {
+    existingActions?.remove();
+    return;
+  }
+
+  if (existingActions) {
+    existingActions.outerHTML = nextActionsMarkup;
+    return;
+  }
+
+  actionContainer.insertAdjacentHTML('beforeend', nextActionsMarkup);
+}
+
+function updateRenderedMapFab(snapshot, selectedNodeState) {
+  if (!(ui.workspaceView instanceof HTMLElement)) {
+    return;
+  }
+
+  const fab = ui.workspaceView.querySelector('.add-note-fab');
+  if (!(fab instanceof HTMLButtonElement) || !selectedNodeState) {
+    return;
+  }
+
+  fab.classList.toggle('add-note-fab--left', state.fabSide === 'left');
+  fab.classList.toggle('add-note-fab--right', state.fabSide !== 'left');
+  fab.dataset.mapPath = snapshot.filePath;
+  fab.dataset.nodeId = selectedNodeState.node.uniqueIdentifier;
+  fab.disabled = !selectedNodeState.canEditNode;
+}
+
+function updateRenderedMapSelection(snapshot, previousNodeId, nextNodeId) {
+  if (previousNodeId && previousNodeId !== nextNodeId) {
+    applyRenderedNodeSelection(snapshot, previousNodeId, false);
+  }
+
+  if (nextNodeId) {
+    applyRenderedNodeSelection(snapshot, nextNodeId, true);
+  }
+
+  updateRenderedMapFab(snapshot, getSelectedNodeUiState(snapshot));
+}
+
+function findRenderedMapCard(mapPath) {
+  if (!(ui.workspaceView instanceof HTMLElement) || !mapPath) {
+    return null;
+  }
+
+  return Array.from(ui.workspaceView.querySelectorAll('.map-row'))
+    .find((card) => card instanceof HTMLElement && card.dataset.mapPath === mapPath) || null;
+}
+
+function updateRenderedMapCardMenus(summaries, previousMapPath, nextMapPath) {
+  const changedPaths = [...new Set([previousMapPath, nextMapPath].filter(Boolean))];
+  changedPaths.forEach((mapPath) => {
+    const card = findRenderedMapCard(mapPath);
+    const summary = summaries.find((item) => item.filePath === mapPath);
+    if (!(card instanceof HTMLElement) || !summary) {
+      return;
+    }
+
+    const menuRoot = card.querySelector('.card-menu');
+    if (!(menuRoot instanceof HTMLElement)) {
+      return;
+    }
+
+    menuRoot.innerHTML = renderMapCardMenu(summary);
+  });
+}
+
+function renderMapViewRegion() {
+  if (!(ui.workspaceView instanceof HTMLElement)) {
+    return;
+  }
+
+  const snapshot = getSelectedSnapshot();
+  if (!snapshot) {
+    state.currentView = 'maps';
+    if (window.location.hash !== HASH_ROUTE.maps) {
+      replaceHashRoute(HASH_ROUTE.maps);
+    }
+    renderMapsViewRegion();
+    return;
+  }
+
+  const nextViewKey = buildMapViewKey(snapshot);
+  const nextSelectionKey = buildMapSelectionKey(snapshot);
+
+  if (renderCache.workspaceViewKind !== 'map' || renderCache.workspaceViewKey !== nextViewKey) {
+    ui.workspaceView.innerHTML = renderMapView();
+    renderCache.workspaceViewKind = 'map';
+    renderCache.workspaceViewKey = nextViewKey;
+    renderCache.workspaceSelectionKey = nextSelectionKey;
+    renderCache.workspaceSelectedNodeId = state.selectedNodeId;
+    renderCache.workspaceOpenCardMenu = '';
+    return;
+  }
+
+  if (renderCache.workspaceSelectionKey !== nextSelectionKey) {
+    updateRenderedMapSelection(snapshot, renderCache.workspaceSelectedNodeId, state.selectedNodeId);
+    renderCache.workspaceSelectionKey = nextSelectionKey;
+    renderCache.workspaceSelectedNodeId = state.selectedNodeId;
+    return;
+  }
+
+  updateRenderedMapFab(snapshot, getSelectedNodeUiState(snapshot));
+}
+
+function getWorkspaceOverlayState() {
+  if (!state.activeModal) {
+    return {
+      kind: '',
+      key: '',
+    };
+  }
+
+  if (state.activeModal.kind === 'resolveConflict') {
+    return {
+      kind: 'resolveConflict',
+      key: JSON.stringify({
+        kind: state.activeModal.kind,
+        filePath: state.activeModal.filePath,
+        loading: state.activeModal.loading,
+        errorMessage: state.activeModal.errorMessage || '',
+        remoteRevision: state.activeModal.remoteRevision || '',
+        items: Array.isArray(state.activeModal.items)
+          ? state.activeModal.items.map((item) => [item.id, item.resolution, item.description])
+          : [],
+      }),
+    };
+  }
+
+  if (state.activeModal.kind === 'imageViewer') {
+    return {
+      kind: 'imageViewer',
+      key: JSON.stringify({
+        kind: state.activeModal.kind,
+        mapPath: state.activeModal.mapPath,
+        nodeId: state.activeModal.nodeId,
+        attachmentRelativePath: state.activeModal.attachmentRelativePath || '',
+        displayName: state.activeModal.displayName || '',
+      }),
+    };
+  }
+
+  return {
+    kind: state.activeModal.kind,
+    key: JSON.stringify({
+      kind: state.activeModal.kind,
+      mapPath: state.activeModal.mapPath || '',
+      nodeId: state.activeModal.nodeId || '',
+      draftText: state.activeModal.draftText || '',
+      errorMessage: state.activeModal.errorMessage || '',
+    }),
+  };
+}
+
+function buildImageViewerBodyMarkup() {
+  const { displayName, imageUrl, loading, errorMessage, zoom } = state.activeModal;
+  if (loading) {
+    return '<div class="image-viewer-loading shimmer"></div>';
+  }
+
+  if (errorMessage) {
+    return `<p class="form-error" role="alert">${escapeHtml(errorMessage)}</p>`;
+  }
+
+  return `<img
+    class="image-viewer-img"
+    src="${escapeHtml(imageUrl)}"
+    alt="${escapeHtml(displayName)}"
+    style="transform: scale(${zoom}) translate(${state.activeModal.panX}px, ${state.activeModal.panY}px)"
+    draggable="false"
+  />`;
+}
+
+function updateRenderedImageViewerModal() {
+  if (!(ui.workspaceOverlay instanceof HTMLElement) || state.activeModal?.kind !== 'imageViewer') {
+    return;
+  }
+
+  const card = ui.workspaceOverlay.querySelector('.image-viewer-card');
+  const body = ui.workspaceOverlay.querySelector('.image-viewer-body');
+  if (!(card instanceof HTMLElement) || !(body instanceof HTMLElement)) {
+    ui.workspaceOverlay.innerHTML = renderImageViewerModal();
+    if (state.activeModal.imageUrl) {
+      bindImageViewerDrag();
+    }
+    return;
+  }
+
+  const title = card.querySelector('.image-viewer-title');
+  if (title instanceof HTMLElement) {
+    title.textContent = state.activeModal.displayName;
+  }
+
+  const zoomPercent = Math.round(state.activeModal.zoom * 100);
+  const zoomLabel = card.querySelector('.image-viewer-zoom-label');
+  if (zoomLabel instanceof HTMLElement) {
+    zoomLabel.textContent = `${zoomPercent}%`;
+  }
+
+  const zoomOutButton = card.querySelector('[data-action="viewer-zoom-out"]');
+  if (zoomOutButton instanceof HTMLButtonElement) {
+    zoomOutButton.disabled = state.activeModal.zoom <= 0.25;
+  }
+
+  const zoomInButton = card.querySelector('[data-action="viewer-zoom-in"]');
+  if (zoomInButton instanceof HTMLButtonElement) {
+    zoomInButton.disabled = state.activeModal.zoom >= 5;
+  }
+
+  const downloadButton = card.querySelector('[data-action="viewer-download"]');
+  if (downloadButton instanceof HTMLButtonElement) {
+    downloadButton.disabled = !state.activeModal.imageUrl;
+  }
+
+  const bodyState = state.activeModal.loading
+    ? 'loading'
+    : state.activeModal.errorMessage
+      ? 'error'
+      : 'image';
+  const currentBodyState = body.dataset.viewerState || '';
+  const currentBodySrc = body.dataset.viewerSrc || '';
+  const currentBodyError = body.dataset.viewerError || '';
+  const nextBodySrc = state.activeModal.imageUrl || '';
+  const nextBodyError = state.activeModal.errorMessage || '';
+  const isDragging = body.classList.contains('dragging');
+
+  body.className = `image-viewer-body${state.activeModal.zoom > 1 ? ' zoomable' : ''}${isDragging ? ' dragging' : ''}`;
+
+  if (
+    currentBodyState !== bodyState ||
+    currentBodySrc !== nextBodySrc ||
+    currentBodyError !== nextBodyError
+  ) {
+    body.innerHTML = buildImageViewerBodyMarkup();
+    body.dataset.viewerState = bodyState;
+    body.dataset.viewerSrc = nextBodySrc;
+    body.dataset.viewerError = nextBodyError;
+    if (bodyState === 'image') {
+      bindImageViewerDrag();
+    }
+  }
+
+  const image = body.querySelector('.image-viewer-img');
+  if (image instanceof HTMLImageElement) {
+    image.alt = state.activeModal.displayName;
+    if (image.getAttribute('src') !== nextBodySrc) {
+      image.setAttribute('src', nextBodySrc);
+    }
+    image.style.transform = `scale(${state.activeModal.zoom}) translate(${state.activeModal.panX}px, ${state.activeModal.panY}px)`;
+  }
+}
+
+function renderWorkspaceOverlay() {
+  if (!(ui.workspaceOverlay instanceof HTMLElement)) {
+    return;
+  }
+
+  const overlayState = getWorkspaceOverlayState();
+  if (!overlayState.kind) {
+    if (renderCache.workspaceOverlayKind || ui.workspaceOverlay.innerHTML) {
+      ui.workspaceOverlay.innerHTML = '';
+    }
+    renderCache.workspaceOverlayKind = '';
+    renderCache.workspaceOverlayKey = '';
+    return;
+  }
+
+  if (
+    overlayState.kind === 'imageViewer' &&
+    renderCache.workspaceOverlayKind === 'imageViewer' &&
+    renderCache.workspaceOverlayKey === overlayState.key
+  ) {
+    updateRenderedImageViewerModal();
+    return;
+  }
+
+  if (
+    renderCache.workspaceOverlayKind === overlayState.kind &&
+    renderCache.workspaceOverlayKey === overlayState.key
+  ) {
+    return;
+  }
+
+  ui.workspaceOverlay.innerHTML = overlayState.kind === 'resolveConflict'
+    ? renderResolveConflictModal()
+    : renderActiveModal();
+  renderCache.workspaceOverlayKind = overlayState.kind;
+  renderCache.workspaceOverlayKey = overlayState.key;
+
+  if (overlayState.kind === 'imageViewer' && state.activeModal?.imageUrl) {
+    bindImageViewerDrag();
+  }
+}
+
 function renderWorkspace() {
   if (!ui.appRoot) {
     return;
@@ -2423,41 +3020,20 @@ function renderWorkspace() {
   }
 
   ui.appRoot.hidden = false;
+  if (!ensureWorkspaceShell()) {
+    return;
+  }
 
-  const summaries = getSnapshots().map((snapshot) => buildMapSummary(snapshot));
-  const viewMarkup =
-    state.currentView === 'tasks'
-      ? renderTasksView()
-      : state.currentView === 'map'
-        ? renderMapView()
-        : renderMapsView(summaries);
+  if (state.currentView === 'tasks') {
+    renderTasksViewRegion();
+  } else if (state.currentView === 'map') {
+    renderMapViewRegion();
+  } else {
+    renderMapsViewRegion();
+  }
 
-  ui.appRoot.innerHTML = `
-    <section class="workspace-shell" aria-label="Mind map workspace">
-      <nav class="workspace-nav" aria-label="Workspace navigation">
-        <div class="nav-tabs" data-active-view="${state.currentView === 'tasks' ? 'tasks' : 'maps'}">
-          <button
-            type="button"
-            class="nav-tab ${state.currentView === 'tasks' ? '' : 'active'}"
-            data-action="switch-view"
-            data-view="maps"
-          >
-            <span class="nav-tab-title">Maps</span>
-          </button>
-          <button
-            type="button"
-            class="nav-tab ${state.currentView === 'tasks' ? 'active' : ''}"
-            data-action="switch-view"
-            data-view="tasks"
-          >
-            <span class="nav-tab-title">Tasks</span>
-          </button>
-        </div>
-      </nav>
-      ${viewMarkup}
-    </section>
-    ${state.activeModal?.kind === 'resolveConflict' ? renderResolveConflictModal() : ''}
-  `;
+  renderWorkspaceNavigation();
+  renderWorkspaceOverlay();
 }
 
 function renderSettingsPanel() {
@@ -2465,9 +3041,26 @@ function renderSettingsPanel() {
     return;
   }
 
-  if (!state.showSettings || state.authState !== 'authenticated') {
+  const nextKey = state.showSettings && state.authState === 'authenticated'
+    ? JSON.stringify({
+      repoSettings: state.repoSettings,
+      fabSide: state.fabSide,
+      hasToken: Boolean(getToken(state.repoSettings.tokenStorageKey)),
+      syncMetadata: getSyncMetadata(),
+    })
+    : '';
+
+  if (!nextKey) {
     ui.settingsRoot.hidden = true;
-    ui.settingsRoot.innerHTML = '';
+    if (renderCache.settingsKey || ui.settingsRoot.innerHTML) {
+      ui.settingsRoot.innerHTML = '';
+    }
+    renderCache.settingsKey = '';
+    return;
+  }
+
+  if (nextKey === renderCache.settingsKey) {
+    ui.settingsRoot.hidden = false;
     return;
   }
 
@@ -2533,6 +3126,7 @@ function renderSettingsPanel() {
       render();
     },
   });
+  renderCache.settingsKey = nextKey;
 }
 
 function renderMapsView(summaries) {
@@ -2560,7 +3154,6 @@ function renderMapsView(summaries) {
             ${summaries.map((summary) => renderMapCard(summary)).join('')}
           </div>
         `}
-      ${renderActiveModal()}
     </section>
   `;
 }
@@ -2586,28 +3179,32 @@ function renderMapCard(summary) {
       <div class="compact-row-actions">
         <p class="map-updated">Updated ${escapeHtml(formatRelativeTime(summary.updatedAt))}</p>
       </div>
-      <div class="card-menu">
+      <div class="card-menu">${renderMapCardMenu(summary)}</div>
+    </article>
+  `;
+}
+
+function renderMapCardMenu(summary) {
+  return `
+    <button
+      type="button"
+      class="ghost-button compact-button card-menu-trigger"
+      data-action="toggle-card-menu"
+      data-map-path="${escapeHtml(summary.filePath)}"
+      aria-label="Map options"
+      aria-expanded="${state.openCardMenu === summary.filePath}"
+    >&#x22EE;</button>
+    ${state.openCardMenu === summary.filePath ? `
+      <div class="card-menu-dropdown" role="menu">
         <button
           type="button"
-          class="ghost-button compact-button card-menu-trigger"
-          data-action="toggle-card-menu"
+          class="card-menu-item mini-action--destructive"
+          role="menuitem"
+          data-action="open-delete-map-modal"
           data-map-path="${escapeHtml(summary.filePath)}"
-          aria-label="Map options"
-          aria-expanded="${state.openCardMenu === summary.filePath}"
-        >&#x22EE;</button>
-        ${state.openCardMenu === summary.filePath ? `
-          <div class="card-menu-dropdown" role="menu">
-            <button
-              type="button"
-              class="card-menu-item mini-action--destructive"
-              role="menuitem"
-              data-action="open-delete-map-modal"
-              data-map-path="${escapeHtml(summary.filePath)}"
-            >Delete</button>
-          </div>
-        ` : ''}
+        >Delete</button>
       </div>
-    </article>
+    ` : ''}
   `;
 }
 
@@ -2691,8 +3288,6 @@ function renderMapView() {
           : ''}
       </article>
 
-      ${renderActiveModal()}
-
       <button
         type="button"
         class="add-note-fab add-note-fab--${state.fabSide}"
@@ -2763,11 +3358,12 @@ function renderSelectedNodeActions(snapshot, nodeUiState) {
   const mapPath = snapshot.filePath;
   const taskDisabled = nodeUiState.canChangeTaskState ? '' : 'disabled';
   const isTask = nodeUiState.node.taskState !== TASK_STATE.NONE;
+  const isClipboardImage = isClipboardImageNode(nodeUiState.node);
   const badgesMarkup = nodeUiState.badges.length > 0
     ? `<div class="selected-node-meta">${renderBadgeMarkup(nodeUiState.badges)}</div>`
     : '';
   const hintMarkup = renderSelectedNodeHint(nodeUiState);
-  const attachments = Array.isArray(nodeUiState.node.metadata?.attachments) ? nodeUiState.node.metadata.attachments : [];
+  const attachments = isClipboardImage ? [] : getNodeAttachments(nodeUiState.node);
   const attachmentsMarkup = attachments.length > 0
     ? `<div class="attachment-list">${attachments.map((att) => `
         <button
@@ -3137,7 +3733,6 @@ function renderImageViewerModal() {
       <button type="button" class="modal-backdrop" data-action="close-modal" aria-label="Close dialog"></button>
       <div class="modal-card image-viewer-card" role="dialog" aria-modal="true" aria-labelledby="viewer-title">
         <div class="image-viewer-header">
-          <h3 id="viewer-title" class="image-viewer-title">${escapeHtml(displayName)}</h3>
           <div class="image-viewer-controls">
             <button type="button" class="ghost-button compact-button" data-action="viewer-zoom-out" ${zoom <= 0.25 ? 'disabled' : ''} aria-label="Zoom out">&minus;</button>
             <span class="image-viewer-zoom-label">${zoomPercent}%</span>
@@ -3154,8 +3749,8 @@ function renderImageViewerModal() {
   `;
 }
 
-function renderTasksView() {
-  const entries = buildTaskEntriesForView(state.taskFilter);
+function renderTasksView(entries = null) {
+  const resolvedEntries = Array.isArray(entries) ? entries : buildTaskEntriesForView(state.taskFilter);
   const filterButtons = [
     ['open', 'Open', 'open'],
     ['todo', 'Todo', 'todo'],
@@ -3178,7 +3773,7 @@ function renderTasksView() {
           </button>
         `).join('')}
       </div>
-      ${entries.length === 0
+      ${resolvedEntries.length === 0
         ? `
           <article class="card empty-card">
             <p>No task nodes matched the current filter.</p>
@@ -3186,7 +3781,7 @@ function renderTasksView() {
         `
         : `
           <div class="compact-list task-entry-list">
-            ${entries.map((entry) => `
+            ${resolvedEntries.map((entry) => `
               <article
                 class="card compact-row task-row clickable-card"
                 role="button"

@@ -380,7 +380,6 @@ h3 {
   color: #fff;
   border-radius: 0.75rem;
   margin: 0.75rem 0;
-  animation: fadeInDown 400ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 :root[data-theme='dark'] .update-banner {
@@ -439,7 +438,6 @@ h3 {
   padding: 0.7rem 0.9rem;
   margin: 0.85rem 0 0;
   align-items: center;
-  animation: fadeInDown 250ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .sync-status {
@@ -472,7 +470,6 @@ h3 {
 
 .workspace-panel {
   margin-top: 0;
-  animation: fadeInUp 280ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
 
 .workspace-nav {
@@ -767,7 +764,6 @@ h3 {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
   gap: 0.55rem;
-  animation: fadeIn 200ms ease both;
 }
 
 .nav-tabs[data-active-view='tasks'] {
@@ -931,31 +927,6 @@ h3 {
 }
 
 /* Card stagger animation */
-.map-list .card,
-.task-entry-list .card {
-  animation: card-stagger 350ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.map-list .card:nth-child(1) { animation-delay: 0ms; }
-.map-list .card:nth-child(2) { animation-delay: 40ms; }
-.map-list .card:nth-child(3) { animation-delay: 80ms; }
-.map-list .card:nth-child(4) { animation-delay: 120ms; }
-.map-list .card:nth-child(5) { animation-delay: 160ms; }
-.map-list .card:nth-child(6) { animation-delay: 200ms; }
-.map-list .card:nth-child(7) { animation-delay: 240ms; }
-.map-list .card:nth-child(8) { animation-delay: 280ms; }
-.map-list .card:nth-child(n+9) { animation-delay: 320ms; }
-
-.task-entry-list .card:nth-child(1) { animation-delay: 0ms; }
-.task-entry-list .card:nth-child(2) { animation-delay: 40ms; }
-.task-entry-list .card:nth-child(3) { animation-delay: 80ms; }
-.task-entry-list .card:nth-child(4) { animation-delay: 120ms; }
-.task-entry-list .card:nth-child(5) { animation-delay: 160ms; }
-.task-entry-list .card:nth-child(6) { animation-delay: 200ms; }
-.task-entry-list .card:nth-child(7) { animation-delay: 240ms; }
-.task-entry-list .card:nth-child(8) { animation-delay: 280ms; }
-.task-entry-list .card:nth-child(n+9) { animation-delay: 320ms; }
-
 .compact-row {
   padding: 0.85rem 1rem;
   align-items: center;
@@ -1197,7 +1168,6 @@ h3 {
 
 .child-list {
   margin-top: 0.22rem;
-  animation: fadeInUp 250ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .tree-toggle,
@@ -1319,7 +1289,6 @@ h3 {
   box-shadow: var(--shadow);
   z-index: 20;
   cursor: pointer;
-  animation: fab-entrance 400ms cubic-bezier(0.16, 1, 0.3, 1) both;
   transition: background-color 180ms ease, box-shadow 200ms ease, transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -1576,7 +1545,6 @@ h3 {
   margin-top: 1rem;
   padding: 0.85rem 1rem;
   color: var(--muted);
-  animation: fadeInUp 300ms ease both;
 }
 
 /* ── Formatted Inline & Paths ── */

@@ -1,6 +1,7 @@
 import {
   buildConflictResolveCommitMessage,
   buildMapCreateCommitMessage,
+  buildMapDeleteCommitMessage,
   buildNodeAddCommitMessage,
   buildNodeDeleteCommitMessage,
   buildNodeEditCommitMessage,
@@ -35,7 +36,10 @@ import {
   cloneMapDocument,
   collectTaskEntries,
   findNodeRecord,
+  getNodeBadges,
   getNodeUiState,
+  isClipboardImageNode,
+  NODE_TYPE,
   normalizeNodeDisplayText,
   nowIso,
   TASK_STATE,
@@ -43,6 +47,7 @@ import {
 import { renderInlineHtml } from './formatting/inlineFormatter.js';
 
 const THEME_STORAGE_KEY = 'focus.pwa.theme';
+const FAB_SIDE_STORAGE_KEY = 'focus.pwa.fabSide';
 const THEME_META_COLORS = {
   light: '#ffffff',
   dark: '#000000',
@@ -57,6 +62,7 @@ const state = {
   repoSettings: null,
   repoScope: '',
   theme: 'light',
+  fabSide: 'right',
   authState: 'missingConfig',
   connectionError: '',
   tokenError: '',
@@ -81,9 +87,23 @@ const state = {
   localCollapsedByMap: {},
   activeModal: null,
   pendingFocusRequest: null,
+  openCardMenu: '',
 };
 
 const ui = {};
+const renderCache = {
+  headerThemeKey: '',
+  statusKey: '',
+  settingsKey: '',
+  workspaceMounted: false,
+  workspaceViewKind: '',
+  workspaceViewKey: '',
+  workspaceSelectionKey: '',
+  workspaceSelectedNodeId: '',
+  workspaceOverlayKind: '',
+  workspaceOverlayKey: '',
+  workspaceOpenCardMenu: '',
+};
 let globalUiListenersBound = false;
 let hashRoutingBound = false;
 
@@ -92,6 +112,7 @@ export async function bootstrapApp() {
   registerPwaShell();
 
   state.theme = loadThemePreference();
+  state.fabSide = loadFabSidePreference();
   applyThemePreference();
   state.runtimeConfig = resolveRuntimeConfig();
   switchRepoContext(getEffectiveRepoSettings(state.runtimeConfig));
@@ -369,6 +390,7 @@ function bindGlobalUiListeners() {
   }
 
   document.addEventListener('submit', handleDocumentSubmit, true);
+  document.addEventListener('mousedown', handleDocumentMouseDown, true);
   document.addEventListener('click', handleDocumentClick, true);
   document.addEventListener('keydown', handleDocumentKeydown, true);
   document.addEventListener('change', handleDocumentChange, true);
@@ -412,10 +434,31 @@ async function handleDocumentSubmit(event) {
   }
 }
 
+function handleDocumentMouseDown(event) {
+  if (!(event.target instanceof Element)) {
+    return;
+  }
+
+  const actionElement = event.target.closest('[data-action="select-node"]');
+  if (!(actionElement instanceof HTMLElement)) {
+    return;
+  }
+
+  // Prevent the browser from setting focus on mousedown — this eliminates the
+  // one-frame gap where the focus ring would appear before the click handler runs.
+  event.preventDefault();
+  selectNode(actionElement.dataset.mapPath || '', actionElement.dataset.nodeId || '');
+}
+
 function handleDocumentClick(event) {
   const target = event.target;
   if (!(target instanceof Element)) {
     return;
+  }
+
+  if (state.openCardMenu && !target.closest('.card-menu')) {
+    state.openCardMenu = '';
+    render();
   }
 
   const nestedLink = target.closest('a[href]');
@@ -478,7 +521,10 @@ function handleDocumentClick(event) {
       navigateToMapsRoute({ replace: true });
       return;
     case 'select-node':
-      selectNode(clickableElement.dataset.mapPath || '', clickableElement.dataset.nodeId || '');
+      // Mouse clicks are handled in handleDocumentMouseDown; only handle keyboard-triggered clicks here.
+      if (event.detail === 0) {
+        selectNode(clickableElement.dataset.mapPath || '', clickableElement.dataset.nodeId || '');
+      }
       return;
     case 'toggle-node':
       toggleLocalNodeCollapse(clickableElement.dataset.mapPath || '', clickableElement.dataset.nodeId || '');
@@ -526,6 +572,41 @@ function handleDocumentClick(event) {
       return;
     case 'confirm-delete-node':
       void handleDeleteNodeConfirm();
+      return;
+    case 'toggle-card-menu':
+      toggleCardMenu(clickableElement.dataset.mapPath || '');
+      return;
+    case 'open-delete-map-modal':
+      state.openCardMenu = '';
+      openDeleteMapModal(
+        clickableElement.dataset.mapPath || '',
+        clickableElement.dataset.focusKey || '',
+      );
+      return;
+    case 'confirm-delete-map':
+      void handleDeleteMapConfirm();
+      return;
+    case 'open-attachment':
+      void handleOpenAttachment(
+        clickableElement.dataset.mapPath || '',
+        clickableElement.dataset.nodeId || '',
+        clickableElement.dataset.attachmentId || '',
+      );
+      return;
+    case 'viewer-zoom-in':
+      if (state.activeModal?.kind === 'imageViewer') {
+        state.activeModal = { ...state.activeModal, zoom: Math.min(state.activeModal.zoom + 0.25, 5) };
+        render();
+      }
+      return;
+    case 'viewer-zoom-out':
+      if (state.activeModal?.kind === 'imageViewer') {
+        state.activeModal = { ...state.activeModal, zoom: Math.max(state.activeModal.zoom - 0.25, 0.25), panX: 0, panY: 0 };
+        render();
+      }
+      return;
+    case 'viewer-download':
+      handleViewerDownload();
       return;
     case 'open-task-node':
       openTaskNode(clickableElement.dataset.mapPath || '', clickableElement.dataset.nodeId || '');
@@ -726,6 +807,15 @@ function loadThemePreference() {
 
 function saveThemePreference(theme) {
   window.localStorage?.setItem(THEME_STORAGE_KEY, theme === 'dark' ? 'dark' : 'light');
+}
+
+function loadFabSidePreference() {
+  const stored = window.localStorage?.getItem(FAB_SIDE_STORAGE_KEY);
+  return stored === 'left' ? 'left' : 'right';
+}
+
+function saveFabSidePreference(side) {
+  window.localStorage?.setItem(FAB_SIDE_STORAGE_KEY, side === 'left' ? 'left' : 'right');
 }
 
 function applyThemePreference() {
@@ -1300,6 +1390,222 @@ async function handleDeleteNodeConfirm() {
   });
 }
 
+function toggleCardMenu(mapPath) {
+  state.openCardMenu = state.openCardMenu === mapPath ? '' : mapPath;
+  render();
+}
+
+function openDeleteMapModal(mapPath, returnFocusKey = '') {
+  const snapshot = state.mapsByPath[mapPath];
+  if (!snapshot) {
+    return;
+  }
+
+  state.activeModal = {
+    kind: 'deleteMap',
+    mapPath,
+    nodeId: '',
+    draftText: '',
+    errorMessage: '',
+    returnFocusKey: returnFocusKey || 'maps-list',
+  };
+  state.pendingFocusRequest = {
+    type: 'modalAutofocus',
+  };
+  render();
+}
+
+async function handleDeleteMapConfirm() {
+  if (!state.activeModal || state.activeModal.kind !== 'deleteMap') {
+    return;
+  }
+
+  const filePath = state.activeModal.mapPath;
+  const snapshot = state.mapsByPath[filePath];
+  if (!snapshot) {
+    setActiveModalError('Map is no longer available.');
+    return;
+  }
+
+  const commitMessage = buildMapDeleteCommitMessage(snapshot.mapName);
+  const result = await state.service.deleteMap(filePath, commitMessage);
+  if (!result.ok) {
+    setActiveModalError(result.error.message || 'Failed to delete map. Try again.');
+    return;
+  }
+
+  setSnapshots(getSnapshots().filter((item) => item.filePath !== filePath));
+  state.service.hydrateSnapshots(getSnapshots());
+  persistRepoScopedState();
+  state.syncState = {
+    kind: 'success',
+    tone: 'success',
+    message: `Map "${snapshot.mapName}" deleted.`,
+    detail: buildStatusDetail(),
+    canRetry: false,
+  };
+  state.activeModal = null;
+  state.currentView = 'maps';
+  render();
+}
+
+function getNodeAttachments(node) {
+  return Array.isArray(node?.metadata?.attachments) ? node.metadata.attachments : [];
+}
+
+function getPrimaryNodeAttachment(node) {
+  const attachments = getNodeAttachments(node);
+  return attachments.find((attachment) => typeof attachment?.relativePath === 'string' && attachment.relativePath) || attachments[0] || null;
+}
+
+async function openImageViewerForAttachment(mapPath, nodeId, attachment, returnFocusKey = '') {
+  if (!attachment) {
+    return;
+  }
+
+  state.activeModal = {
+    kind: 'imageViewer',
+    mapPath,
+    nodeId,
+    draftText: '',
+    errorMessage: '',
+    returnFocusKey: returnFocusKey || buildNodeFocusKey(mapPath, nodeId),
+    attachmentRelativePath: attachment.relativePath,
+    displayName: attachment.displayName || attachment.relativePath,
+    imageUrl: null,
+    loading: true,
+    zoom: 1,
+    panX: 0,
+    panY: 0,
+  };
+  render();
+
+  const result = await state.service.loadAttachment(mapPath, attachment.relativePath, attachment.mediaType);
+  if (!result.ok) {
+    if (
+      state.activeModal?.kind === 'imageViewer' &&
+      state.activeModal.mapPath === mapPath &&
+      state.activeModal.nodeId === nodeId &&
+      state.activeModal.attachmentRelativePath === attachment.relativePath
+    ) {
+      state.activeModal = {
+        ...state.activeModal,
+        loading: false,
+        errorMessage: result.error.message || 'Failed to load attachment.',
+      };
+      render();
+    }
+    return;
+  }
+
+  if (
+    state.activeModal?.kind === 'imageViewer' &&
+    state.activeModal.mapPath === mapPath &&
+    state.activeModal.nodeId === nodeId &&
+    state.activeModal.attachmentRelativePath === attachment.relativePath
+  ) {
+    state.activeModal = {
+      ...state.activeModal,
+      loading: false,
+      imageUrl: URL.createObjectURL(result.value),
+    };
+    render();
+    bindImageViewerDrag();
+  }
+}
+
+async function handleOpenAttachment(mapPath, nodeId, attachmentId) {
+  const snapshot = state.mapsByPath[mapPath];
+  if (!snapshot) {
+    return;
+  }
+
+  const record = findNodeRecord(snapshot.document, nodeId);
+  if (!record) {
+    return;
+  }
+
+  const attachment = getNodeAttachments(record.node).find((item) => item.id === attachmentId);
+  if (!attachment) {
+    return;
+  }
+
+  await openImageViewerForAttachment(
+    mapPath,
+    record.node.uniqueIdentifier,
+    attachment,
+    buildNodeFocusKey(mapPath, record.node.uniqueIdentifier),
+  );
+}
+
+function handleViewerDownload() {
+  if (!state.activeModal || state.activeModal.kind !== 'imageViewer' || !state.activeModal.imageUrl) {
+    return;
+  }
+
+  const link = document.createElement('a');
+  link.href = state.activeModal.imageUrl;
+  link.download = state.activeModal.displayName || 'attachment.png';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+function bindImageViewerDrag() {
+  const container = document.querySelector('.image-viewer-body');
+  if (!(container instanceof HTMLElement) || container.dataset.dragBound === 'true') {
+    return;
+  }
+
+  container.dataset.dragBound = 'true';
+
+  let dragging = false;
+  let startX = 0;
+  let startY = 0;
+  let startPanX = 0;
+  let startPanY = 0;
+
+  container.addEventListener('pointerdown', (event) => {
+    if (!state.activeModal || state.activeModal.kind !== 'imageViewer' || state.activeModal.zoom <= 1) {
+      return;
+    }
+
+    dragging = true;
+    startX = event.clientX;
+    startY = event.clientY;
+    startPanX = state.activeModal.panX;
+    startPanY = state.activeModal.panY;
+    container.classList.add('dragging');
+    container.setPointerCapture(event.pointerId);
+  });
+
+  container.addEventListener('pointermove', (event) => {
+    if (!dragging || !state.activeModal || state.activeModal.kind !== 'imageViewer') {
+      return;
+    }
+
+    const dx = event.clientX - startX;
+    const dy = event.clientY - startY;
+    state.activeModal.panX = startPanX + dx;
+    state.activeModal.panY = startPanY + dy;
+
+    const img = container.querySelector('.image-viewer-img');
+    if (img) {
+      img.style.transform = `scale(${state.activeModal.zoom}) translate(${state.activeModal.panX}px, ${state.activeModal.panY}px)`;
+    }
+  });
+
+  container.addEventListener('pointerup', () => {
+    dragging = false;
+    container.classList.remove('dragging');
+  });
+
+  container.addEventListener('pointercancel', () => {
+    dragging = false;
+    container.classList.remove('dragging');
+  });
+}
+
 async function openConflictModal() {
   const failingOp = state.pendingOperations[0];
   if (!failingOp || state.syncState.kind !== 'conflict') {
@@ -1638,13 +1944,28 @@ function openNodeModal(kind, mapPath, nodeId, returnFocusKey = '') {
   state.currentView = 'map';
   state.selectedMapPath = mapPath;
   state.selectedNodeId = nodeUiState.node.uniqueIdentifier;
+  const focusKey = returnFocusKey || buildNodeFocusKey(mapPath, nodeUiState.node.uniqueIdentifier);
+
+  if (kind === 'editNode' && isClipboardImageNode(nodeUiState.node)) {
+    const attachment = getPrimaryNodeAttachment(nodeUiState.node);
+    if (attachment) {
+      void openImageViewerForAttachment(
+        mapPath,
+        nodeUiState.node.uniqueIdentifier,
+        attachment,
+        focusKey,
+      );
+      return;
+    }
+  }
+
   state.activeModal = {
     kind,
     mapPath,
     nodeId: nodeUiState.node.uniqueIdentifier,
     draftText: kind === 'editNode' ? nodeUiState.node.name || '' : '',
     errorMessage: '',
-    returnFocusKey: returnFocusKey || buildNodeFocusKey(mapPath, nodeUiState.node.uniqueIdentifier),
+    returnFocusKey: focusKey,
   };
   state.pendingFocusRequest = {
     type: 'modalAutofocus',
@@ -1657,15 +1978,39 @@ function closeActiveModal(options = {}) {
     return;
   }
 
-  const focusKey = options.focusKey || state.activeModal.returnFocusKey || '';
-  state.activeModal = null;
-  if (focusKey) {
-    state.pendingFocusRequest = {
-      type: 'focusKey',
-      value: focusKey,
-    };
+  if (state.activeModal.kind === 'imageViewer' && state.activeModal.imageUrl) {
+    URL.revokeObjectURL(state.activeModal.imageUrl);
   }
-  render();
+
+  const focusKey = options.focusKey || state.activeModal.returnFocusKey || '';
+  const modalCard = document.querySelector('.modal-card');
+  const modalBackdrop = document.querySelector('.modal-backdrop');
+
+  if (modalCard) {
+    modalCard.classList.add('modal-exiting');
+    if (modalBackdrop) {
+      modalBackdrop.classList.add('modal-exiting');
+    }
+    modalCard.addEventListener('animationend', () => {
+      state.activeModal = null;
+      if (focusKey) {
+        state.pendingFocusRequest = {
+          type: 'focusKey',
+          value: focusKey,
+        };
+      }
+      render();
+    }, { once: true });
+  } else {
+    state.activeModal = null;
+    if (focusKey) {
+      state.pendingFocusRequest = {
+        type: 'focusKey',
+        value: focusKey,
+      };
+    }
+    render();
+  }
 }
 
 function setActiveModalError(message) {
@@ -1698,18 +2043,35 @@ function openTaskNode(mapPath, nodeId) {
   });
 }
 
+function nodeNeedsActions(record) {
+  return Boolean(
+    record && (
+      record.node.taskState !== TASK_STATE.NONE ||
+      record.node.nodeType === NODE_TYPE.IDEA_BAG_ITEM ||
+      getNodeBadges(record.node).length > 0
+    ),
+  );
+}
+
 function selectNode(mapPath, nodeId) {
   const snapshot = state.mapsByPath[mapPath];
   if (!snapshot) {
     return;
   }
 
+  if (state.selectedMapPath === mapPath && state.selectedNodeId === nodeId) {
+    openNodeModal('editNode', mapPath, nodeId, buildNodeFocusKey(mapPath, nodeId));
+    return;
+  }
+
+  const prevNodeId = state.selectedNodeId;
   state.activeModal = null;
   state.currentView = 'map';
   state.selectedMapPath = mapPath;
   state.selectedNodeId = findNodeRecord(snapshot.document, nodeId)
     ? nodeId
     : snapshot.document.rootNode?.uniqueIdentifier || '';
+
   render();
 }
 
@@ -1916,6 +2278,20 @@ function focusPendingElement() {
   });
 }
 
+function resetWorkspaceDomState() {
+  ui.workspaceShell = null;
+  ui.workspaceView = null;
+  ui.workspaceOverlay = null;
+  renderCache.workspaceMounted = false;
+  renderCache.workspaceViewKind = '';
+  renderCache.workspaceViewKey = '';
+  renderCache.workspaceSelectionKey = '';
+  renderCache.workspaceSelectedNodeId = '';
+  renderCache.workspaceOverlayKind = '';
+  renderCache.workspaceOverlayKey = '';
+  renderCache.workspaceOpenCardMenu = '';
+}
+
 function render() {
   renderStatusPanel();
   renderHeaderThemeControl();
@@ -1946,13 +2322,16 @@ function render() {
     ui.appRoot.hidden = true;
     ui.appRoot.innerHTML = '';
   }
+  resetWorkspaceDomState();
   if (ui.settingsRoot) {
     ui.settingsRoot.hidden = true;
     ui.settingsRoot.innerHTML = '';
+    renderCache.settingsKey = '';
   }
-  if (ui.statusRoot && !state.showStatus) {
+  if (ui.statusRoot) {
     ui.statusRoot.hidden = true;
     ui.statusRoot.innerHTML = '';
+    renderCache.statusKey = '';
   }
 
   renderGateScreen();
@@ -1964,14 +2343,23 @@ function renderHeaderThemeControl() {
     return;
   }
 
+  const nextKey = state.authState === 'authenticated'
+    ? `authenticated|${state.theme}`
+    : 'hidden';
+  if (nextKey === renderCache.headerThemeKey) {
+    return;
+  }
+
   if (state.authState !== 'authenticated') {
     ui.themeRoot.hidden = true;
     ui.themeRoot.innerHTML = '';
+    renderCache.headerThemeKey = nextKey;
     return;
   }
 
   ui.themeRoot.hidden = false;
   ui.themeRoot.innerHTML = renderThemeModeControl('theme-switcher--header');
+  renderCache.headerThemeKey = nextKey;
 }
 
 function renderStatusPanel() {
@@ -1988,13 +2376,30 @@ function renderStatusPanel() {
     return;
   }
 
-  if (!state.showStatus) {
+  const syncMetadata = getSyncMetadata();
+  const nextKey = state.showStatus && state.authState === 'authenticated'
+    ? JSON.stringify({
+      syncState: state.syncState,
+      repo: describeRepoSettings(state.repoSettings),
+      lastSyncAt: syncMetadata.lastSyncAt,
+      lastErrorSummary: syncMetadata.lastErrorSummary,
+    })
+    : '';
+
+  if (!nextKey) {
     ui.statusRoot.hidden = true;
-    ui.statusRoot.innerHTML = '';
+    if (renderCache.statusKey || ui.statusRoot.innerHTML) {
+      ui.statusRoot.innerHTML = '';
+    }
+    renderCache.statusKey = '';
     return;
   }
 
-  const syncMetadata = getSyncMetadata();
+  if (nextKey === renderCache.statusKey) {
+    ui.statusRoot.hidden = false;
+    return;
+  }
+
   const lastSyncText = syncMetadata.lastSyncAt ? formatDateTime(syncMetadata.lastSyncAt) : 'Never synced';
   const lastErrorText = syncMetadata.lastErrorSummary || 'None';
 
@@ -2066,6 +2471,7 @@ function renderStatusPanel() {
   ui.statusRoot.querySelector('#retry-sync-modal')?.addEventListener('click', () => {
     void handleRetryButtonClick();
   });
+  renderCache.statusKey = nextKey;
 }
 
 function renderGateScreen() {
@@ -2100,6 +2506,509 @@ function renderGateScreen() {
   `;
 }
 
+function ensureWorkspaceShell() {
+  if (!ui.appRoot) {
+    return false;
+  }
+
+  if (
+    ui.workspaceShell instanceof HTMLElement &&
+    ui.workspaceView instanceof HTMLElement &&
+    ui.workspaceOverlay instanceof HTMLElement &&
+    ui.appRoot.contains(ui.workspaceShell)
+  ) {
+    return true;
+  }
+
+  ui.appRoot.innerHTML = `
+    <section class="workspace-shell" aria-label="Mind map workspace">
+      <nav class="workspace-nav" aria-label="Workspace navigation">
+        <div class="nav-tabs" data-active-view="maps">
+          <button
+            type="button"
+            class="nav-tab active"
+            data-action="switch-view"
+            data-view="maps"
+          >
+            <span class="nav-tab-title">Maps</span>
+          </button>
+          <button
+            type="button"
+            class="nav-tab"
+            data-action="switch-view"
+            data-view="tasks"
+          >
+            <span class="nav-tab-title">Tasks</span>
+          </button>
+        </div>
+      </nav>
+      <div data-workspace-region="view"></div>
+      <div data-workspace-region="overlay"></div>
+    </section>
+  `;
+
+  ui.workspaceShell = ui.appRoot.querySelector('.workspace-shell');
+  ui.workspaceView = ui.appRoot.querySelector('[data-workspace-region="view"]');
+  ui.workspaceOverlay = ui.appRoot.querySelector('[data-workspace-region="overlay"]');
+  renderCache.workspaceMounted = true;
+  renderCache.workspaceViewKind = '';
+  renderCache.workspaceViewKey = '';
+  renderCache.workspaceSelectionKey = '';
+  renderCache.workspaceSelectedNodeId = '';
+  renderCache.workspaceOverlayKind = '';
+  renderCache.workspaceOverlayKey = '';
+  renderCache.workspaceOpenCardMenu = '';
+  return Boolean(ui.workspaceShell && ui.workspaceView && ui.workspaceOverlay);
+}
+
+function renderWorkspaceNavigation() {
+  if (!(ui.workspaceShell instanceof HTMLElement)) {
+    return;
+  }
+
+  const activeView = state.currentView === 'tasks' ? 'tasks' : 'maps';
+  const navTabs = ui.workspaceShell.querySelector('.nav-tabs');
+  if (navTabs instanceof HTMLElement) {
+    navTabs.dataset.activeView = activeView;
+  }
+
+  Array.from(ui.workspaceShell.querySelectorAll('.nav-tab')).forEach((button) => {
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+
+    const isActive = activeView === 'tasks'
+      ? button.dataset.view === 'tasks'
+      : button.dataset.view === 'maps';
+    button.classList.toggle('active', isActive);
+  });
+}
+
+function buildMapsViewKey(summaries) {
+  return JSON.stringify(
+    summaries.map((summary) => [
+      summary.filePath,
+      summary.rootTitle,
+      summary.updatedAt,
+      summary.taskCounts.total,
+      summary.taskCounts.open,
+      summary.taskCounts.todo,
+      summary.taskCounts.doing,
+      summary.taskCounts.done,
+      getPendingCountForMap(summary.filePath),
+    ]),
+  );
+}
+
+function buildTasksViewKey(entries) {
+  return JSON.stringify({
+    filter: state.taskFilter || '',
+    entries: entries.map((entry) => [
+      entry.filePath,
+      entry.nodeId,
+      entry.nodePath,
+      entry.taskState,
+      entry.mapName,
+    ]),
+  });
+}
+
+function buildMapViewKey(snapshot) {
+  return JSON.stringify({
+    mapPath: snapshot.filePath,
+    revision: snapshot.revision || '',
+    loadedAt: snapshot.loadedAt || 0,
+    updatedAt: snapshot.document?.updatedAt || '',
+    collapsed: state.localCollapsedByMap[snapshot.filePath] || {},
+  });
+}
+
+function buildMapSelectionKey(snapshot) {
+  const selectedNodeState = getSelectedNodeUiState(snapshot);
+  return JSON.stringify({
+    selectedNodeId: state.selectedNodeId,
+    fabSide: state.fabSide,
+    canEditNode: Boolean(selectedNodeState?.canEditNode),
+  });
+}
+
+function renderMapsViewRegion() {
+  if (!(ui.workspaceView instanceof HTMLElement)) {
+    return;
+  }
+
+  const summaries = getSnapshots().map((snapshot) => buildMapSummary(snapshot));
+  const nextKey = buildMapsViewKey(summaries);
+
+  if (renderCache.workspaceViewKind !== 'maps' || renderCache.workspaceViewKey !== nextKey) {
+    ui.workspaceView.innerHTML = renderMapsView(summaries);
+    renderCache.workspaceViewKind = 'maps';
+    renderCache.workspaceViewKey = nextKey;
+  } else if (renderCache.workspaceOpenCardMenu !== state.openCardMenu) {
+    updateRenderedMapCardMenus(summaries, renderCache.workspaceOpenCardMenu, state.openCardMenu);
+  }
+
+  renderCache.workspaceSelectionKey = '';
+  renderCache.workspaceSelectedNodeId = '';
+  renderCache.workspaceOpenCardMenu = state.openCardMenu;
+}
+
+function renderTasksViewRegion() {
+  if (!(ui.workspaceView instanceof HTMLElement)) {
+    return;
+  }
+
+  const entries = buildTaskEntriesForView(state.taskFilter);
+  const nextKey = buildTasksViewKey(entries);
+
+  if (renderCache.workspaceViewKind !== 'tasks' || renderCache.workspaceViewKey !== nextKey) {
+    ui.workspaceView.innerHTML = renderTasksView(entries);
+    renderCache.workspaceViewKind = 'tasks';
+    renderCache.workspaceViewKey = nextKey;
+  }
+
+  renderCache.workspaceSelectionKey = '';
+  renderCache.workspaceSelectedNodeId = '';
+  renderCache.workspaceOpenCardMenu = '';
+}
+
+function findDirectChildByClass(parent, className) {
+  if (!(parent instanceof HTMLElement)) {
+    return null;
+  }
+
+  return Array.from(parent.children).find((child) =>
+    child instanceof HTMLElement && child.classList.contains(className)
+  ) || null;
+}
+
+function applyRenderedNodeSelection(snapshot, nodeId, isSelected) {
+  if (!(ui.workspaceView instanceof HTMLElement) || !nodeId) {
+    return;
+  }
+
+  const control = Array.from(ui.workspaceView.querySelectorAll('[data-action="select-node"]'))
+    .find((candidate) => candidate instanceof HTMLElement && candidate.dataset.nodeId === nodeId);
+  if (!(control instanceof HTMLElement)) {
+    return;
+  }
+
+  control.classList.toggle('selected', isSelected);
+
+  const selectionContainer = control.closest('.reader-node, .map-document-header');
+  if (selectionContainer instanceof HTMLElement) {
+    selectionContainer.classList.toggle('selected', isSelected);
+  }
+
+  const actionContainer = control.closest('.reader-node-body, .map-document-body');
+  if (!(actionContainer instanceof HTMLElement)) {
+    return;
+  }
+
+  const existingActions = findDirectChildByClass(actionContainer, 'selected-node-actions');
+  if (!isSelected) {
+    existingActions?.remove();
+    return;
+  }
+
+  const nodeUiState = getNodeUiState(snapshot.document, nodeId);
+  const nextActionsMarkup = nodeUiState ? renderSelectedNodeActions(snapshot, nodeUiState) : '';
+  if (!nextActionsMarkup) {
+    existingActions?.remove();
+    return;
+  }
+
+  if (existingActions) {
+    existingActions.outerHTML = nextActionsMarkup;
+    return;
+  }
+
+  actionContainer.insertAdjacentHTML('beforeend', nextActionsMarkup);
+}
+
+function updateRenderedMapFab(snapshot, selectedNodeState) {
+  if (!(ui.workspaceView instanceof HTMLElement)) {
+    return;
+  }
+
+  const fab = ui.workspaceView.querySelector('.add-note-fab');
+  if (!(fab instanceof HTMLButtonElement) || !selectedNodeState) {
+    return;
+  }
+
+  fab.classList.toggle('add-note-fab--left', state.fabSide === 'left');
+  fab.classList.toggle('add-note-fab--right', state.fabSide !== 'left');
+  fab.dataset.mapPath = snapshot.filePath;
+  fab.dataset.nodeId = selectedNodeState.node.uniqueIdentifier;
+  fab.disabled = !selectedNodeState.canEditNode;
+}
+
+function updateRenderedMapSelection(snapshot, previousNodeId, nextNodeId) {
+  if (previousNodeId && previousNodeId !== nextNodeId) {
+    applyRenderedNodeSelection(snapshot, previousNodeId, false);
+  }
+
+  if (nextNodeId) {
+    applyRenderedNodeSelection(snapshot, nextNodeId, true);
+  }
+
+  updateRenderedMapFab(snapshot, getSelectedNodeUiState(snapshot));
+}
+
+function findRenderedMapCard(mapPath) {
+  if (!(ui.workspaceView instanceof HTMLElement) || !mapPath) {
+    return null;
+  }
+
+  return Array.from(ui.workspaceView.querySelectorAll('.map-row'))
+    .find((card) => card instanceof HTMLElement && card.dataset.mapPath === mapPath) || null;
+}
+
+function updateRenderedMapCardMenus(summaries, previousMapPath, nextMapPath) {
+  const changedPaths = [...new Set([previousMapPath, nextMapPath].filter(Boolean))];
+  changedPaths.forEach((mapPath) => {
+    const card = findRenderedMapCard(mapPath);
+    const summary = summaries.find((item) => item.filePath === mapPath);
+    if (!(card instanceof HTMLElement) || !summary) {
+      return;
+    }
+
+    const menuRoot = card.querySelector('.card-menu');
+    if (!(menuRoot instanceof HTMLElement)) {
+      return;
+    }
+
+    menuRoot.innerHTML = renderMapCardMenu(summary);
+  });
+}
+
+function renderMapViewRegion() {
+  if (!(ui.workspaceView instanceof HTMLElement)) {
+    return;
+  }
+
+  const snapshot = getSelectedSnapshot();
+  if (!snapshot) {
+    state.currentView = 'maps';
+    if (window.location.hash !== HASH_ROUTE.maps) {
+      replaceHashRoute(HASH_ROUTE.maps);
+    }
+    renderMapsViewRegion();
+    return;
+  }
+
+  const nextViewKey = buildMapViewKey(snapshot);
+  const nextSelectionKey = buildMapSelectionKey(snapshot);
+
+  if (renderCache.workspaceViewKind !== 'map' || renderCache.workspaceViewKey !== nextViewKey) {
+    ui.workspaceView.innerHTML = renderMapView();
+    renderCache.workspaceViewKind = 'map';
+    renderCache.workspaceViewKey = nextViewKey;
+    renderCache.workspaceSelectionKey = nextSelectionKey;
+    renderCache.workspaceSelectedNodeId = state.selectedNodeId;
+    renderCache.workspaceOpenCardMenu = '';
+    return;
+  }
+
+  if (renderCache.workspaceSelectionKey !== nextSelectionKey) {
+    updateRenderedMapSelection(snapshot, renderCache.workspaceSelectedNodeId, state.selectedNodeId);
+    renderCache.workspaceSelectionKey = nextSelectionKey;
+    renderCache.workspaceSelectedNodeId = state.selectedNodeId;
+    return;
+  }
+
+  updateRenderedMapFab(snapshot, getSelectedNodeUiState(snapshot));
+}
+
+function getWorkspaceOverlayState() {
+  if (!state.activeModal) {
+    return {
+      kind: '',
+      key: '',
+    };
+  }
+
+  if (state.activeModal.kind === 'resolveConflict') {
+    return {
+      kind: 'resolveConflict',
+      key: JSON.stringify({
+        kind: state.activeModal.kind,
+        filePath: state.activeModal.filePath,
+        loading: state.activeModal.loading,
+        errorMessage: state.activeModal.errorMessage || '',
+        remoteRevision: state.activeModal.remoteRevision || '',
+        items: Array.isArray(state.activeModal.items)
+          ? state.activeModal.items.map((item) => [item.id, item.resolution, item.description])
+          : [],
+      }),
+    };
+  }
+
+  if (state.activeModal.kind === 'imageViewer') {
+    return {
+      kind: 'imageViewer',
+      key: JSON.stringify({
+        kind: state.activeModal.kind,
+        mapPath: state.activeModal.mapPath,
+        nodeId: state.activeModal.nodeId,
+        attachmentRelativePath: state.activeModal.attachmentRelativePath || '',
+        displayName: state.activeModal.displayName || '',
+      }),
+    };
+  }
+
+  return {
+    kind: state.activeModal.kind,
+    key: JSON.stringify({
+      kind: state.activeModal.kind,
+      mapPath: state.activeModal.mapPath || '',
+      nodeId: state.activeModal.nodeId || '',
+      draftText: state.activeModal.draftText || '',
+      errorMessage: state.activeModal.errorMessage || '',
+    }),
+  };
+}
+
+function buildImageViewerBodyMarkup() {
+  const { displayName, imageUrl, loading, errorMessage, zoom } = state.activeModal;
+  if (loading) {
+    return '<div class="image-viewer-loading shimmer"></div>';
+  }
+
+  if (errorMessage) {
+    return `<p class="form-error" role="alert">${escapeHtml(errorMessage)}</p>`;
+  }
+
+  return `<img
+    class="image-viewer-img"
+    src="${escapeHtml(imageUrl)}"
+    alt="${escapeHtml(displayName)}"
+    style="transform: scale(${zoom}) translate(${state.activeModal.panX}px, ${state.activeModal.panY}px)"
+    draggable="false"
+  />`;
+}
+
+function updateRenderedImageViewerModal() {
+  if (!(ui.workspaceOverlay instanceof HTMLElement) || state.activeModal?.kind !== 'imageViewer') {
+    return;
+  }
+
+  const card = ui.workspaceOverlay.querySelector('.image-viewer-card');
+  const body = ui.workspaceOverlay.querySelector('.image-viewer-body');
+  if (!(card instanceof HTMLElement) || !(body instanceof HTMLElement)) {
+    ui.workspaceOverlay.innerHTML = renderImageViewerModal();
+    if (state.activeModal.imageUrl) {
+      bindImageViewerDrag();
+    }
+    return;
+  }
+
+  const title = card.querySelector('.image-viewer-title');
+  if (title instanceof HTMLElement) {
+    title.textContent = state.activeModal.displayName;
+  }
+
+  const zoomPercent = Math.round(state.activeModal.zoom * 100);
+  const zoomLabel = card.querySelector('.image-viewer-zoom-label');
+  if (zoomLabel instanceof HTMLElement) {
+    zoomLabel.textContent = `${zoomPercent}%`;
+  }
+
+  const zoomOutButton = card.querySelector('[data-action="viewer-zoom-out"]');
+  if (zoomOutButton instanceof HTMLButtonElement) {
+    zoomOutButton.disabled = state.activeModal.zoom <= 0.25;
+  }
+
+  const zoomInButton = card.querySelector('[data-action="viewer-zoom-in"]');
+  if (zoomInButton instanceof HTMLButtonElement) {
+    zoomInButton.disabled = state.activeModal.zoom >= 5;
+  }
+
+  const downloadButton = card.querySelector('[data-action="viewer-download"]');
+  if (downloadButton instanceof HTMLButtonElement) {
+    downloadButton.disabled = !state.activeModal.imageUrl;
+  }
+
+  const bodyState = state.activeModal.loading
+    ? 'loading'
+    : state.activeModal.errorMessage
+      ? 'error'
+      : 'image';
+  const currentBodyState = body.dataset.viewerState || '';
+  const currentBodySrc = body.dataset.viewerSrc || '';
+  const currentBodyError = body.dataset.viewerError || '';
+  const nextBodySrc = state.activeModal.imageUrl || '';
+  const nextBodyError = state.activeModal.errorMessage || '';
+  const isDragging = body.classList.contains('dragging');
+
+  body.className = `image-viewer-body${state.activeModal.zoom > 1 ? ' zoomable' : ''}${isDragging ? ' dragging' : ''}`;
+
+  if (
+    currentBodyState !== bodyState ||
+    currentBodySrc !== nextBodySrc ||
+    currentBodyError !== nextBodyError
+  ) {
+    body.innerHTML = buildImageViewerBodyMarkup();
+    body.dataset.viewerState = bodyState;
+    body.dataset.viewerSrc = nextBodySrc;
+    body.dataset.viewerError = nextBodyError;
+    if (bodyState === 'image') {
+      bindImageViewerDrag();
+    }
+  }
+
+  const image = body.querySelector('.image-viewer-img');
+  if (image instanceof HTMLImageElement) {
+    image.alt = state.activeModal.displayName;
+    if (image.getAttribute('src') !== nextBodySrc) {
+      image.setAttribute('src', nextBodySrc);
+    }
+    image.style.transform = `scale(${state.activeModal.zoom}) translate(${state.activeModal.panX}px, ${state.activeModal.panY}px)`;
+  }
+}
+
+function renderWorkspaceOverlay() {
+  if (!(ui.workspaceOverlay instanceof HTMLElement)) {
+    return;
+  }
+
+  const overlayState = getWorkspaceOverlayState();
+  if (!overlayState.kind) {
+    if (renderCache.workspaceOverlayKind || ui.workspaceOverlay.innerHTML) {
+      ui.workspaceOverlay.innerHTML = '';
+    }
+    renderCache.workspaceOverlayKind = '';
+    renderCache.workspaceOverlayKey = '';
+    return;
+  }
+
+  if (
+    overlayState.kind === 'imageViewer' &&
+    renderCache.workspaceOverlayKind === 'imageViewer' &&
+    renderCache.workspaceOverlayKey === overlayState.key
+  ) {
+    updateRenderedImageViewerModal();
+    return;
+  }
+
+  if (
+    renderCache.workspaceOverlayKind === overlayState.kind &&
+    renderCache.workspaceOverlayKey === overlayState.key
+  ) {
+    return;
+  }
+
+  ui.workspaceOverlay.innerHTML = overlayState.kind === 'resolveConflict'
+    ? renderResolveConflictModal()
+    : renderActiveModal();
+  renderCache.workspaceOverlayKind = overlayState.kind;
+  renderCache.workspaceOverlayKey = overlayState.key;
+
+  if (overlayState.kind === 'imageViewer' && state.activeModal?.imageUrl) {
+    bindImageViewerDrag();
+  }
+}
+
 function renderWorkspace() {
   if (!ui.appRoot) {
     return;
@@ -2111,41 +3020,20 @@ function renderWorkspace() {
   }
 
   ui.appRoot.hidden = false;
+  if (!ensureWorkspaceShell()) {
+    return;
+  }
 
-  const summaries = getSnapshots().map((snapshot) => buildMapSummary(snapshot));
-  const viewMarkup =
-    state.currentView === 'tasks'
-      ? renderTasksView()
-      : state.currentView === 'map'
-        ? renderMapView()
-        : renderMapsView(summaries);
+  if (state.currentView === 'tasks') {
+    renderTasksViewRegion();
+  } else if (state.currentView === 'map') {
+    renderMapViewRegion();
+  } else {
+    renderMapsViewRegion();
+  }
 
-  ui.appRoot.innerHTML = `
-    <section class="workspace-shell" aria-label="Mind map workspace">
-      <nav class="workspace-nav" aria-label="Workspace navigation">
-        <div class="nav-tabs" data-active-view="${state.currentView === 'tasks' ? 'tasks' : 'maps'}">
-          <button
-            type="button"
-            class="nav-tab ${state.currentView === 'tasks' ? '' : 'active'}"
-            data-action="switch-view"
-            data-view="maps"
-          >
-            <span class="nav-tab-title">Maps</span>
-          </button>
-          <button
-            type="button"
-            class="nav-tab ${state.currentView === 'tasks' ? 'active' : ''}"
-            data-action="switch-view"
-            data-view="tasks"
-          >
-            <span class="nav-tab-title">Tasks</span>
-          </button>
-        </div>
-      </nav>
-      ${viewMarkup}
-    </section>
-    ${state.activeModal?.kind === 'resolveConflict' ? renderResolveConflictModal() : ''}
-  `;
+  renderWorkspaceNavigation();
+  renderWorkspaceOverlay();
 }
 
 function renderSettingsPanel() {
@@ -2153,9 +3041,26 @@ function renderSettingsPanel() {
     return;
   }
 
-  if (!state.showSettings || state.authState !== 'authenticated') {
+  const nextKey = state.showSettings && state.authState === 'authenticated'
+    ? JSON.stringify({
+      repoSettings: state.repoSettings,
+      fabSide: state.fabSide,
+      hasToken: Boolean(getToken(state.repoSettings.tokenStorageKey)),
+      syncMetadata: getSyncMetadata(),
+    })
+    : '';
+
+  if (!nextKey) {
     ui.settingsRoot.hidden = true;
-    ui.settingsRoot.innerHTML = '';
+    if (renderCache.settingsKey || ui.settingsRoot.innerHTML) {
+      ui.settingsRoot.innerHTML = '';
+    }
+    renderCache.settingsKey = '';
+    return;
+  }
+
+  if (nextKey === renderCache.settingsKey) {
+    ui.settingsRoot.hidden = false;
     return;
   }
 
@@ -2163,6 +3068,7 @@ function renderSettingsPanel() {
   renderSettingsScreen({
     mountNode: ui.settingsRoot,
     repoSettings: state.repoSettings,
+    fabSide: state.fabSide,
     hasToken: Boolean(getToken(state.repoSettings.tokenStorageKey)),
     syncMetadata: getSyncMetadata(),
     onSaveSettings: async (nextSettings) => {
@@ -2172,6 +3078,9 @@ function renderSettingsPanel() {
       });
       saveRepoSettings(normalizedSettings, state.runtimeConfig?.auth?.settingsStorageKey);
       switchRepoContext(normalizedSettings);
+      const nextFabSide = nextSettings.fabSide === 'left' ? 'left' : 'right';
+      saveFabSidePreference(nextFabSide);
+      state.fabSide = nextFabSide;
       state.showSettings = false;
       const token = getToken(state.repoSettings.tokenStorageKey);
       if (!token) {
@@ -2217,6 +3126,7 @@ function renderSettingsPanel() {
       render();
     },
   });
+  renderCache.settingsKey = nextKey;
 }
 
 function renderMapsView(summaries) {
@@ -2244,7 +3154,6 @@ function renderMapsView(summaries) {
             ${summaries.map((summary) => renderMapCard(summary)).join('')}
           </div>
         `}
-      ${renderActiveModal()}
     </section>
   `;
 }
@@ -2264,28 +3173,53 @@ function renderMapCard(summary) {
         <div class="compact-title-block">
           <h3>${renderInlineHtml(summary.rootTitle, { theme: state.theme, wrapperClass: 'formatted-inline card-title-inline' })}</h3>
           <p class="map-file-name">${escapeHtml(summary.fileName)}</p>
-          <p class="compact-meta">${escapeHtml(buildMapSummaryLine(summary))}</p>
+          <p class="compact-meta">${renderMapTaskCounts(summary)}</p>
         </div>
       </div>
       <div class="compact-row-actions">
         <p class="map-updated">Updated ${escapeHtml(formatRelativeTime(summary.updatedAt))}</p>
       </div>
+      <div class="card-menu">${renderMapCardMenu(summary)}</div>
     </article>
   `;
 }
 
-function buildMapSummaryLine(summary) {
+function renderMapCardMenu(summary) {
+  return `
+    <button
+      type="button"
+      class="ghost-button compact-button card-menu-trigger"
+      data-action="toggle-card-menu"
+      data-map-path="${escapeHtml(summary.filePath)}"
+      aria-label="Map options"
+      aria-expanded="${state.openCardMenu === summary.filePath}"
+    >&#x22EE;</button>
+    ${state.openCardMenu === summary.filePath ? `
+      <div class="card-menu-dropdown" role="menu">
+        <button
+          type="button"
+          class="card-menu-item mini-action--destructive"
+          role="menuitem"
+          data-action="open-delete-map-modal"
+          data-map-path="${escapeHtml(summary.filePath)}"
+        >Delete</button>
+      </div>
+    ` : ''}
+  `;
+}
+
+function renderMapTaskCounts(summary) {
+  const { open, todo, doing, done } = summary.taskCounts;
   const parts = [
-    `Open ${summary.taskCounts.open}`,
-    `Todo ${summary.taskCounts.todo}`,
-    `Doing ${summary.taskCounts.doing}`,
-    `Done ${summary.taskCounts.done}`,
+    `<span class="task-tone-open">${open}</span>`,
+    `<span class="task-tone-todo">${todo}</span>`,
+    `<span class="task-tone-doing">${doing}</span>`,
+    `<span class="task-tone-done">${done}</span>`,
   ];
   const pendingCount = getPendingCountForMap(summary.filePath);
   if (pendingCount > 0) {
     parts.push(`Pending ${pendingCount}`);
   }
-
   return parts.join(' · ');
 }
 
@@ -2354,7 +3288,23 @@ function renderMapView() {
           : ''}
       </article>
 
-      ${renderActiveModal()}
+      <button
+        type="button"
+        class="add-note-fab add-note-fab--${state.fabSide}"
+        data-action="open-modal"
+        data-modal-kind="addChildNote"
+        data-map-path="${escapeHtml(snapshot.filePath)}"
+        data-node-id="${escapeHtml(selectedNodeState.node.uniqueIdentifier)}"
+        data-focus-key="add-note-fab"
+        aria-label="Add note"
+        title="Add note"
+        ${selectedNodeState.canEditNode ? '' : 'disabled'}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <line x1="12" y1="5" x2="12" y2="19"/>
+          <line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+      </button>
     </section>
   `;
 }
@@ -2406,69 +3356,35 @@ function renderTreeNode(snapshot, node, depth, selectedNodeState) {
 function renderSelectedNodeActions(snapshot, nodeUiState) {
   const nodeId = nodeUiState.node.uniqueIdentifier;
   const mapPath = snapshot.filePath;
-  const actionDisabled = nodeUiState.canEditNode ? '' : 'disabled';
   const taskDisabled = nodeUiState.canChangeTaskState ? '' : 'disabled';
-  const canDelete = nodeUiState.canChangeTaskState;
   const isTask = nodeUiState.node.taskState !== TASK_STATE.NONE;
+  const isClipboardImage = isClipboardImageNode(nodeUiState.node);
   const badgesMarkup = nodeUiState.badges.length > 0
     ? `<div class="selected-node-meta">${renderBadgeMarkup(nodeUiState.badges)}</div>`
     : '';
   const hintMarkup = renderSelectedNodeHint(nodeUiState);
+  const attachments = isClipboardImage ? [] : getNodeAttachments(nodeUiState.node);
+  const attachmentsMarkup = attachments.length > 0
+    ? `<div class="attachment-list">${attachments.map((att) => `
+        <button
+          type="button"
+          class="attachment-item"
+          data-action="open-attachment"
+          data-map-path="${escapeHtml(mapPath)}"
+          data-node-id="${escapeHtml(nodeId)}"
+          data-attachment-id="${escapeHtml(att.id)}"
+          title="${escapeHtml(att.displayName || att.relativePath)}"
+        >${escapeHtml(att.displayName || att.relativePath)}</button>
+      `).join('')}</div>`
+    : '';
+
+  if (!isTask && !badgesMarkup && !hintMarkup && !attachmentsMarkup) {
+    return '';
+  }
 
   return `
     <div class="selected-node-actions">
       <div class="selected-node-toolbar">
-        <button
-          type="button"
-          class="mini-action mini-action-icon"
-          data-action="open-modal"
-          data-modal-kind="editNode"
-          data-map-path="${escapeHtml(mapPath)}"
-          data-node-id="${escapeHtml(nodeId)}"
-          data-focus-key="${escapeHtml(buildModalTriggerKey('editNode', mapPath, nodeId))}"
-          aria-label="Edit"
-          title="Edit"
-          ${actionDisabled}
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-          </svg>
-        </button>
-        <button
-          type="button"
-          class="mini-action mini-action-icon"
-          data-action="open-modal"
-          data-modal-kind="addChildNote"
-          data-map-path="${escapeHtml(mapPath)}"
-          data-node-id="${escapeHtml(nodeId)}"
-          data-focus-key="${escapeHtml(buildModalTriggerKey('addChildNote', mapPath, nodeId))}"
-          aria-label="Add note"
-          title="Add note"
-          ${actionDisabled}
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <line x1="12" y1="5" x2="12" y2="19"/>
-            <line x1="5" y1="12" x2="19" y2="12"/>
-          </svg>
-        </button>
-        <button
-          type="button"
-          class="mini-action mini-action-icon mini-action-icon--task"
-          data-action="open-modal"
-          data-modal-kind="addChildTask"
-          data-map-path="${escapeHtml(mapPath)}"
-          data-node-id="${escapeHtml(nodeId)}"
-          data-focus-key="${escapeHtml(buildModalTriggerKey('addChildTask', mapPath, nodeId))}"
-          aria-label="Add task"
-          title="Add task"
-          ${actionDisabled}
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <line x1="12" y1="5" x2="12" y2="19"/>
-            <line x1="5" y1="12" x2="19" y2="12"/>
-          </svg>
-        </button>
         ${isTask ? `
           <div class="task-dot-group" role="group" aria-label="Task state">
             ${renderTaskStateDotButton('Clear task state', TASK_STATE.NONE, nodeUiState, taskDisabled)}
@@ -2477,29 +3393,9 @@ function renderSelectedNodeActions(snapshot, nodeUiState) {
             ${renderTaskStateDotButton('Set Done', TASK_STATE.DONE, nodeUiState, taskDisabled)}
           </div>
         ` : ''}
-        ${canDelete
-          ? `<button
-              type="button"
-              class="mini-action mini-action-icon mini-action-icon--destructive"
-              data-action="open-modal"
-              data-modal-kind="deleteNode"
-              data-map-path="${escapeHtml(mapPath)}"
-              data-node-id="${escapeHtml(nodeId)}"
-              data-focus-key="${escapeHtml(buildModalTriggerKey('deleteNode', mapPath, nodeId))}"
-              aria-label="Remove"
-              title="Remove"
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <polyline points="3 6 5 6 21 6"/>
-                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-                <path d="M10 11v6"/>
-                <path d="M14 11v6"/>
-                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
-              </svg>
-            </button>`
-          : ''}
       </div>
       ${badgesMarkup}
+      ${attachmentsMarkup}
       ${hintMarkup}
     </div>
   `;
@@ -2582,6 +3478,14 @@ function renderActiveModal() {
     return renderCreateMapModal();
   }
 
+  if (state.activeModal.kind === 'deleteMap') {
+    return renderDeleteMapModal();
+  }
+
+  if (state.activeModal.kind === 'imageViewer') {
+    return renderImageViewerModal();
+  }
+
   const modalContext = getActiveModalContext(state.activeModal.kind);
   if (!modalContext) {
     return '';
@@ -2611,7 +3515,7 @@ function renderActiveModal() {
       ? 'add-task-form'
       : 'add-note-form';
   const actionLabel = isEditModal
-    ? 'Save text'
+    ? 'Save'
     : isAddTaskModal
       ? 'Add task'
       : 'Add note';
@@ -2652,14 +3556,16 @@ function renderActiveModal() {
     <div class="modal-layer">
       <button type="button" class="modal-backdrop" data-action="close-modal" aria-label="Close dialog"></button>
       <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="map-modal-title">
+        ${isEditModal ? '' : `
         <div class="modal-header">
           <div>
-            <p class="eyebrow">${isEditModal ? 'Edit' : 'Add child'}</p>
+            <p class="eyebrow">Add child</p>
             <h3 id="map-modal-title">${escapeHtml(title)}</h3>
             <p class="node-path">${renderInlinePath(nodeUiState.pathSegments, 'formatted-path node-path-inline')}</p>
           </div>
           <button type="button" class="ghost-button compact-button" data-action="close-modal">Close</button>
         </div>
+        `}
 
         ${state.activeModal.errorMessage
           ? `<p class="form-error" role="alert">${escapeHtml(state.activeModal.errorMessage)}</p>`
@@ -2667,9 +3573,20 @@ function renderActiveModal() {
 
         <form id="${formId}" class="stack-form modal-form">
           ${inputMarkup}
-          <p class="security-note">${escapeHtml(description)}</p>
+          ${isEditModal ? '' : `<p class="security-note">${escapeHtml(description)}</p>`}
           <div class="form-actions">
             <button type="button" class="secondary-button" data-action="close-modal">Cancel</button>
+            ${isEditModal && nodeUiState.canChangeTaskState ? `
+            <button
+              type="button"
+              class="danger-button"
+              data-action="open-modal"
+              data-modal-kind="deleteNode"
+              data-map-path="${escapeHtml(state.activeModal.mapPath)}"
+              data-node-id="${escapeHtml(nodeUiState.node.uniqueIdentifier)}"
+              data-focus-key="${escapeHtml(buildModalTriggerKey('deleteNode', state.activeModal.mapPath, nodeUiState.node.uniqueIdentifier))}"
+            >Delete</button>
+            ` : ''}
             <button type="submit">${escapeHtml(actionLabel)}</button>
           </div>
         </form>
@@ -2760,8 +3677,80 @@ function renderDeleteNodeModal(nodeUiState) {
   `;
 }
 
-function renderTasksView() {
-  const entries = buildTaskEntriesForView(state.taskFilter);
+function renderDeleteMapModal() {
+  const filePath = state.activeModal.mapPath;
+  const snapshot = state.mapsByPath[filePath];
+  const mapName = snapshot?.mapName || filePath;
+
+  return `
+    <div class="modal-layer">
+      <button type="button" class="modal-backdrop" data-action="close-modal" aria-label="Close dialog"></button>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="map-modal-title">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Delete map</p>
+            <h3 id="map-modal-title">${escapeHtml(mapName)}</h3>
+          </div>
+          <button type="button" class="ghost-button compact-button" data-action="close-modal">Close</button>
+        </div>
+
+        ${state.activeModal.errorMessage
+          ? `<p class="form-error" role="alert">${escapeHtml(state.activeModal.errorMessage)}</p>`
+          : ''}
+
+        <p class="security-note">This will permanently delete the map file from GitHub. This cannot be undone.</p>
+        <div class="form-actions">
+          <button type="button" class="secondary-button" data-action="close-modal" data-modal-autofocus="true">Cancel</button>
+          <button
+            type="button"
+            class="danger-button"
+            data-action="confirm-delete-map"
+          >Delete</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderImageViewerModal() {
+  const { displayName, imageUrl, loading, errorMessage, zoom } = state.activeModal;
+  const zoomPercent = Math.round(zoom * 100);
+
+  const bodyContent = loading
+    ? '<div class="image-viewer-loading shimmer"></div>'
+    : errorMessage
+      ? `<p class="form-error" role="alert">${escapeHtml(errorMessage)}</p>`
+      : `<img
+          class="image-viewer-img"
+          src="${escapeHtml(imageUrl)}"
+          alt="${escapeHtml(displayName)}"
+          style="transform: scale(${zoom}) translate(${state.activeModal.panX}px, ${state.activeModal.panY}px)"
+          draggable="false"
+        />`;
+
+  return `
+    <div class="modal-layer">
+      <button type="button" class="modal-backdrop" data-action="close-modal" aria-label="Close dialog"></button>
+      <div class="modal-card image-viewer-card" role="dialog" aria-modal="true" aria-labelledby="viewer-title">
+        <div class="image-viewer-header">
+          <div class="image-viewer-controls">
+            <button type="button" class="ghost-button compact-button" data-action="viewer-zoom-out" ${zoom <= 0.25 ? 'disabled' : ''} aria-label="Zoom out">&minus;</button>
+            <span class="image-viewer-zoom-label">${zoomPercent}%</span>
+            <button type="button" class="ghost-button compact-button" data-action="viewer-zoom-in" ${zoom >= 5 ? 'disabled' : ''} aria-label="Zoom in">&plus;</button>
+            <button type="button" class="ghost-button compact-button" data-action="viewer-download" ${!imageUrl ? 'disabled' : ''} aria-label="Download">Download</button>
+            <button type="button" class="ghost-button compact-button" data-action="close-modal">Close</button>
+          </div>
+        </div>
+        <div class="image-viewer-body${zoom > 1 ? ' zoomable' : ''}">
+          ${bodyContent}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderTasksView(entries = null) {
+  const resolvedEntries = Array.isArray(entries) ? entries : buildTaskEntriesForView(state.taskFilter);
   const filterButtons = [
     ['open', 'Open', 'open'],
     ['todo', 'Todo', 'todo'],
@@ -2784,7 +3773,7 @@ function renderTasksView() {
           </button>
         `).join('')}
       </div>
-      ${entries.length === 0
+      ${resolvedEntries.length === 0
         ? `
           <article class="card empty-card">
             <p>No task nodes matched the current filter.</p>
@@ -2792,7 +3781,7 @@ function renderTasksView() {
         `
         : `
           <div class="compact-list task-entry-list">
-            ${entries.map((entry) => `
+            ${resolvedEntries.map((entry) => `
               <article
                 class="card compact-row task-row clickable-card"
                 role="button"
