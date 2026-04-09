@@ -1065,13 +1065,19 @@ async function loadWorkspace(forceRefresh) {
 
   const loaded = await state.service.listMaps(forceRefresh);
   if (!loaded.ok) {
-    handleSyncFailure(loaded.error, 'Could not load mind maps from GitHub.');
-    render();
-    return;
+    // A NOT_FOUND from listDirectory means the maps folder doesn't exist on GitHub
+    // (e.g. all files were deleted and Git removed the empty directory).
+    // Since authentication already confirmed the repo and branch are valid, treat
+    // this as an empty workspace rather than a misconfiguration.
+    if (loaded.error?.cause?.code !== 'NOT_FOUND') {
+      handleSyncFailure(loaded.error, 'Could not load mind maps from GitHub.');
+      render();
+      return;
+    }
   }
 
-  const readableSnapshots = loaded.value.snapshots;
-  state.unreadableMaps = loaded.value.unreadableMaps;
+  const readableSnapshots = loaded.ok ? loaded.value.snapshots : [];
+  state.unreadableMaps = loaded.ok ? loaded.value.unreadableMaps : [];
   state.blockedPendingMaps = [];
   const hydratedSnapshots = applyPendingOperationsLocally(readableSnapshots, state.pendingOperations);
   state.service.hydrateSnapshots(readableSnapshots);
@@ -1201,7 +1207,7 @@ async function processPendingOperations() {
         return;
       }
 
-      if (result.error?.code === 'NOT_FOUND') {
+      if (result.error?.code === 'NOT_FOUND' || result.error?.cause?.code === 'NOT_FOUND') {
         upsertBlockedPendingMap(buildBlockedPendingMapEntry(currentOperation.filePath));
         state.syncState = buildBlockedPendingMapSyncState(currentOperation.filePath);
         focusRepairEntry(currentOperation.filePath, true);
@@ -2029,6 +2035,30 @@ async function resetLocalMapToRemote(filePath) {
       upsertUnreadableMap(loaded.error);
       state.syncState = buildPausedUnreadableMapSyncState(loaded.error);
       focusRepairEntry(filePath, true);
+      render();
+      return;
+    }
+
+    if (loaded.error?.cause?.code === 'NOT_FOUND') {
+      // File was deleted on GitHub — discard all local state for it
+      state.pendingOperations = state.pendingOperations.filter((op) => op.filePath !== filePath);
+      clearUnreadableMap(filePath);
+      clearBlockedPendingMap(filePath);
+      state.service.removeCachedSnapshot(filePath);
+      setSnapshots(getSnapshots().filter((s) => s.filePath !== filePath));
+      navigateToMapsRoute();
+      state.syncState = {
+        kind: 'success',
+        tone: 'success',
+        message: `"${mapName}" was deleted from GitHub.`,
+        detail: discardedCount > 0
+          ? `${discardedCount} queued local change${discardedCount === 1 ? '' : 's'} were discarded.`
+          : 'Local state has been cleared.',
+        canRetry: false,
+      };
+      if (state.pendingOperations.length > 0) {
+        void processPendingOperations();
+      }
       render();
       return;
     }
