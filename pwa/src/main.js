@@ -3873,6 +3873,17 @@ function renderSettingsPanel() {
       state.showSettings = false;
       void authenticateAndLoad();
     },
+    onHardReset: () => {
+      savePendingMapOperations(state.repoScope, []);
+      saveCachedMapSnapshots(state.repoScope, []);
+      state.pendingOperations = [];
+      state.blockedPendingMaps = [];
+      state.unreadableMaps = [];
+      state.service?.hydrateSnapshots([]);
+      setSnapshots([]);
+      state.showSettings = false;
+      void authenticateAndLoad();
+    },
     onClose: () => {
       state.pendingFocusRequest = {
         type: 'focusKey',

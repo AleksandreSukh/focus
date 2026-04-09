@@ -4,6 +4,7 @@ import { getSyncMetadata } from "../gitProvider/syncMetadata";
 export interface SettingsScreenProps {
   mountNode: HTMLElement;
   onSessionRevoked?: () => void;
+  onHardReset?: () => void;
 }
 
 export const renderSettingsScreen = ({

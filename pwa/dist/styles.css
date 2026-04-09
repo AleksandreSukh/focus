@@ -1607,6 +1607,20 @@ h3 {
   color: var(--muted);
 }
 
+/* ── Danger Zone ── */
+
+.danger-zone-section {
+  margin-top: 1.25rem;
+  padding: 0.9rem;
+  border: 1px solid rgba(248, 113, 113, 0.25);
+  border-radius: 0.9rem;
+}
+
+.danger-zone-section h3 {
+  color: var(--danger);
+  margin: 0 0 0.5rem;
+}
+
 /* ── Security & Install Fallback ── */
 
 .security-panel {

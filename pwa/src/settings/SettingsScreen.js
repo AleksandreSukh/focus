@@ -25,6 +25,7 @@ export function renderSettingsScreen({
   onSaveSettings,
   onClearToken,
   onRevalidate,
+  onHardReset,
   onClose,
 }) {
   mountNode.innerHTML = `
@@ -97,6 +98,18 @@ export function renderSettingsScreen({
             </p>
           </div>
         </section>
+        <section aria-label="Danger zone" class="danger-zone-section">
+          <h3>Danger zone</h3>
+          <p class="card-copy">
+            Hard reset discards all queued local changes and cached map data for this repository, then reloads everything from GitHub.
+            Use this as a last resort if a conflict or error cannot be resolved any other way.
+          </p>
+          <div class="form-actions">
+            <button id="hard-reset" type="button" class="danger-button">
+              Hard reset — discard local changes and reload from GitHub
+            </button>
+          </div>
+        </section>
       </section>
     </div>
   `;
@@ -104,6 +117,7 @@ export function renderSettingsScreen({
   const settingsForm = mountNode.querySelector('#settings-form');
   const clearTokenButton = mountNode.querySelector('#clear-token');
   const revalidateButton = mountNode.querySelector('#revalidate-connection');
+  const hardResetButton = mountNode.querySelector('#hard-reset');
   const closeButton = mountNode.querySelector('#close-settings');
   const backdropButton = mountNode.querySelector('#settings-backdrop');
 
@@ -142,6 +156,12 @@ export function renderSettingsScreen({
   if (revalidateButton) {
     revalidateButton.addEventListener('click', () => {
       onRevalidate?.();
+    });
+  }
+
+  if (hardResetButton) {
+    hardResetButton.addEventListener('click', () => {
+      onHardReset?.();
     });
   }
 }
