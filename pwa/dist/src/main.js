@@ -40,8 +40,11 @@ import {
   getNodeUiState,
   isClipboardImageNode,
   NODE_TYPE,
+  normalizeMindMapDocument,
   normalizeNodeDisplayText,
   nowIso,
+  parseMindMapDocument,
+  serializeMindMapDocument,
   TASK_STATE,
 } from './maps/model.js';
 import { renderInlineHtml } from './formatting/inlineFormatter.js';
@@ -515,6 +518,10 @@ async function handleDocumentSubmit(event) {
       event.preventDefault();
       await handleCreateMapSubmit(form);
       return;
+    case 'repair-map-form':
+      event.preventDefault();
+      await handleRepairMapSubmit(form);
+      return;
     default:
       return;
   }
@@ -606,11 +613,20 @@ function handleDocumentClick(event) {
     case 'download-unreadable-map':
       downloadUnreadableMap(clickableElement.dataset.mapPath || '');
       return;
+    case 'open-local-map-repair':
+      openLocalMapRepairModal(clickableElement.dataset.mapPath || '');
+      return;
+    case 'reset-local-map-to-remote':
+      void resetLocalMapToRemote(clickableElement.dataset.mapPath || '');
+      return;
     case 'retry-unreadable-map':
       void retryUnreadableMap(clickableElement.dataset.mapPath || '');
       return;
     case 'discard-pending-map-operations':
       handleDiscardPendingMapOperations(clickableElement.dataset.mapPath || '');
+      return;
+    case 'download-repair-map-draft':
+      downloadRepairMapDraft();
       return;
     case 'open-map':
       openMap(clickableElement.dataset.mapPath || '');
@@ -754,7 +770,7 @@ function handleDocumentInput(event) {
 
   if (
     state.activeModal &&
-    ['edit-node-form', 'add-note-form', 'add-note-composer-form', 'add-task-form', 'create-map-form'].includes(form.id)
+    ['edit-node-form', 'add-note-form', 'add-note-composer-form', 'add-task-form', 'create-map-form', 'repair-map-form'].includes(form.id)
   ) {
     state.activeModal = {
       ...state.activeModal,
@@ -1199,11 +1215,9 @@ async function processPendingOperations() {
     }
 
     clearBlockedPendingMap(currentOperation.filePath);
-    replaceSnapshot(result.value.snapshot);
     state.pendingOperations = state.pendingOperations.slice(1);
     syncBlockedPendingMaps();
-    setSnapshots(applyPendingOperationsLocally(getSnapshots(), state.pendingOperations));
-    persistRepoScopedState();
+    refreshVisibleSnapshotsFromServiceCache();
     state.syncState = {
       kind: 'success',
       tone: 'success',
@@ -1875,6 +1889,180 @@ function downloadUnreadableMap(filePath) {
   }, 0);
 }
 
+function openLocalMapRepairModal(filePath) {
+  const draftText = buildLocalRepairDraft(filePath);
+  if (!draftText) {
+    state.syncState = {
+      kind: 'error',
+      tone: 'warning',
+      message: `No local map data is available to repair for "${getMapLabel(filePath)}".`,
+      detail: buildStatusDetail(),
+      canRetry: true,
+    };
+    render();
+    return;
+  }
+
+  state.activeModal = {
+    kind: 'repairMap',
+    mapPath: filePath,
+    nodeId: '',
+    draftText,
+    errorMessage: '',
+    returnFocusKey: buildRepairFocusKey(filePath),
+    displayName: getRepairFileName(filePath),
+  };
+  state.pendingFocusRequest = {
+    type: 'modalAutofocus',
+  };
+  render();
+}
+
+async function handleRepairMapSubmit(form) {
+  if (!state.activeModal || state.activeModal.kind !== 'repairMap' || !state.service) {
+    return;
+  }
+
+  const filePath = state.activeModal.mapPath || '';
+  const rawText = String(new FormData(form).get('mapJson') ?? '');
+  state.activeModal = {
+    ...state.activeModal,
+    draftText: rawText,
+    errorMessage: '',
+  };
+
+  if (!rawText.trim()) {
+    setActiveModalError('Map JSON cannot be empty.');
+    return;
+  }
+
+  let parsedDocument;
+  try {
+    parsedDocument = parseMindMapDocument(rawText);
+  } catch (error) {
+    setActiveModalError(error instanceof Error ? error.message : 'Map JSON could not be parsed.');
+    return;
+  }
+
+  if (!parsedDocument || typeof parsedDocument !== 'object' || Array.isArray(parsedDocument)) {
+    setActiveModalError('Map JSON must be an object.');
+    return;
+  }
+
+  if (
+    !Object.prototype.hasOwnProperty.call(parsedDocument, 'rootNode') &&
+    !Object.prototype.hasOwnProperty.call(parsedDocument, 'RootNode')
+  ) {
+    setActiveModalError('Map JSON must include a root node.');
+    return;
+  }
+
+  const repairedSnapshot = buildLocalRepairSnapshot(
+    filePath,
+    normalizeMindMapDocument(parsedDocument),
+  );
+  const pendingCount = getPendingCountForMap(filePath);
+
+  state.service.replaceCachedSnapshot(repairedSnapshot);
+  clearUnreadableMap(filePath);
+  clearBlockedPendingMap(filePath);
+  refreshVisibleSnapshotsFromServiceCache();
+  state.activeModal = null;
+
+  state.syncState = pendingCount > 0
+    ? {
+        kind: 'syncing',
+        tone: 'pending',
+        message: `Saved a local repair for "${repairedSnapshot.mapName}".`,
+        detail: `${pendingCount} queued change${pendingCount === 1 ? '' : 's'} for this map are ready to retry.`,
+        canRetry: false,
+      }
+    : {
+        kind: 'success',
+        tone: 'success',
+        message: `Saved a local repair for "${repairedSnapshot.mapName}" on this device.`,
+        detail: 'The repaired map is available locally and will sync the next time this map saves successfully.',
+        canRetry: false,
+      };
+
+  navigateToMapRoute(filePath, {
+    replace: true,
+    preferredNodeId: repairedSnapshot.document.rootNode?.uniqueIdentifier || '',
+  });
+
+  if (pendingCount > 0) {
+    void processPendingOperations();
+  }
+}
+
+function downloadRepairMapDraft() {
+  if (!state.activeModal || state.activeModal.kind !== 'repairMap') {
+    return;
+  }
+
+  const downloadUrl = createTextDownloadUrl(state.activeModal.draftText, 'application/json');
+  downloadUrlAsFile(downloadUrl, getRepairFileName(state.activeModal.mapPath || '') || 'map.json');
+  setTimeout(() => {
+    URL.revokeObjectURL(downloadUrl);
+  }, 0);
+}
+
+async function resetLocalMapToRemote(filePath) {
+  if (!filePath || !state.service) {
+    return;
+  }
+
+  const mapName = getMapLabel(filePath);
+  const discardedCount = getPendingCountForMap(filePath);
+  state.syncState = {
+    kind: 'loadingRemote',
+    tone: 'pending',
+    message: `Resetting "${mapName}" from GitHub...`,
+    detail: buildStatusDetail(),
+    canRetry: false,
+  };
+  render();
+
+  const loaded = await state.service.loadMap(filePath, true);
+  if (!loaded.ok) {
+    if (loaded.error?.code === 'UNREADABLE_MAP') {
+      upsertUnreadableMap(loaded.error);
+      state.syncState = buildPausedUnreadableMapSyncState(loaded.error);
+      focusRepairEntry(filePath, true);
+      render();
+      return;
+    }
+
+    handleSyncFailure(loaded.error, `Could not reset "${mapName}" from GitHub.`);
+    render();
+    return;
+  }
+
+  state.pendingOperations = state.pendingOperations.filter((operation) => operation.filePath !== filePath);
+  clearUnreadableMap(filePath);
+  clearBlockedPendingMap(filePath);
+  refreshVisibleSnapshotsFromServiceCache();
+
+  state.syncState = {
+    kind: 'success',
+    tone: 'success',
+    message: `Reset "${loaded.value.mapName}" to the GitHub version.`,
+    detail: discardedCount > 0
+      ? `${discardedCount} queued local change${discardedCount === 1 ? '' : 's'} for this map were discarded on this device.`
+      : buildStatusDetail(),
+    canRetry: false,
+  };
+
+  navigateToMapRoute(filePath, {
+    replace: true,
+    preferredNodeId: loaded.value.document.rootNode?.uniqueIdentifier || '',
+  });
+
+  if (state.pendingOperations.length > 0) {
+    void processPendingOperations();
+  }
+}
+
 async function retryUnreadableMap(filePath) {
   state.pendingRepairFocusPath = filePath;
   await loadWorkspace(true);
@@ -1896,8 +2084,7 @@ function handleDiscardPendingMapOperations(filePath) {
   state.pendingOperations = state.pendingOperations.filter((operation) => operation.filePath !== filePath);
   clearBlockedPendingMap(filePath);
   syncBlockedPendingMaps();
-  setSnapshots(applyPendingOperationsLocally(getSnapshots(), state.pendingOperations));
-  persistRepoScopedState();
+  refreshVisibleSnapshotsFromServiceCache();
   state.syncState = buildIdleWorkspaceSyncState();
   focusRepairEntry(filePath, true);
   render();
@@ -2541,7 +2728,11 @@ function setSnapshots(snapshots) {
 
   if (state.activeModal && state.activeModal.mapPath) {
     const modalSnapshot = nextByPath[state.activeModal.mapPath];
-    if (!modalSnapshot || !findNodeRecord(modalSnapshot.document, state.activeModal.nodeId)) {
+    if (
+      !modalSnapshot ||
+      (modalRequiresNodeRecord(state.activeModal.kind) &&
+        !findNodeRecord(modalSnapshot.document, state.activeModal.nodeId))
+    ) {
       state.activeModal = null;
     }
   }
@@ -3311,6 +3502,17 @@ function getWorkspaceOverlayState() {
     };
   }
 
+  if (state.activeModal.kind === 'repairMap') {
+    return {
+      kind: 'repairMap',
+      key: JSON.stringify({
+        kind: state.activeModal.kind,
+        mapPath: state.activeModal.mapPath || '',
+        displayName: state.activeModal.displayName || '',
+      }),
+    };
+  }
+
   if (state.activeModal.kind === 'addChildNote') {
     return {
       kind: 'addChildNote',
@@ -3380,6 +3582,48 @@ function updateRenderedAddChildNoteComposer() {
   feedback.innerHTML = state.activeModal.errorMessage
     ? `<p class="form-error note-composer-error" role="alert">${escapeHtml(state.activeModal.errorMessage)}</p>`
     : '';
+}
+
+function updateRenderedRepairMapModal() {
+  if (!(ui.workspaceOverlay instanceof HTMLElement) || state.activeModal?.kind !== 'repairMap') {
+    return;
+  }
+
+  const form = ui.workspaceOverlay.querySelector('#repair-map-form');
+  const textarea = ui.workspaceOverlay.querySelector('.repair-map-textarea');
+  if (!(form instanceof HTMLFormElement) || !(textarea instanceof HTMLTextAreaElement)) {
+    ui.workspaceOverlay.innerHTML = renderRepairMapModal();
+    return;
+  }
+
+  const nextValue = state.activeModal.draftText || '';
+  if (textarea.value !== nextValue) {
+    const isFocused = document.activeElement === textarea;
+    const selectionStart = textarea.selectionStart ?? nextValue.length;
+    const selectionEnd = textarea.selectionEnd ?? nextValue.length;
+    const scrollTop = textarea.scrollTop;
+    textarea.value = nextValue;
+    if (isFocused) {
+      const nextStart = Math.min(selectionStart, nextValue.length);
+      const nextEnd = Math.min(selectionEnd, nextValue.length);
+      textarea.setSelectionRange(nextStart, nextEnd);
+      textarea.scrollTop = scrollTop;
+    }
+  }
+
+  const errorNode = form.previousElementSibling;
+  const nextErrorMarkup = state.activeModal.errorMessage
+    ? `<p class="form-error" role="alert">${escapeHtml(state.activeModal.errorMessage)}</p>`
+    : '';
+  if (errorNode instanceof HTMLElement && errorNode.classList.contains('form-error')) {
+    if (nextErrorMarkup) {
+      errorNode.outerHTML = nextErrorMarkup;
+    } else {
+      errorNode.remove();
+    }
+  } else if (nextErrorMarkup) {
+    form.insertAdjacentHTML('beforebegin', nextErrorMarkup);
+  }
 }
 
 function updateRenderedImageViewerModal() {
@@ -3491,6 +3735,15 @@ function renderWorkspaceOverlay() {
     renderCache.workspaceOverlayKey === overlayState.key
   ) {
     updateRenderedImageViewerModal();
+    return;
+  }
+
+  if (
+    overlayState.kind === 'repairMap' &&
+    renderCache.workspaceOverlayKind === 'repairMap' &&
+    renderCache.workspaceOverlayKey === overlayState.key
+  ) {
+    updateRenderedRepairMapModal();
     return;
   }
 
@@ -3684,7 +3937,7 @@ function renderNeedsRepairSection() {
     <article class="card">
       <p class="eyebrow">Recovery</p>
       <h2>Needs repair</h2>
-      <p class="section-copy">Readable maps remain available. Repair these files outside the PWA, then retry.</p>
+      <p class="section-copy">Readable maps remain available. Repair a local copy on this device, reset it from GitHub, or retry after another fix.</p>
       <div class="compact-list map-list">
         ${unreadableCards}
         ${blockedPendingCards}
@@ -3708,6 +3961,8 @@ function renderUnreadableMapCard(item) {
       <div class="compact-row-actions">
         <p class="compact-meta">${pendingCount > 0 ? `Paused ${pendingCount} pending change${pendingCount === 1 ? '' : 's'}` : 'No queued local changes'}</p>
         <div class="form-actions">
+          <button type="button" class="secondary-button compact-button" data-action="open-local-map-repair" data-map-path="${escapeHtml(item.filePath)}">Repair locally</button>
+          <button type="button" class="secondary-button compact-button" data-action="reset-local-map-to-remote" data-map-path="${escapeHtml(item.filePath)}">Reset to GitHub</button>
           <button type="button" class="secondary-button compact-button" data-action="view-unreadable-map" data-map-path="${escapeHtml(item.filePath)}">View raw file</button>
           <button type="button" class="secondary-button compact-button" data-action="download-unreadable-map" data-map-path="${escapeHtml(item.filePath)}">Download raw file</button>
           <button type="button" class="secondary-button compact-button" data-action="retry-unreadable-map" data-map-path="${escapeHtml(item.filePath)}">Retry</button>
@@ -3731,6 +3986,8 @@ function renderBlockedPendingMapCard(item) {
       <div class="compact-row-actions">
         <p class="compact-meta">Paused ${pendingCount} pending change${pendingCount === 1 ? '' : 's'}</p>
         <div class="form-actions">
+          <button type="button" class="secondary-button compact-button" data-action="open-local-map-repair" data-map-path="${escapeHtml(item.filePath)}">Repair locally</button>
+          <button type="button" class="secondary-button compact-button" data-action="reset-local-map-to-remote" data-map-path="${escapeHtml(item.filePath)}">Reset to GitHub</button>
           <button type="button" class="secondary-button compact-button" data-action="retry-unreadable-map" data-map-path="${escapeHtml(item.filePath)}">Retry</button>
           <button type="button" class="secondary-button compact-button" data-action="discard-pending-map-operations" data-map-path="${escapeHtml(item.filePath)}">Discard queued changes</button>
         </div>
@@ -4049,6 +4306,10 @@ function buildModalTriggerKey(kind, mapPath, nodeId) {
   return `modal|${kind}|${mapPath}|${nodeId}`;
 }
 
+function modalRequiresNodeRecord(kind) {
+  return !['deleteMap', 'imageViewer', 'textViewer', 'repairMap', 'resolveConflict'].includes(kind);
+}
+
 function renderActiveModal() {
   if (!state.activeModal) {
     return '';
@@ -4068,6 +4329,10 @@ function renderActiveModal() {
 
   if (state.activeModal.kind === 'textViewer') {
     return renderTextViewerModal();
+  }
+
+  if (state.activeModal.kind === 'repairMap') {
+    return renderRepairMapModal();
   }
 
   if (state.activeModal.kind === 'addChildNote') {
@@ -4394,6 +4659,59 @@ function renderTextViewerModal() {
   `;
 }
 
+function renderRepairMapModal() {
+  const filePath = state.activeModal.mapPath || '';
+  const mapName = getMapLabel(filePath);
+  const pendingCount = getPendingCountForMap(filePath);
+  const unreadableMap = getUnreadableMapByPath(filePath);
+  const helperCopy = unreadableMap
+    ? `${describeUnreadableMapReason(unreadableMap.reason)} in ${getRepairFileName(filePath)}. Save a repaired local copy to unblock this device.`
+    : pendingCount > 0
+      ? `${pendingCount} queued change${pendingCount === 1 ? '' : 's'} for this map will stay queued and replay after you save a repaired local copy.`
+      : 'Save a repaired local copy on this device. The repair will sync the next time this map saves successfully.';
+
+  return `
+    <div class="modal-layer">
+      <button type="button" class="modal-backdrop" data-action="close-modal" aria-label="Close dialog"></button>
+      <div class="modal-card image-viewer-card text-viewer-card repair-map-card" role="dialog" aria-modal="true" aria-labelledby="repair-map-title">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Local repair</p>
+            <h3 id="repair-map-title">${escapeHtml(mapName)}</h3>
+            <p class="node-path"><code>${escapeHtml(filePath)}</code></p>
+          </div>
+          <button type="button" class="ghost-button compact-button" data-action="close-modal">Close</button>
+        </div>
+
+        ${state.activeModal.errorMessage
+          ? `<p class="form-error" role="alert">${escapeHtml(state.activeModal.errorMessage)}</p>`
+          : ''}
+
+        <form id="repair-map-form" class="stack-form modal-form repair-map-form">
+          <p class="section-copy">${escapeHtml(helperCopy)}</p>
+          <label>
+            <span>Map JSON</span>
+            <textarea
+              class="repair-map-textarea"
+              name="mapJson"
+              rows="18"
+              spellcheck="false"
+              autocapitalize="off"
+              autocorrect="off"
+              data-modal-autofocus="true"
+            >${escapeHtml(state.activeModal.draftText)}</textarea>
+          </label>
+          <div class="form-actions">
+            <button type="button" class="secondary-button" data-action="download-repair-map-draft">Download</button>
+            <button type="button" class="secondary-button" data-action="close-modal">Cancel</button>
+            <button type="submit">Save local copy</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+}
+
 function renderTasksView(entries = null) {
   const resolvedEntries = Array.isArray(entries) ? entries : buildTaskEntriesForView(state.taskFilter);
   const filterButtons = [
@@ -4648,6 +4966,35 @@ function hasRepairEntryForFilePath(filePath) {
   return Boolean(getUnreadableMapByPath(filePath) || getBlockedPendingMapByPath(filePath));
 }
 
+function getRepairFileName(filePath) {
+  return getUnreadableMapByPath(filePath)?.fileName
+    || getBlockedPendingMapByPath(filePath)?.fileName
+    || state.service?.getCachedSnapshot(filePath)?.fileName
+    || state.mapsByPath[filePath]?.fileName
+    || filePath.split('/').pop()
+    || 'map.json';
+}
+
+function getBaselineSnapshotForRepair(filePath) {
+  return state.service?.getCachedSnapshot(filePath)
+    || state.mapsByPath[filePath]
+    || null;
+}
+
+function buildLocalRepairDraft(filePath) {
+  const unreadableMap = getUnreadableMapByPath(filePath);
+  if (typeof unreadableMap?.rawText === 'string' && unreadableMap.rawText) {
+    return unreadableMap.rawText;
+  }
+
+  const snapshot = getBaselineSnapshotForRepair(filePath);
+  if (snapshot?.document) {
+    return serializeMindMapDocument(snapshot.document);
+  }
+
+  return '';
+}
+
 function upsertUnreadableMap(error) {
   const filePath = error.filePath || '';
   if (!filePath) {
@@ -4669,6 +5016,14 @@ function upsertUnreadableMap(error) {
     nextItem,
   ].sort(compareRepairItemsByFileName);
   clearBlockedPendingMap(filePath);
+}
+
+function clearUnreadableMap(filePath) {
+  if (!filePath) {
+    return;
+  }
+
+  state.unreadableMaps = state.unreadableMaps.filter((item) => item.filePath !== filePath);
 }
 
 function upsertBlockedPendingMap(item) {
@@ -4694,6 +5049,38 @@ function syncBlockedPendingMaps() {
   state.blockedPendingMaps = state.blockedPendingMaps.filter((item) => getPendingCountForMap(item.filePath) > 0);
 }
 
+function buildLocalRepairSnapshot(filePath, document) {
+  const unreadableMap = getUnreadableMapByPath(filePath);
+  const blockedPendingMap = getBlockedPendingMapByPath(filePath);
+  const baselineSnapshot = getBaselineSnapshotForRepair(filePath);
+  const fileName = getRepairFileName(filePath);
+  const mapName = unreadableMap?.mapName
+    || blockedPendingMap?.mapName
+    || baselineSnapshot?.mapName
+    || fileName.replace(/\.json$/i, '');
+
+  return {
+    filePath,
+    fileName,
+    mapName,
+    document,
+    revision: baselineSnapshot?.revision || unreadableMap?.revision || '',
+    loadedAt: Date.now(),
+  };
+}
+
+function refreshVisibleSnapshotsFromServiceCache() {
+  if (!state.service) {
+    persistRepoScopedState();
+    return;
+  }
+
+  const baseSnapshots = state.service.getCachedSnapshots();
+  const hydratedSnapshots = applyPendingOperationsLocally(baseSnapshots, state.pendingOperations);
+  setSnapshots(hydratedSnapshots);
+  persistRepoScopedState();
+}
+
 function buildBlockedPendingMapEntry(filePath) {
   const fileName = filePath.split('/').pop() || filePath;
   const mapName = getMapLabel(filePath);
@@ -4716,7 +5103,7 @@ function buildWorkspaceLoadSyncState() {
       kind: 'error',
       tone: 'warning',
       message: `${state.unreadableMaps.length} map${state.unreadableMaps.length === 1 ? '' : 's'} need repair.`,
-      detail: `${describeUnreadableMapReason(firstUnreadable.reason)} in ${firstUnreadable.fileName}. Repair the file outside the PWA and retry.`,
+      detail: `${describeUnreadableMapReason(firstUnreadable.reason)} in ${firstUnreadable.fileName}. Repair locally, reset this device to GitHub, or retry after fixing the file elsewhere.`,
       canRetry: true,
     };
   }
@@ -4757,7 +5144,7 @@ function buildPausedUnreadableMapSyncState(unreadableMap) {
     message: pendingCount > 0
       ? `Repair "${mapName}" to resume queued changes.`
       : `Repair "${mapName}" to load it in the PWA.`,
-    detail: `${describeUnreadableMapReason(unreadableMap.reason)} in ${unreadableMap.fileName}. ${pendingCount > 0 ? `${pendingCount} pending change${pendingCount === 1 ? '' : 's'} are paused for this map.` : 'Retry after fixing the file outside the PWA.'}`,
+    detail: `${describeUnreadableMapReason(unreadableMap.reason)} in ${unreadableMap.fileName}. ${pendingCount > 0 ? `${pendingCount} pending change${pendingCount === 1 ? '' : 's'} are paused for this map until you repair locally, reset to GitHub, or discard them.` : 'Repair locally, reset this device to GitHub, or retry after fixing the file elsewhere.'}`,
     canRetry: true,
   };
 }
@@ -4770,7 +5157,7 @@ function buildBlockedPendingMapSyncState(filePath) {
     kind: 'error',
     tone: 'warning',
     message: `Queued changes for "${mapName}" need review.`,
-    detail: `${pendingCount} pending change${pendingCount === 1 ? '' : 's'} for ${mapName} can't be applied to the repaired remote map. Discard the queued changes for this map or retry after fixing the remote structure.`,
+    detail: `${pendingCount} pending change${pendingCount === 1 ? '' : 's'} for ${mapName} can't be applied to the repaired remote map. Repair locally, reset this device to GitHub, discard the queued changes, or retry after another external fix.`,
     canRetry: true,
   };
 }

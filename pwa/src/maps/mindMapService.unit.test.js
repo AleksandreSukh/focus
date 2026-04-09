@@ -296,3 +296,28 @@ describe('MindMapService.loadMap', () => {
     assert.equal(service.getCachedSnapshot(cachedSnapshot.filePath), null);
   });
 });
+
+describe('MindMapService cached snapshots', () => {
+  it('can replace and remove cached snapshots without rebuilding the whole cache', () => {
+    const service = new MindMapService(createRepository());
+    const originalSnapshot = createSnapshot({
+      fileName: 'repairable.json',
+      mapName: 'Repairable',
+      updatedAt: '2026-04-09T11:00:00Z',
+    });
+    const repairedSnapshot = {
+      ...originalSnapshot,
+      revision: 'rev-2',
+      loadedAt: 123,
+    };
+
+    service.hydrateSnapshots([originalSnapshot]);
+    service.replaceCachedSnapshot(repairedSnapshot);
+
+    assert.deepEqual(service.getCachedSnapshots(), [repairedSnapshot]);
+
+    service.removeCachedSnapshot(repairedSnapshot.filePath);
+
+    assert.deepEqual(service.getCachedSnapshots(), []);
+  });
+});

@@ -69,6 +69,26 @@ export class MindMapService {
     return this.snapshotsByPath.get(filePath) ?? null;
   }
 
+  getCachedSnapshots() {
+    return Array.from(this.snapshotsByPath.values());
+  }
+
+  replaceCachedSnapshot(snapshot) {
+    if (!snapshot?.filePath) {
+      return;
+    }
+
+    this.snapshotsByPath.set(snapshot.filePath, snapshot);
+  }
+
+  removeCachedSnapshot(filePath) {
+    if (!filePath) {
+      return;
+    }
+
+    this.snapshotsByPath.delete(filePath);
+  }
+
   hydrateSnapshots(snapshots) {
     this.snapshotsByPath.clear();
     snapshots.forEach((snapshot) => {
