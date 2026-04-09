@@ -2880,6 +2880,13 @@ function buildTasksViewKey(entries) {
   });
 }
 
+function buildMapSummariesForView() {
+  const snapshots = getSnapshots();
+  return state.service
+    ? state.service.buildSummaries(snapshots)
+    : snapshots.map((snapshot) => buildMapSummary(snapshot));
+}
+
 function buildMapViewKey(snapshot) {
   return JSON.stringify({
     mapPath: snapshot.filePath,
@@ -2904,7 +2911,7 @@ function renderMapsViewRegion() {
     return;
   }
 
-  const summaries = getSnapshots().map((snapshot) => buildMapSummary(snapshot));
+  const summaries = buildMapSummariesForView();
   const nextKey = buildMapsViewKey(summaries);
 
   if (renderCache.workspaceViewKind !== 'maps' || renderCache.workspaceViewKey !== nextKey) {
@@ -3561,7 +3568,7 @@ function renderMapView() {
     if (window.location.hash !== HASH_ROUTE.maps) {
       replaceHashRoute(HASH_ROUTE.maps);
     }
-    return renderMapsView(getSnapshots().map((item) => buildMapSummary(item)));
+    return renderMapsView(buildMapSummariesForView());
   }
 
   const selectedNodeState = getSelectedNodeUiState(snapshot);

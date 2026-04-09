@@ -86,6 +86,15 @@ export function buildMapSummary(snapshot) {
   };
 }
 
+export function compareMapSummariesByRecentUpdate(left, right) {
+  const timeDelta = parseTimestamp(right?.updatedAt) - parseTimestamp(left?.updatedAt);
+  if (timeDelta !== 0) {
+    return timeDelta;
+  }
+
+  return String(left?.fileName ?? '').localeCompare(String(right?.fileName ?? ''));
+}
+
 export function getTaskCounts(document) {
   const counts = {
     total: 0,
@@ -637,6 +646,11 @@ function normalizeTimestamp(value) {
   return Number.isNaN(parsed.getTime())
     ? nowIso()
     : formatIso(parsed);
+}
+
+function parseTimestamp(value) {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
 }
 
 function isValidTaskState(value) {

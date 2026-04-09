@@ -1,6 +1,7 @@
 import {
   applyMapMutation,
   buildMapSummary,
+  compareMapSummariesByRecentUpdate,
   cloneMapDocument,
   collectTaskEntries,
   createMapDocument,
@@ -67,7 +68,7 @@ export class MindMapService {
   buildSummaries(snapshots) {
     return snapshots
       .map((snapshot) => buildMapSummary(snapshot))
-      .sort((left, right) => left.fileName.localeCompare(right.fileName));
+      .sort(compareMapSummariesByRecentUpdate);
   }
 
   buildTaskEntries(filter = 'open', snapshots = Array.from(this.snapshotsByPath.values())) {

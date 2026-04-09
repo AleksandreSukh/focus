@@ -29,7 +29,10 @@ Copy-Item -LiteralPath (Join-Path $root 'icons\icon-maskable.svg') -Destination 
 
 $sourceRoot = Join-Path $root 'src'
 $sourceFiles = Get-ChildItem -Path $sourceRoot -Recurse -File -Include *.js |
-    Where-Object { $_.FullName -notmatch '\\src\\todos\\' }
+    Where-Object {
+        $_.FullName -notmatch '\\src\\todos\\' -and
+        $_.Name -notmatch '(\.(unit|integration))?\.test\.js$'
+    }
 foreach ($sourceFile in $sourceFiles) {
     $relativePath = $sourceFile.FullName.Substring($sourceRoot.Length).TrimStart('\')
     $targetPath = Join-Path $dist "src\$relativePath"
