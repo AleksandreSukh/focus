@@ -35,7 +35,11 @@ function Invoke-WindowsBuildAndPublish
 {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$Version
+        [string]$Version,
+        [Parameter(Mandatory = $true)]
+        [string]$DotnetExecutablePath,
+        [Parameter(Mandatory = $true)]
+        [string]$VpkExecutablePath
     )
 
     if ([string]::IsNullOrWhiteSpace($Version))
@@ -48,13 +52,13 @@ function Invoke-WindowsBuildAndPublish
     {
         Write-Host "Publishing Focus $Version for win-x64..."
 
-        & dotnet publish Systems.Sanity.Focus.csproj -c Release --self-contained -r win-x64 -o .\publish
+        & $DotnetExecutablePath publish Systems.Sanity.Focus.csproj -c Release --self-contained -r win-x64 -o .\publish
         if ($LASTEXITCODE)
         {
             throw "dotnet publish failed with exit code $LASTEXITCODE."
         }
 
-        & vpk pack -u Focus -v $Version -p .\publish -r win-x64 -e Systems.Sanity.Focus.exe --packTitle Focus
+        & $VpkExecutablePath pack -u Focus -v $Version -p .\publish -r win-x64 -e Systems.Sanity.Focus.exe --packTitle Focus
         if ($LASTEXITCODE)
         {
             throw "vpk pack failed with exit code $LASTEXITCODE."
@@ -609,14 +613,24 @@ function Invoke-ReleaseAndUpload
     }
 
     $remoteEndpoint = Resolve-FocusRemoteEndpoint -BaseUrl $RemoteBaseUrl
+    $credential = Get-FocusReleaseCredential -CredentialFilePath $CredentialPath -UpdateCredential:$UpdateCredential
+    $dotnetExecutablePath = $null
+    $vpkExecutablePath = $null
+    if (-not $SkipBuild)
+    {
+        $dotnetExecutablePath = Resolve-RequiredExecutablePath `
+            -CommandName "dotnet" `
+            -FailureMessage "dotnet is required for Windows release builds. Install the .NET SDK."
+        $vpkExecutablePath = Resolve-RequiredExecutablePath `
+            -CommandName "vpk" `
+            -FailureMessage "vpk is required for Windows release builds. Install the Velopack CLI."
+        Assert-VpkExecutableReady -ExecutablePath $vpkExecutablePath
+    }
     $winScpExecutablePath = Resolve-WinScpExecutablePath
-    $credential = $null
     $acceptNewHostKey = $remoteEndpoint.Scheme -eq "sftp" -and [string]::IsNullOrWhiteSpace($SshHostKeyFingerprint)
 
     if ($autoVersionRequested)
     {
-        $credential = Get-FocusReleaseCredential -CredentialFilePath $CredentialPath -UpdateCredential:$UpdateCredential
-
         if ($acceptNewHostKey)
         {
             Write-Host "SFTP host keys will be accepted automatically on first connection by WinSCP."
@@ -651,14 +665,13 @@ function Invoke-ReleaseAndUpload
     {
         if (-not $SkipBuild)
         {
-            Invoke-WindowsBuildAndPublish -Version $releaseVersion
+            Invoke-WindowsBuildAndPublish `
+                -Version $releaseVersion `
+                -DotnetExecutablePath $dotnetExecutablePath `
+                -VpkExecutablePath $vpkExecutablePath
         }
 
         $localReleaseFiles = Get-FocusLocalReleaseFiles -Platform Windows -ReleaseDirectoryPath (Get-FocusReleasesDirectoryPath)
-        if ($null -eq $credential)
-        {
-            $credential = Get-FocusReleaseCredential -CredentialFilePath $CredentialPath -UpdateCredential:$UpdateCredential
-        }
 
         if ($acceptNewHostKey -and -not $autoVersionRequested)
         {
@@ -713,25 +726,124 @@ function Invoke-ReleaseAndUpload
     }
 }
 
-if ($MyInvocation.InvocationName -ne '.')
+function Invoke-ProcessWithCapturedOutput
 {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ExecutablePath,
+        [string[]]$Arguments = @()
+    )
+
+    $standardOutputPath = Join-Path ([IO.Path]::GetTempPath()) ("focus-process-stdout-{0}.log" -f [Guid]::NewGuid().ToString("N"))
+    $standardErrorPath = Join-Path ([IO.Path]::GetTempPath()) ("focus-process-stderr-{0}.log" -f [Guid]::NewGuid().ToString("N"))
+
     try
     {
-        Invoke-ReleaseAndUpload `
-            -Version $Version `
-            -RemoteBaseUrl $RemoteBaseUrl `
-            -CredentialPath $CredentialPath `
-            -Increment $Increment `
-            -FtpsMode $FtpsMode `
-            -SshHostKeyFingerprint $SshHostKeyFingerprint `
-            -TlsHostCertificateFingerprint $TlsHostCertificateFingerprint `
-            -UpdateCredential:$UpdateCredential `
-            -SkipBuild:$SkipBuild `
-            -DryRun:$DryRun
+        $process = Start-Process `
+            -FilePath $ExecutablePath `
+            -ArgumentList $Arguments `
+            -Wait `
+            -NoNewWindow `
+            -PassThru `
+            -RedirectStandardOutput $standardOutputPath `
+            -RedirectStandardError $standardErrorPath
+
+        $standardOutput = if (Test-Path -LiteralPath $standardOutputPath -PathType Leaf)
+        {
+            Get-Content -LiteralPath $standardOutputPath -Raw
+        }
+        else
+        {
+            ""
+        }
+
+        $standardError = if (Test-Path -LiteralPath $standardErrorPath -PathType Leaf)
+        {
+            Get-Content -LiteralPath $standardErrorPath -Raw
+        }
+        else
+        {
+            ""
+        }
+
+        return [PSCustomObject]@{
+            ExitCode       = $process.ExitCode
+            StandardOutput = $standardOutput
+            StandardError  = $standardError
+        }
     }
-    catch
+    finally
     {
-        Write-Error $_
-        exit 1
+        foreach ($temporaryPath in @($standardOutputPath, $standardErrorPath))
+        {
+            if (Test-Path -LiteralPath $temporaryPath -PathType Leaf)
+            {
+                Remove-Item -LiteralPath $temporaryPath -Force
+            }
+        }
     }
+}
+
+function Get-ProcessFailureSummary
+{
+    param(
+        [AllowEmptyString()]
+        [string]$StandardOutput,
+        [AllowEmptyString()]
+        [string]$StandardError
+    )
+
+    return @($StandardError, $StandardOutput) |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        ForEach-Object { $_.Trim() } |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        Select-Object -Unique
+}
+
+function Assert-VpkExecutableReady
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ExecutablePath
+    )
+
+    $probeArguments = @("--help")
+    $result = Invoke-ProcessWithCapturedOutput -ExecutablePath $ExecutablePath -Arguments $probeArguments
+    if ($result.ExitCode -eq 0)
+    {
+        return
+    }
+
+    $summaryLines = @(Get-ProcessFailureSummary -StandardOutput $result.StandardOutput -StandardError $result.StandardError)
+    $summary = if ($summaryLines.Count -gt 0)
+    {
+        $summaryLines -join " | "
+    }
+    else
+    {
+        "No additional details were reported."
+    }
+
+    if ($summary -match 'You must install or update \.NET to run this application\.' -and $summary -match "Microsoft\.AspNetCore\.App', version '([^']+)'")
+    {
+        $requiredFrameworkVersion = $Matches[1]
+        throw "vpk is installed at '$ExecutablePath' but cannot start because the required ASP.NET Core runtime ($requiredFrameworkVersion) is missing. Install Microsoft.AspNetCore.App $requiredFrameworkVersion x64 or update the Velopack CLI, then retry. Details: $summary"
+    }
+
+    throw "vpk is installed at '$ExecutablePath' but '$($probeArguments -join ' ')' failed with exit code $($result.ExitCode). Details: $summary"
+}
+
+if ($MyInvocation.InvocationName -ne '.')
+{
+    Invoke-ReleaseAndUpload `
+        -Version $Version `
+        -RemoteBaseUrl $RemoteBaseUrl `
+        -CredentialPath $CredentialPath `
+        -Increment $Increment `
+        -FtpsMode $FtpsMode `
+        -SshHostKeyFingerprint $SshHostKeyFingerprint `
+        -TlsHostCertificateFingerprint $TlsHostCertificateFingerprint `
+        -UpdateCredential:$UpdateCredential `
+        -SkipBuild:$SkipBuild `
+        -DryRun:$DryRun
 }

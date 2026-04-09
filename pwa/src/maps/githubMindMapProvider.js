@@ -6,6 +6,12 @@ import {
   serializeMindMapDocument,
 } from './model.js';
 
+export const UNREADABLE_MAP_REASON = Object.freeze({
+  MERGE_CONFLICT: 'mergeConflict',
+  INVALID_JSON: 'invalidJson',
+  UNKNOWN: 'unknown',
+});
+
 export class GitHubMindMapProvider {
   constructor({ owner, repo, branch, token, directoryPath }) {
     this.directoryPath = String(directoryPath ?? '').replace(/^\/+|\/+$/g, '');
@@ -37,14 +43,26 @@ export class GitHubMindMapProvider {
     const snapshot = await this.gitProvider.getFile(filePath);
     const fileName = filePath.split('/').pop() || filePath;
     const mapName = fileName.replace(/\.json$/i, '');
-    return {
-      filePath,
-      fileName,
-      mapName,
-      document: normalizeMindMapDocument(parseMindMapDocument(snapshot.content)),
-      revision: snapshot.versionToken,
-      loadedAt: Date.now(),
-    };
+
+    try {
+      return {
+        filePath,
+        fileName,
+        mapName,
+        document: normalizeMindMapDocument(parseMindMapDocument(snapshot.content)),
+        revision: snapshot.versionToken,
+        loadedAt: Date.now(),
+      };
+    } catch (cause) {
+      throw createUnreadableMapError({
+        filePath,
+        fileName,
+        mapName,
+        revision: snapshot.versionToken,
+        rawText: snapshot.content,
+        cause,
+      });
+    }
   }
 
   async getAttachmentBlob(mapFilePath, relativePath, mediaType) {
@@ -101,4 +119,60 @@ export class GitHubMindMapProvider {
       throw error;
     }
   }
+}
+
+export function classifyUnreadableMapReason(rawText, cause) {
+  if (containsMergeConflictMarkers(rawText)) {
+    return UNREADABLE_MAP_REASON.MERGE_CONFLICT;
+  }
+
+  if (cause instanceof SyntaxError) {
+    return UNREADABLE_MAP_REASON.INVALID_JSON;
+  }
+
+  return UNREADABLE_MAP_REASON.UNKNOWN;
+}
+
+function createUnreadableMapError({
+  filePath,
+  fileName,
+  mapName,
+  revision,
+  rawText,
+  cause,
+}) {
+  const reason = classifyUnreadableMapReason(rawText, cause);
+  const error = new Error(buildUnreadableMapMessage(fileName, reason));
+  error.name = 'UnreadableMapError';
+  error.code = 'UNREADABLE_MAP';
+  error.reason = reason;
+  error.filePath = filePath;
+  error.fileName = fileName;
+  error.mapName = mapName;
+  error.revision = revision;
+  error.rawText = typeof rawText === 'string' ? rawText : '';
+  error.retriable = true;
+  error.cause = cause;
+  return error;
+}
+
+function buildUnreadableMapMessage(fileName, reason) {
+  switch (reason) {
+    case UNREADABLE_MAP_REASON.MERGE_CONFLICT:
+      return `Map "${fileName}" contains unresolved Git merge markers and cannot be loaded.`;
+    case UNREADABLE_MAP_REASON.INVALID_JSON:
+      return `Map "${fileName}" is not valid JSON and cannot be loaded.`;
+    default:
+      return `Map "${fileName}" could not be parsed and cannot be loaded.`;
+  }
+}
+
+function containsMergeConflictMarkers(rawText) {
+  if (typeof rawText !== 'string' || !rawText) {
+    return false;
+  }
+
+  return /^<<<<<<<(?: .*)?$/m.test(rawText)
+    && /^=======$/m.test(rawText)
+    && /^>>>>>>> (?:.*)$/m.test(rawText);
 }

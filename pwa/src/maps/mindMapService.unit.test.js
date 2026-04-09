@@ -28,6 +28,30 @@ function createSnapshot({
   };
 }
 
+function createRepository(overrides = {}) {
+  return {
+    async listFiles() {
+      return overrides.listFiles
+        ? overrides.listFiles()
+        : {
+            ok: true,
+            value: [],
+          };
+    },
+    async loadMap(filePath) {
+      return overrides.loadMap
+        ? overrides.loadMap(filePath)
+        : {
+            ok: false,
+            error: {
+              code: 'NOT_IMPLEMENTED',
+              message: `No mock loadMap result for "${filePath}".`,
+            },
+          };
+    },
+  };
+}
+
 describe('MindMapService.buildSummaries', () => {
   it('sorts maps by updatedAt descending', () => {
     const service = new MindMapService(null);
@@ -113,5 +137,162 @@ describe('MindMapService.buildSummaries', () => {
       service.buildSummaries([editedSnapshot, laterSnapshot]).map((summary) => summary.fileName),
       ['edited.json', 'later.json'],
     );
+  });
+});
+
+describe('MindMapService.listMaps', () => {
+  it('returns readable snapshots alongside unreadable maps', async () => {
+    const readableSnapshot = createSnapshot({
+      fileName: 'readable.json',
+      mapName: 'Readable',
+      updatedAt: '2026-04-09T11:00:00Z',
+    });
+    const repository = createRepository({
+      listFiles: async () => ({
+        ok: true,
+        value: [
+          {
+            filePath: readableSnapshot.filePath,
+            fileName: readableSnapshot.fileName,
+          },
+          {
+            filePath: 'FocusMaps/conflicted.json',
+            fileName: 'conflicted.json',
+          },
+        ],
+      }),
+      loadMap: async (filePath) => {
+        if (filePath === readableSnapshot.filePath) {
+          return {
+            ok: true,
+            value: readableSnapshot,
+          };
+        }
+
+        return {
+          ok: false,
+          error: {
+            code: 'UNREADABLE_MAP',
+            filePath,
+            fileName: 'conflicted.json',
+            mapName: 'conflicted',
+            revision: 'rev-conflict',
+            reason: 'mergeConflict',
+            message: 'Map "conflicted.json" contains unresolved Git merge markers and cannot be loaded.',
+            rawText: '<<<<<<< HEAD\nold\n=======\nnew\n>>>>>>> main\n',
+          },
+        };
+      },
+    });
+    const service = new MindMapService(repository);
+
+    const listed = await service.listMaps(true);
+
+    assert.equal(listed.ok, true);
+    assert.deepEqual(
+      listed.value.snapshots.map((snapshot) => snapshot.fileName),
+      ['readable.json'],
+    );
+    assert.deepEqual(listed.value.unreadableMaps, [
+      {
+        filePath: 'FocusMaps/conflicted.json',
+        fileName: 'conflicted.json',
+        mapName: 'conflicted',
+        revision: 'rev-conflict',
+        reason: 'mergeConflict',
+        message: 'Map "conflicted.json" contains unresolved Git merge markers and cannot be loaded.',
+        rawText: '<<<<<<< HEAD\nold\n=======\nnew\n>>>>>>> main\n',
+      },
+    ]);
+    assert.equal(service.getCachedSnapshot('FocusMaps/conflicted.json'), null);
+  });
+
+  it('hard-fails when listing map files fails', async () => {
+    const repository = createRepository({
+      listFiles: async () => ({
+        ok: false,
+        error: {
+          code: 'PERSISTENCE_ERROR',
+          message: 'Unable to list map files.',
+        },
+      }),
+    });
+    const service = new MindMapService(repository);
+
+    const listed = await service.listMaps(true);
+
+    assert.deepEqual(listed, {
+      ok: false,
+      error: {
+        code: 'PERSISTENCE_ERROR',
+        message: 'Unable to list map files.',
+      },
+    });
+  });
+
+  it('hard-fails when a map load error is not unreadable-map recovery', async () => {
+    const repository = createRepository({
+      listFiles: async () => ({
+        ok: true,
+        value: [
+          {
+            filePath: 'FocusMaps/broken.json',
+            fileName: 'broken.json',
+          },
+        ],
+      }),
+      loadMap: async () => ({
+        ok: false,
+        error: {
+          code: 'PERSISTENCE_ERROR',
+          message: 'GitHub request failed.',
+        },
+      }),
+    });
+    const service = new MindMapService(repository);
+
+    const listed = await service.listMaps(true);
+
+    assert.deepEqual(listed, {
+      ok: false,
+      error: {
+        code: 'PERSISTENCE_ERROR',
+        message: 'GitHub request failed.',
+      },
+    });
+  });
+});
+
+describe('MindMapService.loadMap', () => {
+  it('returns unreadable-map errors for direct loads and clears any stale cache entry', async () => {
+    const cachedSnapshot = createSnapshot({
+      fileName: 'broken.json',
+      mapName: 'Broken',
+      updatedAt: '2026-04-09T11:00:00Z',
+    });
+    const repository = createRepository({
+      loadMap: async () => ({
+        ok: false,
+        error: {
+          code: 'UNREADABLE_MAP',
+          filePath: cachedSnapshot.filePath,
+          fileName: cachedSnapshot.fileName,
+          mapName: cachedSnapshot.mapName,
+          revision: 'rev-broken',
+          reason: 'invalidJson',
+          message: 'Map "broken.json" is not valid JSON and cannot be loaded.',
+          rawText: '{"rootNode": ',
+        },
+      }),
+    });
+    const service = new MindMapService(repository);
+    service.hydrateSnapshots([cachedSnapshot]);
+
+    const loaded = await service.loadMap(cachedSnapshot.filePath, true);
+
+    assert.equal(loaded.ok, false);
+    assert.equal(loaded.error.code, 'UNREADABLE_MAP');
+    assert.equal(loaded.error.reason, 'invalidJson');
+    assert.equal(service.getCachedSnapshot(cachedSnapshot.filePath), null);
   });
 });

@@ -20,9 +20,16 @@ export class MindMapService {
     }
 
     const loadedSnapshots = [];
+    const unreadableMaps = [];
     for (const file of listed.value) {
       const loaded = await this.loadMap(file.filePath, forceRefresh);
       if (!loaded.ok) {
+        if (loaded.error?.code === 'UNREADABLE_MAP') {
+          this.snapshotsByPath.delete(file.filePath);
+          unreadableMaps.push(buildUnreadableMapEntry(loaded.error));
+          continue;
+        }
+
         return loaded;
       }
 
@@ -31,7 +38,10 @@ export class MindMapService {
 
     return {
       ok: true,
-      value: loadedSnapshots,
+      value: {
+        snapshots: loadedSnapshots,
+        unreadableMaps: unreadableMaps.sort(compareUnreadableMapEntries),
+      },
     };
   }
 
@@ -45,6 +55,9 @@ export class MindMapService {
 
     const loaded = await this.repository.loadMap(filePath);
     if (!loaded.ok) {
+      if (loaded.error?.code === 'UNREADABLE_MAP') {
+        this.snapshotsByPath.delete(filePath);
+      }
       return loaded;
     }
 
@@ -259,4 +272,20 @@ export class MindMapService {
       },
     };
   }
+}
+
+function buildUnreadableMapEntry(error) {
+  return {
+    filePath: error.filePath,
+    fileName: error.fileName,
+    mapName: error.mapName,
+    revision: error.revision,
+    reason: error.reason,
+    message: error.message,
+    rawText: error.rawText,
+  };
+}
+
+function compareUnreadableMapEntries(left, right) {
+  return String(left?.fileName ?? '').localeCompare(String(right?.fileName ?? ''));
 }

@@ -29,6 +29,24 @@ export class MindMapRepository {
         value: await this.provider.loadMap(filePath),
       };
     } catch (cause) {
+      if (cause?.code === 'UNREADABLE_MAP') {
+        return {
+          ok: false,
+          error: {
+            code: 'UNREADABLE_MAP',
+            reason: typeof cause.reason === 'string' ? cause.reason : 'unknown',
+            message: cause?.message || `Map "${filePath}" cannot be loaded.`,
+            retriable: true,
+            filePath: cause.filePath || filePath,
+            fileName: cause.fileName || (filePath.split('/').pop() || filePath),
+            mapName: cause.mapName || (filePath.split('/').pop() || filePath).replace(/\.json$/i, ''),
+            revision: typeof cause.revision === 'string' ? cause.revision : '',
+            rawText: typeof cause.rawText === 'string' ? cause.rawText : '',
+            cause: cause.cause ?? cause,
+          },
+        };
+      }
+
       return {
         ok: false,
         error: {

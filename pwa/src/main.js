@@ -84,11 +84,14 @@ const state = {
   selectedMapPath: '',
   selectedNodeId: '',
   mapsByPath: {},
+  unreadableMaps: [],
+  blockedPendingMaps: [],
   pendingOperations: [],
   localCollapsedByMap: {},
   activeModal: null,
   pendingFocusRequest: null,
   openCardMenu: '',
+  pendingRepairFocusPath: '',
 };
 
 const ui = {};
@@ -316,6 +319,21 @@ function applyRouteFromHash(options = {}) {
   if (route.view === 'map') {
     const snapshot = state.mapsByPath[route.mapPath];
     if (!snapshot) {
+      if (hasRepairEntryForFilePath(route.mapPath)) {
+        state.currentView = 'maps';
+        state.selectedMapPath = '';
+        state.selectedNodeId = '';
+        state.pendingFocusRequest = {
+          type: 'focusKey',
+          value: buildRepairFocusKey(route.mapPath),
+        };
+        if (replaceInvalid) {
+          replaceHashRoute(HASH_ROUTE.maps);
+        }
+        render();
+        return false;
+      }
+
       if (replaceInvalid) {
         replaceHashRoute(HASH_ROUTE.maps);
       }
@@ -581,6 +599,18 @@ function handleDocumentClick(event) {
       return;
     case 'refresh-maps':
       void loadWorkspace(true);
+      return;
+    case 'view-unreadable-map':
+      openUnreadableMapViewer(clickableElement.dataset.mapPath || '');
+      return;
+    case 'download-unreadable-map':
+      downloadUnreadableMap(clickableElement.dataset.mapPath || '');
+      return;
+    case 'retry-unreadable-map':
+      void retryUnreadableMap(clickableElement.dataset.mapPath || '');
+      return;
+    case 'discard-pending-map-operations':
+      handleDiscardPendingMapOperations(clickableElement.dataset.mapPath || '');
       return;
     case 'open-map':
       openMap(clickableElement.dataset.mapPath || '');
@@ -915,6 +945,8 @@ function switchRepoContext(repoSettings) {
   state.repoSettings = normalizeRepoSettings(repoSettings);
   state.repoScope = buildRepoScope(state.repoSettings);
   setSnapshots(loadCachedMapSnapshots(state.repoScope));
+  state.unreadableMaps = [];
+  state.blockedPendingMaps = [];
   state.pendingOperations = loadPendingMapOperations(state.repoScope);
   state.service = null;
   state.currentView = 'maps';
@@ -925,6 +957,7 @@ function switchRepoContext(repoSettings) {
   state.localCollapsedByMap = {};
   state.activeModal = null;
   state.pendingFocusRequest = null;
+  state.pendingRepairFocusPath = '';
   pendingModalHistoryClose = null;
 }
 
@@ -1021,19 +1054,25 @@ async function loadWorkspace(forceRefresh) {
     return;
   }
 
-  const hydratedSnapshots = applyPendingOperationsLocally(loaded.value, state.pendingOperations);
-  state.service.hydrateSnapshots(loaded.value);
+  const readableSnapshots = loaded.value.snapshots;
+  state.unreadableMaps = loaded.value.unreadableMaps;
+  state.blockedPendingMaps = [];
+  const hydratedSnapshots = applyPendingOperationsLocally(readableSnapshots, state.pendingOperations);
+  state.service.hydrateSnapshots(readableSnapshots);
   setSnapshots(hydratedSnapshots);
   persistRepoScopedState();
 
   state.authState = 'authenticated';
-  state.syncState = {
-    kind: 'success',
-    tone: 'success',
-    message: `Connected to ${state.repoSettings.repoOwner}/${state.repoSettings.repoName}.`,
-    detail: buildStatusDetail(),
-    canRetry: false,
-  };
+  state.syncState = buildWorkspaceLoadSyncState();
+
+  if (state.pendingRepairFocusPath && hasRepairEntryForFilePath(state.pendingRepairFocusPath)) {
+    state.pendingFocusRequest = {
+      type: 'focusKey',
+      value: buildRepairFocusKey(state.pendingRepairFocusPath),
+    };
+  }
+  state.pendingRepairFocusPath = '';
+
   applyRouteFromHash({ replaceInvalid: true });
 
   if (state.pendingOperations.length > 0) {
@@ -1097,14 +1136,10 @@ async function processPendingOperations() {
     return;
   }
 
+  syncBlockedPendingMaps();
+
   if (state.pendingOperations.length === 0) {
-    state.syncState = {
-      kind: 'success',
-      tone: 'success',
-      message: 'All local changes are synced.',
-      detail: buildStatusDetail(),
-      canRetry: false,
-    };
+    state.syncState = buildIdleWorkspaceSyncState();
     render();
     return;
   }
@@ -1114,6 +1149,15 @@ async function processPendingOperations() {
 
   while (state.pendingOperations.length > 0) {
     const currentOperation = state.pendingOperations[0];
+    const unreadableMap = getUnreadableMapByPath(currentOperation.filePath);
+    if (unreadableMap) {
+      state.processingQueue = false;
+      state.syncState = buildPausedUnreadableMapSyncState(unreadableMap);
+      focusRepairEntry(currentOperation.filePath, true);
+      render();
+      return;
+    }
+
     recordSyncState('syncing', currentOperation.commitMessage);
     state.syncState = {
       kind: 'syncing',
@@ -1132,13 +1176,32 @@ async function processPendingOperations() {
 
     if (!result.ok) {
       state.processingQueue = false;
+
+      if (result.error?.code === 'UNREADABLE_MAP') {
+        upsertUnreadableMap(result.error);
+        state.syncState = buildPausedUnreadableMapSyncState(result.error);
+        focusRepairEntry(currentOperation.filePath, true);
+        render();
+        return;
+      }
+
+      if (result.error?.code === 'NOT_FOUND') {
+        upsertBlockedPendingMap(buildBlockedPendingMapEntry(currentOperation.filePath));
+        state.syncState = buildBlockedPendingMapSyncState(currentOperation.filePath);
+        focusRepairEntry(currentOperation.filePath, true);
+        render();
+        return;
+      }
+
       handleSyncFailure(result.error, `Could not sync ${describeOperation(currentOperation)}.`);
       render();
       return;
     }
 
+    clearBlockedPendingMap(currentOperation.filePath);
     replaceSnapshot(result.value.snapshot);
     state.pendingOperations = state.pendingOperations.slice(1);
+    syncBlockedPendingMaps();
     setSnapshots(applyPendingOperationsLocally(getSnapshots(), state.pendingOperations));
     persistRepoScopedState();
     state.syncState = {
@@ -1152,13 +1215,7 @@ async function processPendingOperations() {
   }
 
   state.processingQueue = false;
-  state.syncState = {
-    kind: 'success',
-    tone: 'success',
-    message: 'All local changes are synced.',
-    detail: buildStatusDetail(),
-    canRetry: false,
-  };
+  state.syncState = buildIdleWorkspaceSyncState();
   persistRepoScopedState();
   render();
 }
@@ -1171,7 +1228,8 @@ function handleSyncFailure(error, fallbackMessage) {
     Boolean(error?.retriable) ||
     errorCode === 'NETWORK' ||
     errorCode === 'RATE_LIMIT' ||
-    errorCode === 'STALE_STATE';
+    errorCode === 'STALE_STATE' ||
+    errorCode === 'UNREADABLE_MAP';
 
   if (errorCode === 'UNAUTHORIZED' || errorCode === 'FORBIDDEN') {
     clearToken(state.repoSettings.tokenStorageKey);
@@ -1186,7 +1244,7 @@ function handleSyncFailure(error, fallbackMessage) {
 
   state.syncState = {
     kind: errorCode === 'STALE_STATE' || error?.code === 'CONFLICT_UNRESOLVED' ? 'conflict' : 'error',
-    tone: errorCode === 'RATE_LIMIT' ? 'warning' : 'error',
+    tone: errorCode === 'RATE_LIMIT' || errorCode === 'UNREADABLE_MAP' ? 'warning' : 'error',
     message,
     detail: buildErrorDetail(error),
     canRetry: isRetriable || state.pendingOperations.length > 0,
@@ -1211,6 +1269,11 @@ async function handleRetry() {
 
   if (!state.service) {
     await authenticateAndLoad();
+    return;
+  }
+
+  if (state.unreadableMaps.length > 0 || state.blockedPendingMaps.length > 0) {
+    await loadWorkspace(true);
     return;
   }
 
@@ -1773,6 +1836,77 @@ async function handleOpenAttachment(mapPath, nodeId, attachmentId) {
   );
 }
 
+function openUnreadableMapViewer(filePath) {
+  const unreadableMap = getUnreadableMapByPath(filePath);
+  if (!unreadableMap) {
+    return;
+  }
+
+  const downloadUrl = createTextDownloadUrl(unreadableMap.rawText, 'application/json');
+  state.activeModal = {
+    kind: 'textViewer',
+    mapPath: unreadableMap.filePath,
+    nodeId: '',
+    draftText: '',
+    errorMessage: '',
+    returnFocusKey: buildRepairFocusKey(unreadableMap.filePath),
+    attachmentRelativePath: '__raw-map__',
+    displayName: unreadableMap.fileName,
+    textContent: unreadableMap.rawText,
+    downloadUrl,
+    loading: false,
+  };
+  state.pendingFocusRequest = {
+    type: 'modalAutofocus',
+  };
+  render();
+}
+
+function downloadUnreadableMap(filePath) {
+  const unreadableMap = getUnreadableMapByPath(filePath);
+  if (!unreadableMap) {
+    return;
+  }
+
+  const downloadUrl = createTextDownloadUrl(unreadableMap.rawText, 'application/json');
+  downloadUrlAsFile(downloadUrl, unreadableMap.fileName || 'map.json');
+  setTimeout(() => {
+    URL.revokeObjectURL(downloadUrl);
+  }, 0);
+}
+
+async function retryUnreadableMap(filePath) {
+  state.pendingRepairFocusPath = filePath;
+  await loadWorkspace(true);
+}
+
+function handleDiscardPendingMapOperations(filePath) {
+  if (!filePath) {
+    return;
+  }
+
+  const removedCount = getPendingCountForMap(filePath);
+  if (removedCount === 0) {
+    clearBlockedPendingMap(filePath);
+    state.syncState = buildIdleWorkspaceSyncState();
+    render();
+    return;
+  }
+
+  state.pendingOperations = state.pendingOperations.filter((operation) => operation.filePath !== filePath);
+  clearBlockedPendingMap(filePath);
+  syncBlockedPendingMaps();
+  setSnapshots(applyPendingOperationsLocally(getSnapshots(), state.pendingOperations));
+  persistRepoScopedState();
+  state.syncState = buildIdleWorkspaceSyncState();
+  focusRepairEntry(filePath, true);
+  render();
+
+  if (state.pendingOperations.length > 0) {
+    void processPendingOperations();
+  }
+}
+
 function handleViewerDownload() {
   if (!state.activeModal) {
     return;
@@ -1788,10 +1922,25 @@ function handleViewerDownload() {
     return;
   }
 
+  downloadUrlAsFile(
+    viewerUrl,
+    state.activeModal.displayName
+    || (state.activeModal.kind === 'textViewer' ? 'attachment.txt' : 'attachment.png'),
+  );
+}
+
+function createTextDownloadUrl(textContent, mediaType = 'text/plain;charset=utf-8') {
+  return URL.createObjectURL(new Blob([textContent || ''], { type: mediaType }));
+}
+
+function downloadUrlAsFile(downloadUrl, fileName) {
+  if (!downloadUrl) {
+    return;
+  }
+
   const link = document.createElement('a');
-  link.href = viewerUrl;
-  link.download = state.activeModal.displayName
-    || (state.activeModal.kind === 'textViewer' ? 'attachment.txt' : 'attachment.png');
+  link.href = downloadUrl;
+  link.download = fileName || 'download.txt';
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
@@ -2852,8 +3001,8 @@ function renderWorkspaceNavigation() {
 }
 
 function buildMapsViewKey(summaries) {
-  return JSON.stringify(
-    summaries.map((summary) => [
+  return JSON.stringify({
+    summaries: summaries.map((summary) => [
       summary.filePath,
       summary.rootTitle,
       summary.updatedAt,
@@ -2864,7 +3013,22 @@ function buildMapsViewKey(summaries) {
       summary.taskCounts.done,
       getPendingCountForMap(summary.filePath),
     ]),
-  );
+    unreadableMaps: state.unreadableMaps.map((item) => [
+      item.filePath,
+      item.fileName,
+      item.reason,
+      item.message,
+      item.revision,
+      item.rawText.length,
+      getPendingCountForMap(item.filePath),
+    ]),
+    blockedPendingMaps: state.blockedPendingMaps.map((item) => [
+      item.filePath,
+      item.fileName,
+      item.message,
+      getPendingCountForMap(item.filePath),
+    ]),
+  });
 }
 
 function buildTasksViewKey(entries) {
@@ -3469,8 +3633,25 @@ function renderSettingsPanel() {
 }
 
 function renderMapsView(summaries) {
+  const repairSection = renderNeedsRepairSection();
+  const hasRepairEntries = Boolean(repairSection);
+  const isEmpty = summaries.length === 0 && !hasRepairEntries;
+  const contentMarkup = summaries.length === 0
+    ? hasRepairEntries
+      ? ''
+      : `
+          <article class="card empty-card">
+            <p>The configured FocusMaps folder is reachable, but no top-level .json map files were found.</p>
+            <p class="section-copy">Point <code>repoPath</code> directly at the FocusMaps folder, for example <code>Tool/PMMT/FocusMaps</code>, and make sure the folder contains map JSON files.</p>
+          </article>
+        `
+    : `
+        <div class="compact-list map-list">
+          ${summaries.map((summary) => renderMapCard(summary)).join('')}
+        </div>
+      `;
   return `
-    <section class="workspace-panel ${summaries.length === 0 ? 'empty-panel' : ''}">
+    <section class="workspace-panel ${isEmpty ? 'empty-panel' : ''}">
       <div class="map-reader-header">
         <div class="compact-row-actions">
           <button
@@ -3481,19 +3662,80 @@ function renderMapsView(summaries) {
           >New map</button>
         </div>
       </div>
-      ${summaries.length === 0
-        ? `
-          <article class="card empty-card">
-            <p>The configured FocusMaps folder is reachable, but no top-level .json map files were found.</p>
-            <p class="section-copy">Point <code>repoPath</code> directly at the FocusMaps folder, for example <code>Tool/PMMT/FocusMaps</code>, and make sure the folder contains map JSON files.</p>
-          </article>
-        `
-        : `
-          <div class="compact-list map-list">
-            ${summaries.map((summary) => renderMapCard(summary)).join('')}
-          </div>
-        `}
+      ${repairSection}
+      ${contentMarkup}
     </section>
+  `;
+}
+
+function renderNeedsRepairSection() {
+  const unreadableCards = state.unreadableMaps
+    .map((item) => renderUnreadableMapCard(item))
+    .join('');
+  const blockedPendingCards = state.blockedPendingMaps
+    .map((item) => renderBlockedPendingMapCard(item))
+    .join('');
+
+  if (!unreadableCards && !blockedPendingCards) {
+    return '';
+  }
+
+  return `
+    <article class="card">
+      <p class="eyebrow">Recovery</p>
+      <h2>Needs repair</h2>
+      <p class="section-copy">Readable maps remain available. Repair these files outside the PWA, then retry.</p>
+      <div class="compact-list map-list">
+        ${unreadableCards}
+        ${blockedPendingCards}
+      </div>
+    </article>
+  `;
+}
+
+function renderUnreadableMapCard(item) {
+  const pendingCount = getPendingCountForMap(item.filePath);
+  const causeText = describeUnreadableMapReason(item.reason);
+  return `
+    <article class="card compact-row map-row" tabindex="-1" data-focus-key="${escapeHtml(buildRepairFocusKey(item.filePath))}">
+      <div class="compact-row-main">
+        <div class="compact-title-block">
+          <h3>${escapeHtml(item.mapName || item.fileName)}</h3>
+          <p class="section-copy">${escapeHtml(causeText)}. ${escapeHtml(item.message)}</p>
+          <p class="section-copy"><code>${escapeHtml(item.filePath)}</code></p>
+        </div>
+      </div>
+      <div class="compact-row-actions">
+        <p class="compact-meta">${pendingCount > 0 ? `Paused ${pendingCount} pending change${pendingCount === 1 ? '' : 's'}` : 'No queued local changes'}</p>
+        <div class="form-actions">
+          <button type="button" class="secondary-button compact-button" data-action="view-unreadable-map" data-map-path="${escapeHtml(item.filePath)}">View raw file</button>
+          <button type="button" class="secondary-button compact-button" data-action="download-unreadable-map" data-map-path="${escapeHtml(item.filePath)}">Download raw file</button>
+          <button type="button" class="secondary-button compact-button" data-action="retry-unreadable-map" data-map-path="${escapeHtml(item.filePath)}">Retry</button>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function renderBlockedPendingMapCard(item) {
+  const pendingCount = getPendingCountForMap(item.filePath);
+  return `
+    <article class="card compact-row map-row" tabindex="-1" data-focus-key="${escapeHtml(buildRepairFocusKey(item.filePath))}">
+      <div class="compact-row-main">
+        <div class="compact-title-block">
+          <h3>${escapeHtml(item.mapName || item.fileName)}</h3>
+          <p class="section-copy">${escapeHtml(item.message)}</p>
+          <p class="section-copy"><code>${escapeHtml(item.filePath)}</code></p>
+        </div>
+      </div>
+      <div class="compact-row-actions">
+        <p class="compact-meta">Paused ${pendingCount} pending change${pendingCount === 1 ? '' : 's'}</p>
+        <div class="form-actions">
+          <button type="button" class="secondary-button compact-button" data-action="retry-unreadable-map" data-map-path="${escapeHtml(item.filePath)}">Retry</button>
+          <button type="button" class="secondary-button compact-button" data-action="discard-pending-map-operations" data-map-path="${escapeHtml(item.filePath)}">Discard queued changes</button>
+        </div>
+      </div>
+    </article>
   `;
 }
 
@@ -4307,6 +4549,14 @@ function renderStatusDetailPrefix() {
     parts.push(describeRepoSettings(state.repoSettings));
   }
 
+  if (state.unreadableMaps.length > 0) {
+    parts.push(`${state.unreadableMaps.length} map${state.unreadableMaps.length === 1 ? '' : 's'} need repair`);
+  }
+
+  if (state.blockedPendingMaps.length > 0) {
+    parts.push(`${state.blockedPendingMaps.length} queued map change${state.blockedPendingMaps.length === 1 ? '' : 's'} need review`);
+  }
+
   if (state.pendingOperations.length > 0) {
     parts.push(`${state.pendingOperations.length} pending change${state.pendingOperations.length === 1 ? '' : 's'}`);
   }
@@ -4372,11 +4622,186 @@ function describeOperation(operation) {
 }
 
 function getMapLabel(filePath) {
-  return state.mapsByPath[filePath]?.mapName || filePath.split('/').pop() || 'map';
+  return state.mapsByPath[filePath]?.mapName
+    || getUnreadableMapByPath(filePath)?.mapName
+    || getBlockedPendingMapByPath(filePath)?.mapName
+    || filePath.split('/').pop() || 'map';
 }
 
 function getPendingCountForMap(filePath) {
   return state.pendingOperations.filter((operation) => operation.filePath === filePath).length;
+}
+
+function buildRepairFocusKey(filePath) {
+  return `repair|${filePath}`;
+}
+
+function getUnreadableMapByPath(filePath) {
+  return state.unreadableMaps.find((item) => item.filePath === filePath) || null;
+}
+
+function getBlockedPendingMapByPath(filePath) {
+  return state.blockedPendingMaps.find((item) => item.filePath === filePath) || null;
+}
+
+function hasRepairEntryForFilePath(filePath) {
+  return Boolean(getUnreadableMapByPath(filePath) || getBlockedPendingMapByPath(filePath));
+}
+
+function upsertUnreadableMap(error) {
+  const filePath = error.filePath || '';
+  if (!filePath) {
+    return;
+  }
+
+  const nextItem = {
+    filePath,
+    fileName: error.fileName || (filePath.split('/').pop() || filePath),
+    mapName: error.mapName || (filePath.split('/').pop() || filePath).replace(/\.json$/i, ''),
+    revision: error.revision || '',
+    reason: error.reason || 'unknown',
+    message: error.message || `Map "${filePath}" cannot be loaded.`,
+    rawText: typeof error.rawText === 'string' ? error.rawText : '',
+  };
+
+  state.unreadableMaps = [
+    ...state.unreadableMaps.filter((item) => item.filePath !== filePath),
+    nextItem,
+  ].sort(compareRepairItemsByFileName);
+  clearBlockedPendingMap(filePath);
+}
+
+function upsertBlockedPendingMap(item) {
+  if (!item?.filePath) {
+    return;
+  }
+
+  state.blockedPendingMaps = [
+    ...state.blockedPendingMaps.filter((existing) => existing.filePath !== item.filePath),
+    item,
+  ].sort(compareRepairItemsByFileName);
+}
+
+function clearBlockedPendingMap(filePath) {
+  if (!filePath) {
+    return;
+  }
+
+  state.blockedPendingMaps = state.blockedPendingMaps.filter((item) => item.filePath !== filePath);
+}
+
+function syncBlockedPendingMaps() {
+  state.blockedPendingMaps = state.blockedPendingMaps.filter((item) => getPendingCountForMap(item.filePath) > 0);
+}
+
+function buildBlockedPendingMapEntry(filePath) {
+  const fileName = filePath.split('/').pop() || filePath;
+  const mapName = getMapLabel(filePath);
+  return {
+    filePath,
+    fileName,
+    mapName,
+    message: `Queued changes for "${mapName}" can't be applied because the repaired map no longer contains the targeted node.`,
+  };
+}
+
+function compareRepairItemsByFileName(left, right) {
+  return String(left?.fileName ?? '').localeCompare(String(right?.fileName ?? ''));
+}
+
+function buildWorkspaceLoadSyncState() {
+  if (state.unreadableMaps.length > 0) {
+    const firstUnreadable = state.unreadableMaps[0];
+    return {
+      kind: 'error',
+      tone: 'warning',
+      message: `${state.unreadableMaps.length} map${state.unreadableMaps.length === 1 ? '' : 's'} need repair.`,
+      detail: `${describeUnreadableMapReason(firstUnreadable.reason)} in ${firstUnreadable.fileName}. Repair the file outside the PWA and retry.`,
+      canRetry: true,
+    };
+  }
+
+  return {
+    kind: 'success',
+    tone: 'success',
+    message: `Connected to ${state.repoSettings.repoOwner}/${state.repoSettings.repoName}.`,
+    detail: buildStatusDetail(),
+    canRetry: false,
+  };
+}
+
+function buildIdleWorkspaceSyncState() {
+  if (state.unreadableMaps.length > 0) {
+    return buildWorkspaceLoadSyncState();
+  }
+
+  if (state.blockedPendingMaps.length > 0) {
+    return buildBlockedPendingMapSyncState(state.blockedPendingMaps[0].filePath);
+  }
+
+  return {
+    kind: 'success',
+    tone: 'success',
+    message: 'All local changes are synced.',
+    detail: buildStatusDetail(),
+    canRetry: false,
+  };
+}
+
+function buildPausedUnreadableMapSyncState(unreadableMap) {
+  const pendingCount = getPendingCountForMap(unreadableMap.filePath);
+  const mapName = unreadableMap.mapName || unreadableMap.fileName;
+  return {
+    kind: 'error',
+    tone: 'warning',
+    message: pendingCount > 0
+      ? `Repair "${mapName}" to resume queued changes.`
+      : `Repair "${mapName}" to load it in the PWA.`,
+    detail: `${describeUnreadableMapReason(unreadableMap.reason)} in ${unreadableMap.fileName}. ${pendingCount > 0 ? `${pendingCount} pending change${pendingCount === 1 ? '' : 's'} are paused for this map.` : 'Retry after fixing the file outside the PWA.'}`,
+    canRetry: true,
+  };
+}
+
+function buildBlockedPendingMapSyncState(filePath) {
+  const blockedItem = getBlockedPendingMapByPath(filePath);
+  const pendingCount = getPendingCountForMap(filePath);
+  const mapName = blockedItem?.mapName || getMapLabel(filePath);
+  return {
+    kind: 'error',
+    tone: 'warning',
+    message: `Queued changes for "${mapName}" need review.`,
+    detail: `${pendingCount} pending change${pendingCount === 1 ? '' : 's'} for ${mapName} can't be applied to the repaired remote map. Discard the queued changes for this map or retry after fixing the remote structure.`,
+    canRetry: true,
+  };
+}
+
+function describeUnreadableMapReason(reason) {
+  switch (reason) {
+    case 'mergeConflict':
+      return 'Unresolved merge conflict markers were found';
+    case 'invalidJson':
+      return 'Invalid JSON was found';
+    default:
+      return 'The map file could not be parsed';
+  }
+}
+
+function focusRepairEntry(filePath, switchToMapsView = false) {
+  if (!filePath || !hasRepairEntryForFilePath(filePath)) {
+    return;
+  }
+
+  if (switchToMapsView) {
+    state.currentView = 'maps';
+    if (window.location.hash !== HASH_ROUTE.maps) {
+      replaceHashRoute(HASH_ROUTE.maps);
+    }
+  }
+
+  state.pendingFocusRequest = {
+    type: 'focusKey',
+    value: buildRepairFocusKey(filePath),
+  };
 }
 
 function taskStatePriority(taskState) {

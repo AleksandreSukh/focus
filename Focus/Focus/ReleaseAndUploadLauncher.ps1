@@ -66,21 +66,13 @@ function Invoke-ReleaseAndUploadLauncher
 
 if ($MyInvocation.InvocationName -ne '.')
 {
-    try
-    {
-        Invoke-ReleaseAndUploadLauncher `
-            -Version $Version `
-            -CredentialPath $CredentialPath `
-            -Increment $Increment `
-            -FtpsMode $FtpsMode `
-            -TlsHostCertificateFingerprint $TlsHostCertificateFingerprint `
-            -UpdateCredential:$UpdateCredential `
-            -SkipBuild:$SkipBuild `
-            -DryRun:$DryRun
-    }
-    catch
-    {
-        Write-Error $_
-        exit 1
-    }
+    Invoke-ReleaseAndUploadLauncher `
+        -Version $Version `
+        -CredentialPath $CredentialPath `
+        -Increment $Increment `
+        -FtpsMode $FtpsMode `
+        -TlsHostCertificateFingerprint $TlsHostCertificateFingerprint `
+        -UpdateCredential:$UpdateCredential `
+        -SkipBuild:$SkipBuild `
+        -DryRun:$DryRun
 }
