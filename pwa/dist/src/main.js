@@ -3820,6 +3820,8 @@ function getWorkspaceOverlayState() {
       nodeId: state.activeModal.nodeId || '',
       draftText: state.activeModal.draftText || '',
       errorMessage: state.activeModal.errorMessage || '',
+      attachmentUploading: state.activeModal.attachmentUploading || false,
+      attachmentError: state.activeModal.attachmentError || '',
     }),
   };
 }
