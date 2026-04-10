@@ -1956,22 +1956,6 @@ textarea:disabled {
   line-height: 1.55;
 }
 
-.viewer-delete-confirm-row {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.viewer-delete-prompt {
-  font-size: 0.85rem;
-  color: var(--muted);
-}
-
-.viewer-delete-error {
-  font-size: 0.82rem;
-  color: var(--danger);
-}
-
 .sr-only {
   position: absolute;
   width: 1px;

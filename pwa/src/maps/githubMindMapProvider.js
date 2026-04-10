@@ -110,7 +110,22 @@ export class GitHubMindMapProvider {
   async deleteAttachment({ mapFilePath, relativePath, versionToken, commitMessage }) {
     const attachmentDir = mapFilePath.replace(/\.json$/i, '_attachments');
     const attachmentPath = `${attachmentDir}/${relativePath}`;
-    await this.gitProvider.deleteFile(attachmentPath, versionToken, commitMessage);
+    let effectiveVersionToken = versionToken;
+
+    try {
+      if (!effectiveVersionToken) {
+        const remoteAttachment = await this.gitProvider.getFileRaw(attachmentPath);
+        effectiveVersionToken = remoteAttachment.versionToken;
+      }
+
+      await this.gitProvider.deleteFile(attachmentPath, effectiveVersionToken, commitMessage);
+    } catch (error) {
+      if (error instanceof GitHubApiError && error.code === 'NOT_FOUND') {
+        return { ok: true };
+      }
+
+      throw error;
+    }
     return { ok: true };
   }
 

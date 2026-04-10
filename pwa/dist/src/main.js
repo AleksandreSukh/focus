@@ -740,19 +740,10 @@ function handleDocumentClick(event) {
       handleViewerDownload();
       return;
     case 'viewer-delete':
-      if (state.activeModal?.kind === 'imageViewer' || state.activeModal?.kind === 'textViewer') {
-        state.activeModal = { ...state.activeModal, confirmingDelete: true, deleteError: '' };
-        render();
-      }
+      openDeleteAttachmentModal();
       return;
-    case 'viewer-delete-cancel':
-      if (state.activeModal?.kind === 'imageViewer' || state.activeModal?.kind === 'textViewer') {
-        state.activeModal = { ...state.activeModal, confirmingDelete: false, deleteError: '' };
-        render();
-      }
-      return;
-    case 'viewer-delete-confirm':
-      void handleDeleteViewerAttachment();
+    case 'confirm-delete-attachment':
+      void handleDeleteAttachmentConfirm();
       return;
     case 'open-task-node':
       openTaskNode(clickableElement.dataset.mapPath || '', clickableElement.dataset.nodeId || '');
@@ -1811,6 +1802,79 @@ function isClipboardTextNode(node) {
   return typeof node?.metadata?.source === 'string' && node.metadata.source === 'clipboard-text';
 }
 
+function canDeleteViewedAttachment(modal) {
+  return Boolean(
+    modal &&
+    (modal.kind === 'imageViewer' || modal.kind === 'textViewer') &&
+    modal.nodeId &&
+    modal.attachmentId &&
+    modal.attachmentRelativePath,
+  );
+}
+
+function getDeleteAttachmentReturnNodeId(mapPath, nodeId) {
+  const snapshot = state.mapsByPath[mapPath];
+  if (!snapshot) {
+    return nodeId;
+  }
+
+  const nodeUiState = getNodeUiState(snapshot.document, nodeId);
+  if (!nodeUiState) {
+    return nodeId;
+  }
+
+  if (
+    (isClipboardImageNode(nodeUiState.node) || isClipboardTextNode(nodeUiState.node)) &&
+    nodeUiState.parent?.uniqueIdentifier
+  ) {
+    return nodeUiState.parent.uniqueIdentifier;
+  }
+
+  return nodeUiState.node.uniqueIdentifier;
+}
+
+function revokeModalObjectUrls(modal) {
+  if (!modal) {
+    return;
+  }
+
+  if (modal.kind === 'imageViewer' && modal.imageUrl) {
+    URL.revokeObjectURL(modal.imageUrl);
+  }
+
+  if (modal.kind === 'textViewer' && modal.downloadUrl) {
+    URL.revokeObjectURL(modal.downloadUrl);
+  }
+
+  if (modal.kind === 'deleteAttachment' && modal.previousModal) {
+    revokeModalObjectUrls(modal.previousModal);
+  }
+}
+
+function openDeleteAttachmentModal() {
+  if (!canDeleteViewedAttachment(state.activeModal)) {
+    return;
+  }
+
+  const previousModal = { ...state.activeModal };
+  state.activeModal = {
+    kind: 'deleteAttachment',
+    mapPath: previousModal.mapPath,
+    nodeId: previousModal.nodeId,
+    attachmentId: previousModal.attachmentId,
+    attachmentRelativePath: previousModal.attachmentRelativePath,
+    displayName: previousModal.displayName || previousModal.attachmentRelativePath,
+    returnNodeId: getDeleteAttachmentReturnNodeId(previousModal.mapPath, previousModal.nodeId),
+    errorMessage: '',
+    returnFocusKey: previousModal.returnFocusKey || '',
+    previousModal,
+  };
+  state.pendingFocusRequest = {
+    type: 'modalAutofocus',
+  };
+  render();
+}
+
 async function openImageViewerForAttachment(mapPath, nodeId, attachment, returnFocusKey = '') {
   if (!attachment) {
     return;
@@ -1831,8 +1895,6 @@ async function openImageViewerForAttachment(mapPath, nodeId, attachment, returnF
     zoom: 1,
     panX: 0,
     panY: 0,
-    confirmingDelete: false,
-    deleteError: '',
   };
   render();
 
@@ -1888,8 +1950,6 @@ async function openTextViewerForAttachment(mapPath, nodeId, attachment, returnFo
     textContent: '',
     downloadUrl: null,
     loading: true,
-    confirmingDelete: false,
-    deleteError: '',
   };
   render();
 
@@ -2039,25 +2099,33 @@ async function handleAttachFile(file) {
   render();
 }
 
-async function handleDeleteViewerAttachment() {
+async function handleDeleteAttachmentConfirm() {
   const modal = state.activeModal;
-  if ((modal?.kind !== 'imageViewer' && modal?.kind !== 'textViewer') || !state.service) {
+  if (modal?.kind !== 'deleteAttachment') {
     return;
   }
 
-  const { mapPath, nodeId, attachmentId, returnFocusKey } = modal;
+  if (!state.service) {
+    setActiveModalError('Attachment deletion is unavailable right now.');
+    return;
+  }
+
+  const { mapPath, nodeId, attachmentId } = modal;
   const snapshot = state.mapsByPath[mapPath];
   if (!snapshot) {
+    setActiveModalError('The selected map is no longer available.');
     return;
   }
 
   const record = findNodeRecord(snapshot.document, nodeId);
   if (!record) {
+    setActiveModalError('The selected node is no longer available.');
     return;
   }
 
-  const attachment = getNodeAttachments(record.node).find((a) => a.id === attachmentId);
+  const attachment = getNodeAttachments(record.node).find((item) => item.id === attachmentId);
   if (!attachment) {
+    setActiveModalError('The selected attachment is no longer available.');
     return;
   }
 
@@ -2068,14 +2136,13 @@ async function handleDeleteViewerAttachment() {
   const deleted = await state.service.deleteAttachment(mapPath, attachment.relativePath, commitMessage);
 
   if (!deleted.ok) {
-    state.activeModal = {
-      ...state.activeModal,
-      deleteError: deleted.error?.message || 'Could not delete attachment. Try again.',
-    };
-    render();
+    setActiveModalError(deleted.error?.message || 'Could not delete attachment. Try again.');
     return;
   }
 
+  const returnNodeId = findNodeRecord(snapshot.document, modal.returnNodeId || '')
+    ? modal.returnNodeId
+    : getDeleteAttachmentReturnNodeId(mapPath, nodeId);
   const operation = {
     type: 'removeAttachment',
     filePath: mapPath,
@@ -2085,12 +2152,19 @@ async function handleDeleteViewerAttachment() {
     commitMessage,
   };
 
-  const enqueued = enqueueOperation(operation);
-  if (enqueued.ok) {
-    refreshVisibleSnapshotsFromServiceCache();
+  const enqueued = enqueueOperation(operation, {
+    selectedNodeIdOverride: returnNodeId,
+  });
+  if (!enqueued.ok) {
+    setActiveModalError(enqueued.error?.message || 'Could not queue attachment removal.');
+    return;
   }
 
-  closeActiveModal({ focusKey: returnFocusKey || '' });
+  refreshVisibleSnapshotsFromServiceCache();
+  closeDeleteAttachmentModal({
+    restoreViewer: false,
+    focusKey: buildNodeFocusKey(mapPath, returnNodeId),
+  });
 }
 
 async function handleRemoveAttachment(nodeId, attachmentId, displayName) {
@@ -2885,8 +2959,57 @@ function openNodeModal(kind, mapPath, nodeId, returnFocusKey = '') {
   render();
 }
 
+function animateActiveModalClose(onClosed) {
+  const modalCard = document.querySelector('.modal-card');
+  const modalBackdrop = document.querySelector('.modal-backdrop');
+
+  if (modalCard) {
+    modalCard.classList.add('modal-exiting');
+    if (modalBackdrop) {
+      modalBackdrop.classList.add('modal-exiting');
+    }
+    modalCard.addEventListener('animationend', onClosed, { once: true });
+    return;
+  }
+
+  onClosed();
+}
+
+function closeDeleteAttachmentModal(options = {}) {
+  if (state.activeModal?.kind !== 'deleteAttachment') {
+    return;
+  }
+
+  const { restoreViewer = true, focusKey = '' } = options;
+  const previousModal = restoreViewer ? (state.activeModal.previousModal || null) : null;
+  const nextFocusKey = restoreViewer ? '' : (focusKey || buildNodeFocusKey(
+    state.activeModal.mapPath,
+    state.activeModal.returnNodeId || state.activeModal.nodeId || '',
+  ));
+  const modalToRelease = restoreViewer ? null : state.activeModal.previousModal;
+
+  animateActiveModalClose(() => {
+    if (modalToRelease) {
+      revokeModalObjectUrls(modalToRelease);
+    }
+    state.activeModal = previousModal;
+    if (!previousModal && nextFocusKey) {
+      state.pendingFocusRequest = {
+        type: 'focusKey',
+        value: nextFocusKey,
+      };
+    }
+    render();
+  });
+}
+
 function closeActiveModal(options = {}) {
   if (!state.activeModal) {
+    return;
+  }
+
+  if (state.activeModal.kind === 'deleteAttachment') {
+    closeDeleteAttachmentModal(options);
     return;
   }
 
@@ -2903,35 +3026,11 @@ function closeActiveModal(options = {}) {
     return;
   }
 
-  if (state.activeModal.kind === 'imageViewer' && state.activeModal.imageUrl) {
-    URL.revokeObjectURL(state.activeModal.imageUrl);
-  }
-
-  if (state.activeModal.kind === 'textViewer' && state.activeModal.downloadUrl) {
-    URL.revokeObjectURL(state.activeModal.downloadUrl);
-  }
+  revokeModalObjectUrls(state.activeModal);
 
   pendingModalHistoryClose = null;
   const focusKey = options.focusKey || state.activeModal.returnFocusKey || '';
-  const modalCard = document.querySelector('.modal-card');
-  const modalBackdrop = document.querySelector('.modal-backdrop');
-
-  if (modalCard) {
-    modalCard.classList.add('modal-exiting');
-    if (modalBackdrop) {
-      modalBackdrop.classList.add('modal-exiting');
-    }
-    modalCard.addEventListener('animationend', () => {
-      state.activeModal = null;
-      if (focusKey) {
-        state.pendingFocusRequest = {
-          type: 'focusKey',
-          value: focusKey,
-        };
-      }
-      render();
-    }, { once: true });
-  } else {
+  animateActiveModalClose(() => {
     state.activeModal = null;
     if (focusKey) {
       state.pendingFocusRequest = {
@@ -2940,7 +3039,7 @@ function closeActiveModal(options = {}) {
       };
     }
     render();
-  }
+  });
 }
 
 function setActiveModalError(message) {
@@ -3060,6 +3159,7 @@ function setSnapshots(snapshots) {
   if (!state.selectedMapPath || !nextByPath[state.selectedMapPath]) {
     state.selectedMapPath = '';
     state.selectedNodeId = '';
+    revokeModalObjectUrls(state.activeModal);
     state.activeModal = null;
     if (state.currentView === 'map') {
       state.currentView = 'maps';
@@ -3070,6 +3170,7 @@ function setSnapshots(snapshots) {
   const selectedSnapshot = nextByPath[state.selectedMapPath];
   if (!findNodeRecord(selectedSnapshot.document, state.selectedNodeId)) {
     state.selectedNodeId = selectedSnapshot.document.rootNode?.uniqueIdentifier || '';
+    revokeModalObjectUrls(state.activeModal);
     state.activeModal = null;
   }
 
@@ -3080,6 +3181,7 @@ function setSnapshots(snapshots) {
       (modalRequiresNodeRecord(state.activeModal.kind) &&
         !findNodeRecord(modalSnapshot.document, state.activeModal.nodeId))
     ) {
+      revokeModalObjectUrls(state.activeModal);
       state.activeModal = null;
     }
   }
@@ -3844,8 +3946,6 @@ function getWorkspaceOverlayState() {
         nodeId: state.activeModal.nodeId,
         attachmentRelativePath: state.activeModal.attachmentRelativePath || '',
         displayName: state.activeModal.displayName || '',
-        confirmingDelete: state.activeModal.confirmingDelete || false,
-        deleteError: state.activeModal.deleteError || '',
       }),
     };
   }
@@ -3862,8 +3962,21 @@ function getWorkspaceOverlayState() {
         loading: state.activeModal.loading,
         errorMessage: state.activeModal.errorMessage || '',
         textLength: (state.activeModal.textContent || '').length,
-        confirmingDelete: state.activeModal.confirmingDelete || false,
-        deleteError: state.activeModal.deleteError || '',
+      }),
+    };
+  }
+
+  if (state.activeModal.kind === 'deleteAttachment') {
+    return {
+      kind: 'deleteAttachment',
+      key: JSON.stringify({
+        kind: state.activeModal.kind,
+        mapPath: state.activeModal.mapPath,
+        nodeId: state.activeModal.nodeId,
+        attachmentRelativePath: state.activeModal.attachmentRelativePath || '',
+        displayName: state.activeModal.displayName || '',
+        returnNodeId: state.activeModal.returnNodeId || '',
+        errorMessage: state.activeModal.errorMessage || '',
       }),
     };
   }
@@ -4728,8 +4841,27 @@ function renderActiveModal() {
     return renderTextViewerModal();
   }
 
+  if (state.activeModal.kind === 'deleteAttachment') {
+    const modalContext = getActiveModalContext('deleteAttachment');
+    if (!modalContext) {
+      return '';
+    }
+
+    return renderDeleteAttachmentModal(modalContext.nodeUiState);
+  }
+
   if (state.activeModal.kind === 'repairMap') {
     return renderRepairMapModal();
+  }
+
+  if (state.activeModal.kind === 'deleteNode') {
+    const modalContext = getActiveModalContext('deleteNode');
+    if (!modalContext) {
+      return '';
+    }
+
+    const { nodeUiState } = modalContext;
+    return renderDeleteNodeModal(nodeUiState);
   }
 
   if (state.activeModal.kind === 'addChildNote') {
@@ -4742,10 +4874,6 @@ function renderActiveModal() {
   }
 
   const { nodeUiState } = modalContext;
-
-  if (state.activeModal.kind === 'deleteNode') {
-    return renderDeleteNodeModal(nodeUiState);
-  }
 
   const isEditModal = state.activeModal.kind === 'editNode';
   const title = isEditModal
@@ -4993,9 +5121,44 @@ function renderDeleteMapModal() {
   `;
 }
 
+function renderDeleteAttachmentModal(nodeUiState) {
+  const attachmentName = state.activeModal.displayName || state.activeModal.attachmentRelativePath || 'attachment';
+
+  return `
+    <div class="modal-layer">
+      <button type="button" class="modal-backdrop" data-action="close-modal" aria-label="Close dialog"></button>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="map-modal-title">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Delete attachment</p>
+            <h3 id="map-modal-title">Confirm file deletion</h3>
+            <p class="node-path">${renderInlinePath(nodeUiState.pathSegments, 'formatted-path node-path-inline')}</p>
+          </div>
+          <button type="button" class="ghost-button compact-button" data-action="close-modal">Close</button>
+        </div>
+
+        ${state.activeModal.errorMessage
+          ? `<p class="form-error" role="alert">${escapeHtml(state.activeModal.errorMessage)}</p>`
+          : ''}
+
+        <p class="security-note">Delete "${escapeHtml(attachmentName)}"? This removes the file from the node and cannot be undone.</p>
+        <div class="form-actions">
+          <button type="button" class="secondary-button" data-action="close-modal" data-modal-autofocus="true">Cancel</button>
+          <button
+            type="button"
+            class="danger-button"
+            data-action="confirm-delete-attachment"
+          >Delete</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function renderImageViewerModal() {
   const { displayName, imageUrl, loading, errorMessage, zoom } = state.activeModal;
   const zoomPercent = Math.round(zoom * 100);
+  const canDeleteAttachment = canDeleteViewedAttachment(state.activeModal);
 
   const bodyContent = loading
     ? '<div class="image-viewer-loading shimmer"></div>'
@@ -5008,16 +5171,8 @@ function renderImageViewerModal() {
           style="transform: scale(${zoom}) translate(${state.activeModal.panX}px, ${state.activeModal.panY}px)"
           draggable="false"
         />`;
-
-  const deleteControl = state.activeModal.confirmingDelete
-    ? `<span class="viewer-delete-confirm-row">
-        ${state.activeModal.deleteError
-          ? `<span class="viewer-delete-error">${escapeHtml(state.activeModal.deleteError)}</span>`
-          : '<span class="viewer-delete-prompt">Delete this file?</span>'}
-        <button type="button" class="ghost-button compact-button" data-action="viewer-delete-cancel">Cancel</button>
-        <button type="button" class="ghost-button compact-button danger-text" data-action="viewer-delete-confirm">Delete</button>
-      </span>`
-    : `<button type="button" class="ghost-button compact-button danger-text"
+  const deleteControl = canDeleteAttachment
+    ? `<button type="button" class="ghost-button compact-button danger-text"
           data-action="viewer-delete" aria-label="Delete attachment" title="Delete attachment">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -5026,7 +5181,8 @@ function renderImageViewerModal() {
           <path d="M10 11v6"/><path d="M14 11v6"/>
           <path d="M9 6V4h6v2"/>
         </svg>
-      </button>`;
+      </button>`
+    : '';
 
   return `
     <div class="modal-layer">
@@ -5052,22 +5208,15 @@ function renderImageViewerModal() {
 
 function renderTextViewerModal() {
   const { textContent, loading, errorMessage, downloadUrl } = state.activeModal;
+  const canDeleteAttachment = canDeleteViewedAttachment(state.activeModal);
 
   const bodyContent = loading
     ? '<div class="image-viewer-loading shimmer"></div>'
     : errorMessage
       ? `<p class="form-error" role="alert">${escapeHtml(errorMessage)}</p>`
       : `<pre class="text-viewer-content">${escapeHtml(textContent)}</pre>`;
-
-  const deleteControl = state.activeModal.confirmingDelete
-    ? `<span class="viewer-delete-confirm-row">
-        ${state.activeModal.deleteError
-          ? `<span class="viewer-delete-error">${escapeHtml(state.activeModal.deleteError)}</span>`
-          : '<span class="viewer-delete-prompt">Delete this file?</span>'}
-        <button type="button" class="ghost-button compact-button" data-action="viewer-delete-cancel">Cancel</button>
-        <button type="button" class="ghost-button compact-button danger-text" data-action="viewer-delete-confirm">Delete</button>
-      </span>`
-    : `<button type="button" class="ghost-button compact-button danger-text"
+  const deleteControl = canDeleteAttachment
+    ? `<button type="button" class="ghost-button compact-button danger-text"
           data-action="viewer-delete" aria-label="Delete attachment" title="Delete attachment">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -5076,7 +5225,8 @@ function renderTextViewerModal() {
           <path d="M10 11v6"/><path d="M14 11v6"/>
           <path d="M9 6V4h6v2"/>
         </svg>
-      </button>`;
+      </button>`
+    : '';
 
   return `
     <div class="modal-layer">
