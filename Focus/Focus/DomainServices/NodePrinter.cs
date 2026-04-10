@@ -39,7 +39,8 @@ internal static class NodePrinter
             content.Append($" {new string('/', node.GetTotalSize())}");
         }
 
-        PrintLinks(node, linkIndex, indent + new string(' ', numberString.Length), sb, maxWidth);
+        var linkPeekLength = level == 0 ? 120 : 12;
+        PrintLinks(node, linkIndex, indent + new string(' ', numberString.Length), sb, maxWidth, linkPeekLength);
         PrintBacklinks(node, linkIndex, indent + new string(' ', numberString.Length), sb, maxWidth);
         PrintIdeaTags(node, indent + new string(' ', numberString.Length), sb, maxWidth);
 
@@ -60,7 +61,7 @@ internal static class NodePrinter
         }
     }
 
-    private static void PrintLinks(Node node, ILinkIndex? linkIndex, string indent, StringBuilder sb, int maxWidth)
+    private static void PrintLinks(Node node, ILinkIndex? linkIndex, string indent, StringBuilder sb, int maxWidth, int peekLength = 12)
     {
         static string GetShortPeek(string nodeName, int peekContentLength) =>
             nodeName.Length <= peekContentLength
@@ -78,7 +79,7 @@ internal static class NodePrinter
             if (linkIndex != null && linkIndex.TryGetNode(link.id, out var linkedNode))
             {
                 linksStringBuilder.Append(
-                    $" *({link.relationType.ToDisplayString()}: {GetShortPeek(linkedNode.Name, 12)})* ");
+                    $" *({link.relationType.ToDisplayString()}: {GetShortPeek(linkedNode.Name, peekLength)})* ");
             }
             else
             {

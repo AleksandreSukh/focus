@@ -14,7 +14,12 @@ internal static class ApplicationStartup
 {
     public static HomePage CreateHomePage(UserConfig userConfig)
     {
-        return CreateHomePage(new MapsStorage(userConfig));
+        return CreateHomePage(userConfig, new AppRuntimeOptions());
+    }
+
+    internal static HomePage CreateHomePage(UserConfig userConfig, AppRuntimeOptions runtimeOptions)
+    {
+        return CreateHomePage(new MapsStorage(userConfig, runtimeOptions.GitSynchronizationOptions));
     }
 
     internal static HomePage CreateHomePage(MapsStorage mapsStorage)

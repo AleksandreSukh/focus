@@ -1,6 +1,6 @@
 ﻿using System;
 using System.IO;
-using Systems.Sanity.Focus.Infrastructure.Input.ReadLine;
+using Systems.Sanity.Focus.Application;
 using Systems.Sanity.Focus.Pages.Shared;
 
 namespace Systems.Sanity.Focus.Pages.Edit.Dialogs
@@ -48,7 +48,7 @@ namespace Systems.Sanity.Focus.Pages.Edit.Dialogs
 				var suggestedFileName = $"{suggestionBaseFileName}_({existingFileWithThisNameCounter})";
 
 				var newName =
-					ReadLine.Read(
+					AppConsole.Current.CommandLineEditor.Read(
 						$"File: {fileNameToAlter} already exists. Use suggested name {suggestedFileName} by pressing Enter or type new name below{Environment.NewLine}>");
 
 				var useSuggestedFileName =

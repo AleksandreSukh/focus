@@ -15,7 +15,12 @@ namespace Systems.Sanity.Focus.Domain
         private readonly IFileSynchronizationHandler _fileSynchronizationHandler;
 
         public MapsStorage(UserConfig userConfig)
-            : this(userConfig, CreateFileSyncHandler(userConfig.GitRepository))
+            : this(userConfig, CreateFileSyncHandler(userConfig.GitRepository, GitSynchronizationOptions.BackgroundDebounced))
+        {
+        }
+
+        internal MapsStorage(UserConfig userConfig, GitSynchronizationOptions gitSynchronizationOptions)
+            : this(userConfig, CreateFileSyncHandler(userConfig.GitRepository, gitSynchronizationOptions))
         {
         }
 
@@ -91,13 +96,16 @@ namespace Systems.Sanity.Focus.Domain
             return _fileSynchronizationHandler.PullLatestAtStartup();
         }
 
-        private static IFileSynchronizationHandler CreateFileSyncHandler(string gitRepositoryPath)
+        private static IFileSynchronizationHandler CreateFileSyncHandler(
+            string gitRepositoryPath,
+            GitSynchronizationOptions gitSynchronizationOptions)
         {
             if (GitHelper.IsRepositoryAvailable(gitRepositoryPath))
             {
                 var gitHelper = new GitHelper(
                     gitRepositoryPath,
-                    message => AppConsole.Current.WriteBackgroundMessage(message));
+                    message => AppConsole.Current.WriteBackgroundMessage(message),
+                    gitSynchronizationOptions);
                 return new FileSynchronizationHandlerGit(gitHelper);
             }
 

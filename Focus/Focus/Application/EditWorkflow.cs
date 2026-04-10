@@ -433,7 +433,8 @@ internal sealed class EditWorkflow
         if (!backlinks.Any())
             return CommandExecutionResult.Error("Current node has no backlinks");
 
-        return NavigateToLinkedNode(backlinks, "Backlinks");
+        var sourceText = _map.GetCurrentNodeContentPeek();
+        return NavigateToLinkedNode(backlinks, $"Backlinks — \"{sourceText}\"");
     }
 
     private CommandExecutionResult ProcessClearIdeas(string parameters)
@@ -795,7 +796,8 @@ internal sealed class EditWorkflow
         if (!links.Any())
             return CommandExecutionResult.Error("Current node has no links");
 
-        return NavigateToLinkedNode(links, "Linked nodes");
+        var sourceText = _map.GetCurrentNodeContentPeek();
+        return NavigateToLinkedNode(links, $"Linked nodes — \"{sourceText}\"");
     }
 
     private CommandExecutionResult ProcessSearch(string parameters)

@@ -6,10 +6,10 @@ using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
 using Systems.Sanity.Focus.Application;
+using Systems.Sanity.Focus.Application.Console;
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.Infrastructure.Diagnostics;
 using Systems.Sanity.Focus.Infrastructure.Input;
-using Systems.Sanity.Focus.Infrastructure.Input.ReadLine;
 using Systems.Sanity.Focus.Pages;
 using Velopack;
 
@@ -19,19 +19,36 @@ internal static class Program
 {
     private static void Main(string[] args)
     {
+        AppRuntimeOptions runtimeOptions;
+        try
+        {
+            runtimeOptions = AppRuntimeOptions.Parse(args);
+        }
+        catch (Exception ex)
+        {
+            WriteUserMessage(ex.Message);
+            return;
+        }
+
+        AppConsole.Current = CreateConsoleSession(runtimeOptions);
         ExceptionDiagnostics.Initialize(
             ExceptionDiagnostics.BuildDefaultLogFilePath(),
             WriteUserMessage);
-        _ = ExceptionDiagnostics.RunInBackgroundAsync(
-            "checking for updates",
-            AutoUpdateManager.StartUpdateChecker,
-            WriteUserMessage);
+        if (runtimeOptions.RunUpdateChecker)
+        {
+            _ = ExceptionDiagnostics.RunInBackgroundAsync(
+                "checking for updates",
+                AutoUpdateManager.StartUpdateChecker,
+                WriteUserMessage);
+        }
 
         var startupReady = ExceptionDiagnostics.Guard(
             "starting application",
             () =>
             {
-                VelopackApp.Build().Run();
+                if (runtimeOptions.RunVelopackStartup)
+                    VelopackApp.Build().Run();
+
                 Console.OutputEncoding = System.Text.Encoding.Default;
                 JsonConvert.DefaultSettings = () => new JsonSerializerSettings
                 {
@@ -49,8 +66,7 @@ internal static class Program
         if (!startupReady)
             return;
 
-        var userDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var configFile = Path.Combine(userDirectory, "focus-config.json");
+        var configFile = runtimeOptions.ResolveConfigFilePath();
 
         UserConfig? userConfig = ExceptionDiagnostics.Guard<UserConfig?>(
             "loading configuration",
@@ -68,7 +84,7 @@ internal static class Program
             () =>
             {
                 CommandLanguageExtensions.Configure(userConfig.Translations);
-                var startPage = ApplicationStartup.CreateHomePage(userConfig);
+                var startPage = ApplicationStartup.CreateHomePage(userConfig, runtimeOptions);
                 startPage.Show();
             },
             WriteUserMessage);
@@ -94,7 +110,7 @@ internal static class Program
             do
             {
                 var dataDirUserInput =
-                    ReadLine.Read(
+                    AppConsole.Current.CommandLineEditor.Read(
                         $"{Environment.NewLine}Press \"Enter\" to save data into Documents folder or type directory path if you need to specify the data folder{Environment.NewLine}>");
                 applicationDataRoot = string.IsNullOrWhiteSpace(dataDirUserInput)
                     ? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)
@@ -102,10 +118,25 @@ internal static class Program
             } while (!Directory.Exists(applicationDataRoot));
 
             userConfig = new UserConfig { DataFolder = applicationDataRoot };
+            var configDirectory = Path.GetDirectoryName(configFile);
+            if (!string.IsNullOrWhiteSpace(configDirectory))
+                Directory.CreateDirectory(configDirectory);
             File.WriteAllText(configFile, JsonConvert.SerializeObject(userConfig, Formatting.Indented));
         }
 
         return userConfig;
+    }
+
+    private static IConsoleAppSession CreateConsoleSession(AppRuntimeOptions runtimeOptions)
+    {
+        if (runtimeOptions.IsTestHost)
+        {
+            return new TestHostConsoleSession(
+                runtimeOptions.TestHostPipeName
+                ?? throw new InvalidOperationException("Test host pipe name is required."));
+        }
+
+        return new ConsoleAppSession(new ReadLineCommandLineEditor());
     }
 
     private static void WriteUserMessage(string message)

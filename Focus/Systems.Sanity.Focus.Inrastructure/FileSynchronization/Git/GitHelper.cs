@@ -19,15 +19,24 @@ public class GitHelper
     private readonly Func<string, bool, bool, string[], (int ExitCode, string StandardOutput, string StandardError)> _executeGitCommand;
     private readonly Action<string>? _writeBackgroundMessage;
     private readonly Action<TimeSpan> _waitForSynchronizationDelay;
+    private readonly GitSynchronizationOptions _synchronizationOptions;
     private bool _syncWorkerRunning;
 
     public GitHelper(string gitRepositoryPath)
-        : this(gitRepositoryPath, ExecuteGitCommand, Thread.Sleep, null)
+        : this(gitRepositoryPath, ExecuteGitCommand, Thread.Sleep, null, null)
     {
     }
 
     public GitHelper(string gitRepositoryPath, Action<string>? writeBackgroundMessage)
-        : this(gitRepositoryPath, ExecuteGitCommand, Thread.Sleep, writeBackgroundMessage)
+        : this(gitRepositoryPath, ExecuteGitCommand, Thread.Sleep, writeBackgroundMessage, null)
+    {
+    }
+
+    public GitHelper(
+        string gitRepositoryPath,
+        Action<string>? writeBackgroundMessage,
+        GitSynchronizationOptions synchronizationOptions)
+        : this(gitRepositoryPath, ExecuteGitCommand, Thread.Sleep, writeBackgroundMessage, synchronizationOptions)
     {
     }
 
@@ -35,12 +44,14 @@ public class GitHelper
         string gitRepositoryPath,
         Func<string, bool, bool, string[], (int ExitCode, string StandardOutput, string StandardError)> executeGitCommand,
         Action<TimeSpan>? waitForSynchronizationDelay = null,
-        Action<string>? writeBackgroundMessage = null)
+        Action<string>? writeBackgroundMessage = null,
+        GitSynchronizationOptions? synchronizationOptions = null)
     {
         _gitRepositoryPath = gitRepositoryPath;
         _executeGitCommand = executeGitCommand;
         _waitForSynchronizationDelay = waitForSynchronizationDelay ?? Thread.Sleep;
         _writeBackgroundMessage = writeBackgroundMessage;
+        _synchronizationOptions = synchronizationOptions ?? GitSynchronizationOptions.BackgroundDebounced;
     }
 
     public static bool IsRepositoryAvailable(string gitRepositoryPath)
@@ -69,6 +80,16 @@ public class GitHelper
     {
         if (string.IsNullOrWhiteSpace(commitMessage))
             throw new ArgumentException("Sync commit message is required.", nameof(commitMessage));
+
+        if (!_synchronizationOptions.RunInBackground)
+        {
+            lock (_gitSyncLock)
+            {
+                CommitPullAndPush([commitMessage.Trim()]);
+            }
+
+            return;
+        }
 
         lock (_syncStateLock)
         {
@@ -107,22 +128,25 @@ public class GitHelper
         }
     }
 
-    private void CommitPullAndPush()
+    private void CommitPullAndPush(IReadOnlyList<string>? commitMessages = null)
     {
         var consoleOldTitle = TryGetConsoleTitle();
         try
         {
-            var pendingMessageCount = GetPendingCommitMessageCount();
+            var pendingMessageCount = commitMessages == null
+                ? GetPendingCommitMessageCount()
+                : 0;
 
             RunBackgroundGitCommand("add", "--all");
 
             if (HasPendingChanges())
             {
-                var commitMessage = FormatCommitMessage(DrainPendingCommitMessages(pendingMessageCount));
+                var formattedCommitMessage = FormatCommitMessage(
+                    commitMessages ?? DrainPendingCommitMessages(pendingMessageCount));
                 TrySetConsoleTitle("Syncing (committing changes)");
-                RunBackgroundGitCommand("commit", "-m", commitMessage);
+                RunBackgroundGitCommand("commit", "-m", formattedCommitMessage);
             }
-            else
+            else if (commitMessages == null)
             {
                 DrainPendingCommitMessages(pendingMessageCount);
             }
@@ -144,7 +168,7 @@ public class GitHelper
     {
         while (true)
         {
-            _waitForSynchronizationDelay(TimeSpan.FromSeconds(5));
+            _waitForSynchronizationDelay(_synchronizationOptions.SynchronizationDelay);
 
             try
             {
