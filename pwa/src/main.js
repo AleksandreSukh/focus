@@ -789,6 +789,10 @@ function handleDocumentInput(event) {
     return;
   }
 
+  if (target instanceof HTMLInputElement && target.type === 'file') {
+    return;
+  }
+
   const form = target.closest('form');
   if (!(form instanceof HTMLFormElement)) {
     return;
