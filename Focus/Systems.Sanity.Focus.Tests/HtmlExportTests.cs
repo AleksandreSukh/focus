@@ -79,7 +79,7 @@ public class HtmlExportTests
         Assert.Contains($"src=\"{expectedImagePath}\"", html);
         Assert.Contains("class=\"attachment-image\"", html);
         Assert.True(html.IndexOf("<h1>Root</h1>", System.StringComparison.Ordinal) <
-                    html.IndexOf("attachment-quote", System.StringComparison.Ordinal));
+                    html.IndexOf("<blockquote class=\"attachment-quote\">First line", System.StringComparison.Ordinal));
     }
 
     [Fact]
@@ -140,7 +140,7 @@ public class HtmlExportTests
 
         Assert.Contains("alpha_attachments/missing.txt", html);
         Assert.Contains(">Missing clipboard text.txt</a>", html);
-        Assert.DoesNotContain("attachment-quote", html);
-        Assert.DoesNotContain("attachment-image", html);
+        Assert.DoesNotContain("<blockquote class=\"attachment-quote\">", html);
+        Assert.DoesNotContain("<img class=\"attachment-image\"", html);
     }
 }

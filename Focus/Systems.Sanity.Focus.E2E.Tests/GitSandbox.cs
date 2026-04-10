@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using Systems.Sanity.Focus.Domain;
 
 namespace Systems.Sanity.Focus.E2E.Tests;
@@ -82,6 +84,22 @@ internal sealed class GitSandbox : IDisposable
         return RunGit(CollaboratorDirectory, "log", "-1", "--pretty=%B").StandardOutput.Trim();
     }
 
+    public IReadOnlyList<string> GetWorkingHeadCommitMessages(int count)
+    {
+        return GetCommitMessages(WorkingDirectory, count);
+    }
+
+    public IReadOnlyList<string> GetRemoteHeadCommitMessages(int count)
+    {
+        return GetCommitMessages(RootDirectory, count, $"--git-dir={RemoteDirectory}");
+    }
+
+    public void SetWorkingRemoteToMissingPath()
+    {
+        var missingRemoteDirectory = Path.Combine(RootDirectory, "missing-origin.git");
+        RunGit(WorkingDirectory, "remote", "set-url", "origin", missingRemoteDirectory);
+    }
+
     public void Dispose()
     {
         TestDirectoryCleaner.DeleteDirectory(RootDirectory);
@@ -126,6 +144,23 @@ internal sealed class GitSandbox : IDisposable
         }
 
         return result;
+    }
+
+    private static IReadOnlyList<string> GetCommitMessages(string workingDirectory, int count, params string[] commandPrefix)
+    {
+        if (count <= 0)
+            throw new ArgumentOutOfRangeException(nameof(count), "Count must be greater than zero.");
+
+        var arguments = commandPrefix
+            .Concat(["log", $"-{count}", "--pretty=%s"])
+            .ToArray();
+        var output = RunGit(workingDirectory, arguments).StandardOutput;
+
+        return output
+            .Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries)
+            .Select(message => message.Trim())
+            .Where(message => !string.IsNullOrWhiteSpace(message))
+            .ToArray();
     }
 
     private static string NormalizeJsonFileName(string fileName)

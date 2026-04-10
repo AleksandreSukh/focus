@@ -36,6 +36,15 @@ internal sealed class FocusE2EWorkspace : IDisposable
 
     public string MapsDirectory => Path.Combine(DataFolder, "FocusMaps");
 
+    public string OpenedFilesLogPath => Path.Combine(RootDirectory, "opened-files.log");
+
+    public string[] ReadOpenedFiles()
+    {
+        return File.Exists(OpenedFilesLogPath)
+            ? File.ReadAllLines(OpenedFilesLogPath)
+            : Array.Empty<string>();
+    }
+
     public UserConfig WriteConfig(string? dataFolder = null, string? gitRepository = null)
     {
         var config = new UserConfig

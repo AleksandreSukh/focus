@@ -10,7 +10,15 @@ namespace Systems.Sanity.Focus.E2E.Tests;
 
 internal sealed class FocusAppProcessHarness : IAsyncDisposable
 {
+    private const string ClipboardModeEnvironmentVariable = "FOCUS_TEST_CLIPBOARD_MODE";
+    private const string ClipboardTextBase64EnvironmentVariable = "FOCUS_TEST_CLIPBOARD_TEXT_BASE64";
+    private const string ClipboardImageBase64EnvironmentVariable = "FOCUS_TEST_CLIPBOARD_IMAGE_BASE64";
+    private const string ClipboardErrorEnvironmentVariable = "FOCUS_TEST_CLIPBOARD_ERROR";
+    private const string OpenedFilesLogPathEnvironmentVariable = "FOCUS_TEST_OPENED_FILES_LOG";
+    private const string EmitTitlesEnvironmentVariable = "FOCUS_TEST_EMIT_TITLES";
+
     private readonly FocusE2EWorkspace _workspace;
+    private readonly FocusAppLaunchOptions _launchOptions;
     private readonly FocusTestHostClient _testHostClient;
     private readonly string _pipeName;
     private readonly StringBuilder _standardOutput = new();
@@ -22,9 +30,10 @@ internal sealed class FocusAppProcessHarness : IAsyncDisposable
     private Task? _standardOutputPump;
     private Task? _standardErrorPump;
 
-    public FocusAppProcessHarness(FocusE2EWorkspace workspace)
+    public FocusAppProcessHarness(FocusE2EWorkspace workspace, FocusAppLaunchOptions? launchOptions = null)
     {
         _workspace = workspace;
+        _launchOptions = launchOptions ?? new FocusAppLaunchOptions();
         _pipeName = $"focus-e2e-{Guid.NewGuid():N}";
         _testHostClient = new FocusTestHostClient(_pipeName);
     }
@@ -50,6 +59,10 @@ internal sealed class FocusAppProcessHarness : IAsyncDisposable
         startInfo.ArgumentList.Add(_pipeName);
         startInfo.Environment["USERPROFILE"] = _workspace.HomeDirectory;
         startInfo.Environment["HOME"] = _workspace.HomeDirectory;
+        startInfo.Environment[OpenedFilesLogPathEnvironmentVariable] = _workspace.OpenedFilesLogPath;
+        ApplyClipboardOverrides(startInfo);
+        if (_launchOptions.EmitTitles)
+            startInfo.Environment[EmitTitlesEnvironmentVariable] = "1";
 
         _process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Failed to start the Focus app process.");
@@ -81,6 +94,27 @@ internal sealed class FocusAppProcessHarness : IAsyncDisposable
 
         throw new TimeoutException(
             $"Timed out waiting for output containing \"{expectedText}\".{Environment.NewLine}{GetTranscript()}");
+    }
+
+    public async Task WaitForOutputOccurrencesAsync(string expectedText, int occurrences, TimeSpan? timeout = null)
+    {
+        if (occurrences <= 0)
+            throw new ArgumentOutOfRangeException(nameof(occurrences), "Occurrences must be greater than zero.");
+
+        var deadlineUtc = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(15));
+        while (DateTime.UtcNow <= deadlineUtc)
+        {
+            if (CountOccurrences(GetTranscript(), expectedText) >= occurrences)
+                return;
+
+            if (_process?.HasExited == true)
+                break;
+
+            await Task.Delay(50, _cancellation.Token);
+        }
+
+        throw new TimeoutException(
+            $"Timed out waiting for output containing \"{expectedText}\" at least {occurrences} times.{Environment.NewLine}{GetTranscript()}");
     }
 
     public async Task<int> WaitForExitAsync(TimeSpan? timeout = null)
@@ -167,6 +201,69 @@ internal sealed class FocusAppProcessHarness : IAsyncDisposable
         }
         catch
         {
+        }
+    }
+
+    private void ApplyClipboardOverrides(ProcessStartInfo startInfo)
+    {
+        var modesSpecified = 0;
+        if (_launchOptions.ClipboardText != null)
+            modesSpecified++;
+        if (_launchOptions.ClipboardImageBytes != null)
+            modesSpecified++;
+        if (_launchOptions.ClipboardErrorMessage != null)
+            modesSpecified++;
+        if (_launchOptions.ClipboardExceptionMessage != null)
+            modesSpecified++;
+
+        if (modesSpecified > 1)
+            throw new InvalidOperationException("Specify only one clipboard override per app launch.");
+
+        if (_launchOptions.ClipboardText != null)
+        {
+            startInfo.Environment[ClipboardModeEnvironmentVariable] = "text";
+            startInfo.Environment[ClipboardTextBase64EnvironmentVariable] =
+                Convert.ToBase64String(Encoding.UTF8.GetBytes(_launchOptions.ClipboardText));
+            return;
+        }
+
+        if (_launchOptions.ClipboardImageBytes != null)
+        {
+            startInfo.Environment[ClipboardModeEnvironmentVariable] = "image";
+            startInfo.Environment[ClipboardImageBase64EnvironmentVariable] =
+                Convert.ToBase64String(_launchOptions.ClipboardImageBytes);
+            return;
+        }
+
+        if (_launchOptions.ClipboardErrorMessage != null)
+        {
+            startInfo.Environment[ClipboardModeEnvironmentVariable] = "error";
+            startInfo.Environment[ClipboardErrorEnvironmentVariable] = _launchOptions.ClipboardErrorMessage;
+            return;
+        }
+
+        if (_launchOptions.ClipboardExceptionMessage != null)
+        {
+            startInfo.Environment[ClipboardModeEnvironmentVariable] = "throw";
+            startInfo.Environment[ClipboardErrorEnvironmentVariable] = _launchOptions.ClipboardExceptionMessage;
+        }
+    }
+
+    private static int CountOccurrences(string content, string expectedText)
+    {
+        if (string.IsNullOrEmpty(expectedText))
+            return 0;
+
+        var count = 0;
+        var startIndex = 0;
+        while (true)
+        {
+            var index = content.IndexOf(expectedText, startIndex, StringComparison.Ordinal);
+            if (index < 0)
+                return count;
+
+            count++;
+            startIndex = index + expectedText.Length;
         }
     }
 }

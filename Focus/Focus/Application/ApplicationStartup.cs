@@ -19,12 +19,21 @@ internal static class ApplicationStartup
 
     internal static HomePage CreateHomePage(UserConfig userConfig, AppRuntimeOptions runtimeOptions)
     {
-        return CreateHomePage(new MapsStorage(userConfig, runtimeOptions.GitSynchronizationOptions));
+        var mapsStorage = new MapsStorage(userConfig, runtimeOptions.GitSynchronizationOptions);
+        var appContext = runtimeOptions.IsTestHost
+            ? TestHostAppOverrides.CreateContext(mapsStorage)
+            : new FocusAppContext(mapsStorage);
+        return CreateHomePage(appContext);
     }
 
     internal static HomePage CreateHomePage(MapsStorage mapsStorage)
     {
         var appContext = new FocusAppContext(mapsStorage);
+        return CreateHomePage(appContext);
+    }
+
+    private static HomePage CreateHomePage(FocusAppContext appContext)
+    {
         _ = StartStartupSyncInBackground(appContext);
         return new HomePage(appContext);
     }

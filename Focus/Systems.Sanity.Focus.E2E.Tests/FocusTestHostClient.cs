@@ -172,17 +172,18 @@ internal sealed class FocusTestHostClient : IAsyncDisposable
 
     private static void EnsureResponseMatchesRequest(TestHostRequestMessage request, TestHostResponseMessage response)
     {
-        var expectedResponseType = request.Type switch
+        var responseMatches = request.Type switch
         {
-            "request-line" => "line",
-            "request-key" => "key",
+            "request-line" => string.Equals(response.Type, "line", StringComparison.Ordinal)
+                              || string.Equals(response.Type, "key", StringComparison.Ordinal),
+            "request-key" => string.Equals(response.Type, "key", StringComparison.Ordinal),
             _ => throw new InvalidOperationException($"Unexpected request type \"{request.Type}\".")
         };
 
-        if (!string.Equals(response.Type, expectedResponseType, StringComparison.Ordinal))
+        if (!responseMatches)
         {
             throw new InvalidOperationException(
-                $"Expected a \"{expectedResponseType}\" response for request \"{request.Type}\" but queued \"{response.Type}\".");
+                $"Queued response \"{response.Type}\" is not valid for request \"{request.Type}\".");
         }
     }
 

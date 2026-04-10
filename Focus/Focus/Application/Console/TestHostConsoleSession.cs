@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Pipes;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -15,11 +16,17 @@ namespace Systems.Sanity.Focus.Application.Console;
 
 internal sealed class TestHostConsoleSession : IConsoleAppSession
 {
+    private const string EmitTitlesEnvironmentVariable = "FOCUS_TEST_EMIT_TITLES";
     private readonly TestHostPipeTransport _transport;
+    private readonly bool _emitTitles;
 
     public TestHostConsoleSession(string pipeName)
     {
         _transport = new TestHostPipeTransport(pipeName);
+        _emitTitles = string.Equals(
+            Environment.GetEnvironmentVariable(EmitTitlesEnvironmentVariable),
+            "1",
+            StringComparison.Ordinal);
         CommandLineEditor = new TestHostCommandLineEditor(_transport);
     }
 
@@ -29,6 +36,8 @@ internal sealed class TestHostConsoleSession : IConsoleAppSession
 
     public void SetTitle(string? title)
     {
+        if (_emitTitles && !string.IsNullOrWhiteSpace(title))
+            SysConsole.WriteLine($":title> {title}");
     }
 
     public void Clear()
@@ -108,23 +117,61 @@ internal sealed class TestHostConsoleSession : IConsoleAppSession
             if (!string.IsNullOrEmpty(prompt))
                 SysConsole.Write(prompt);
 
-            var initialText = initialKeyInfo.HasValue && IsPrintable(initialKeyInfo.Value.KeyChar)
+            var currentText = initialKeyInfo.HasValue && IsPrintable(initialKeyInfo.Value.KeyChar)
                 ? initialKeyInfo.Value.KeyChar.ToString()
                 : string.Empty;
-            var response = _transport.RequestLine(prompt, defaultInput, initialText);
-            var typedText = response.Text ?? string.Empty;
-            if (!string.IsNullOrEmpty(initialText))
-                typedText = $"{initialText}{typedText}";
+            while (true)
+            {
+                var response = _transport.RequestLine(prompt, defaultInput, currentText);
+                if (string.Equals(response.Type, "key", StringComparison.Ordinal))
+                {
+                    var keyInfo = ToConsoleKeyInfo(response);
+                    if (previewKeyHandler?.Invoke(keyInfo, currentText) == true)
+                        continue;
 
-            EchoTypedInput(typedText, response.EchoDelayMs);
+                    if (keyInfo.Key == ConsoleKey.Backspace && currentText.Length > 0)
+                    {
+                        currentText = currentText[..^1];
+                        continue;
+                    }
 
-            if (HistoryEnabled && !string.IsNullOrWhiteSpace(typedText))
-                _history.Add(typedText);
+                    if (IsPrintable(keyInfo.KeyChar))
+                        currentText += keyInfo.KeyChar;
 
-            return typedText;
+                    continue;
+                }
+
+                var typedText = response.Text ?? string.Empty;
+                if (!string.IsNullOrEmpty(currentText))
+                    typedText = $"{currentText}{typedText}";
+
+                EchoTypedInput(typedText, response.EchoDelayMs);
+
+                if (HistoryEnabled && !string.IsNullOrWhiteSpace(typedText))
+                    _history.Add(typedText);
+
+                return typedText;
+            }
         }
 
         public IReadOnlyList<string> GetHistory() => _history;
+
+        private static ConsoleKeyInfo ToConsoleKeyInfo(TestHostResponseMessage response)
+        {
+            var keyChar = string.IsNullOrEmpty(response.KeyChar)
+                ? default
+                : response.KeyChar[0];
+            var key = Enum.TryParse<ConsoleKey>(response.Key, ignoreCase: true, out var parsedKey)
+                ? parsedKey
+                : ConsoleKey.NoName;
+
+            return new ConsoleKeyInfo(
+                keyChar,
+                key,
+                response.Shift,
+                response.Alt,
+                response.Control);
+        }
 
         private static void EchoTypedInput(string input, int echoDelayMs)
         {
@@ -188,7 +235,7 @@ internal sealed class TestHostConsoleSession : IConsoleAppSession
                     DefaultInput = defaultInput,
                     InitialText = initialText
                 },
-                expectedResponseType: "line");
+                expectedResponseTypes: ["line", "key"]);
         }
 
         public TestHostResponseMessage RequestKey(bool intercept)
@@ -199,10 +246,10 @@ internal sealed class TestHostConsoleSession : IConsoleAppSession
                     Type = "request-key",
                     Intercept = intercept
                 },
-                expectedResponseType: "key");
+                "key");
         }
 
-        private TestHostResponseMessage Exchange(TestHostRequestMessage request, string expectedResponseType)
+        private TestHostResponseMessage Exchange(TestHostRequestMessage request, params string[] expectedResponseTypes)
         {
             _requestLock.Wait();
             try
@@ -210,10 +257,11 @@ internal sealed class TestHostConsoleSession : IConsoleAppSession
                 EnsureConnected();
                 WriteMessage(request);
                 var response = ReadMessage();
-                if (!string.Equals(response.Type, expectedResponseType, StringComparison.Ordinal))
+                if (!expectedResponseTypes.Any(expectedResponseType =>
+                        string.Equals(response.Type, expectedResponseType, StringComparison.Ordinal)))
                 {
                     throw new InvalidOperationException(
-                        $"Expected test-host response \"{expectedResponseType}\" but received \"{response.Type}\".");
+                        $"Expected test-host response \"{string.Join("\" or \"", expectedResponseTypes)}\" but received \"{response.Type}\".");
                 }
 
                 return response;
