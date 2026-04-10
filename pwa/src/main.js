@@ -2,6 +2,7 @@ import {
   buildConflictResolveCommitMessage,
   buildMapCreateCommitMessage,
   buildMapDeleteCommitMessage,
+  buildMapRenameCommitMessage,
   buildNodeAddCommitMessage,
   buildNodeDeleteCommitMessage,
   buildNodeEditCommitMessage,
@@ -47,7 +48,7 @@ import {
   serializeMindMapDocument,
   TASK_STATE,
 } from './maps/model.js';
-import { renderInlineHtml } from './formatting/inlineFormatter.js';
+import { renderInlineHtml, toPlainText } from './formatting/inlineFormatter.js';
 
 const THEME_STORAGE_KEY = 'focus.pwa.theme';
 const FAB_SIDE_STORAGE_KEY = 'focus.pwa.fabSide';
@@ -1367,15 +1368,69 @@ async function handleEditNodeSubmit(form) {
     errorMessage: '',
   };
 
+  const { snapshot, nodeUiState } = modalContext;
+  const isRootNode = nodeUiState.parent === null;
+  const oldFilePath = snapshot.filePath;
+  const newFilePath = isRootNode ? computeRenamedFilePath(oldFilePath, text) : oldFilePath;
+  const isRename = isRootNode && newFilePath !== oldFilePath;
+
+  if (isRename) {
+    const oldRevision = snapshot.revision;
+    const oldMapName = snapshot.mapName;
+    const newMapName = (newFilePath.split('/').pop() || newFilePath).replace(/\.json$/i, '');
+
+    const operation = {
+      type: 'renameMap',
+      filePath: oldFilePath,
+      newFilePath,
+      nodeId: nodeUiState.node.uniqueIdentifier,
+      text,
+      oldRevision,
+      timestamp: nowIso(),
+      commitMessage: buildMapRenameCommitMessage(oldMapName, newMapName),
+    };
+
+    // Optimistically update local snapshot to new path/name
+    const updatedSnapshot = {
+      ...snapshot,
+      filePath: newFilePath,
+      fileName: newFilePath.split('/').pop() || newFilePath,
+      mapName: newMapName,
+      document: cloneMapDocument(snapshot.document),
+    };
+    updatedSnapshot.document.rootNode.name = text;
+
+    state.service.removeCachedSnapshot(oldFilePath);
+    state.service.replaceCachedSnapshot(updatedSnapshot);
+
+    const result = enqueueOperation(operation);
+    if (!result.ok) {
+      // Roll back optimistic update
+      state.service.removeCachedSnapshot(newFilePath);
+      state.service.replaceCachedSnapshot(snapshot);
+      setActiveModalError(result.error.message);
+      return;
+    }
+
+    setSnapshots(getSnapshots().map((s) =>
+      s.filePath === oldFilePath ? updatedSnapshot : s,
+    ));
+
+    closeActiveModal({
+      focusKey: buildNodeFocusKey(newFilePath, state.selectedNodeId || operation.nodeId),
+    });
+    return;
+  }
+
   const operation = {
     type: 'editNodeText',
-    filePath: modalContext.snapshot.filePath,
-    nodeId: modalContext.nodeUiState.node.uniqueIdentifier,
+    filePath: oldFilePath,
+    nodeId: nodeUiState.node.uniqueIdentifier,
     text,
     timestamp: nowIso(),
     commitMessage: buildNodeEditCommitMessage(
-      modalContext.snapshot.mapName,
-      modalContext.nodeUiState.node.uniqueIdentifier,
+      snapshot.mapName,
+      nodeUiState.node.uniqueIdentifier,
     ),
   };
 
@@ -2891,6 +2946,21 @@ function createClientNodeId() {
 
 function buildNodeFocusKey(mapPath, nodeId) {
   return `node|${mapPath}|${nodeId}`;
+}
+
+function sanitizeMapFileName(name) {
+  const plain = toPlainText(String(name ?? '')).trim();
+  if (!plain) return 'untitled';
+  const sanitized = plain.replace(/[/\\:*?"<>|]/g, '_').replace(/\.+$/, '').trim();
+  return sanitized || 'untitled';
+}
+
+function computeRenamedFilePath(oldFilePath, newRootName) {
+  const dir = oldFilePath.includes('/')
+    ? oldFilePath.substring(0, oldFilePath.lastIndexOf('/'))
+    : '';
+  const newBaseName = sanitizeMapFileName(newRootName);
+  return dir ? `${dir}/${newBaseName}.json` : `${newBaseName}.json`;
 }
 
 function focusPendingElement() {

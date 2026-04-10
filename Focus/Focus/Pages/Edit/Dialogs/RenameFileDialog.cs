@@ -19,6 +19,8 @@ internal sealed class RenameFileDialog : Page
         _existingFile = existingFile;
     }
 
+    public string? NewFilePath { get; private set; }
+
     public override void Show()
     {
         var existingFilePath = MapFileHelper.GetFullFilePath(_existingFile.DirectoryName, _existingFile.Name);
@@ -43,7 +45,11 @@ internal sealed class RenameFileDialog : Page
             new RequestRenameUntilFileNameIsAvailableDialog(
                     _existingFile.DirectoryName,
                     newFileName,
-                    filePath => _mapRepository.MoveMap(existingFilePath, filePath),
+                    filePath =>
+                    {
+                        _mapRepository.MoveMap(existingFilePath, filePath);
+                        NewFilePath = filePath;
+                    },
                     fileExtension)
                 .Show();
         }

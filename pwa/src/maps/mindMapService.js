@@ -159,6 +159,51 @@ export class MindMapService {
     };
   }
 
+  async renameMap(oldFilePath, newFilePath, oldRevision, commitMessage) {
+    const snapshot = this.snapshotsByPath.get(newFilePath)
+      ?? this.snapshotsByPath.get(oldFilePath);
+
+    if (!snapshot) {
+      return {
+        ok: false,
+        error: {
+          code: 'NOT_FOUND',
+          message: `Map "${oldFilePath}" is not loaded.`,
+          retriable: false,
+        },
+      };
+    }
+
+    const renamed = await this.repository.renameMap(
+      oldFilePath,
+      newFilePath,
+      snapshot.document,
+      oldRevision,
+      commitMessage,
+    );
+
+    if (!renamed.ok) {
+      return renamed;
+    }
+
+    const newSnapshot = {
+      ...snapshot,
+      filePath: newFilePath,
+      fileName: newFilePath.split('/').pop() || newFilePath,
+      mapName: (newFilePath.split('/').pop() || newFilePath).replace(/\.json$/i, ''),
+      revision: renamed.revision,
+      loadedAt: Date.now(),
+    };
+
+    this.snapshotsByPath.delete(oldFilePath);
+    this.snapshotsByPath.set(newFilePath, newSnapshot);
+
+    return {
+      ok: true,
+      value: { snapshot: newSnapshot },
+    };
+  }
+
   async saveResolved(filePath, document, revision, commitMessage) {
     const saved = await this.repository.saveMap(filePath, document, revision, commitMessage);
     if (!saved.ok) {

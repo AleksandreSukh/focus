@@ -62,3 +62,7 @@ export function buildMapCreateCommitMessage(mapName) {
 export function buildConflictResolveCommitMessage(mapName) {
   return `map:resolve ${normalizeMapName(mapName)}`;
 }
+
+export function buildMapRenameCommitMessage(oldMapName, newMapName) {
+  return `map:rename ${normalizeMapName(oldMapName)} -> ${normalizeMapName(newMapName)}`;
+}

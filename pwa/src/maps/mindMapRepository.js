@@ -173,6 +173,82 @@ export class MindMapRepository {
     }
   }
 
+  async renameMap(oldFilePath, newFilePath, document, oldRevision, commitMessage) {
+    try {
+      const createOutcome = await this.provider.saveMap({
+        filePath: newFilePath,
+        document,
+        expectedRevision: null,
+        commitMessage,
+      });
+
+      if (!createOutcome.ok) {
+        if (createOutcome.reason === 'conflict') {
+          return {
+            ok: false,
+            error: {
+              code: 'ALREADY_EXISTS',
+              message: `A map file named "${newFilePath}" already exists on the remote. Choose a different name.`,
+              retriable: false,
+            },
+          };
+        }
+
+        return {
+          ok: false,
+          error: {
+            code: 'PERSISTENCE_ERROR',
+            message: createOutcome.message || `Unable to create map "${newFilePath}".`,
+            retriable: true,
+          },
+        };
+      }
+
+      const deleteOutcome = await this.provider.deleteMap({
+        filePath: oldFilePath,
+        expectedRevision: oldRevision,
+        commitMessage,
+      });
+
+      if (!deleteOutcome.ok) {
+        if (deleteOutcome.reason === 'conflict') {
+          return {
+            ok: false,
+            error: {
+              code: 'STALE_STATE',
+              message: `Remote map "${oldFilePath}" changed during rename. Refresh and try again.`,
+              retriable: true,
+            },
+          };
+        }
+
+        return {
+          ok: false,
+          error: {
+            code: 'PERSISTENCE_ERROR',
+            message: deleteOutcome.message || `Unable to delete old map "${oldFilePath}" after rename.`,
+            retriable: true,
+          },
+        };
+      }
+
+      return {
+        ok: true,
+        revision: createOutcome.revision,
+      };
+    } catch (cause) {
+      return {
+        ok: false,
+        error: {
+          code: 'PERSISTENCE_ERROR',
+          message: cause?.message || `Unable to rename map "${oldFilePath}".`,
+          retriable: cause?.code === 'NETWORK' || cause?.code === 'RATE_LIMIT',
+          cause,
+        },
+      };
+    }
+  }
+
   async saveMap(filePath, document, expectedRevision, commitMessage) {
     try {
       const outcome = await this.provider.saveMap({

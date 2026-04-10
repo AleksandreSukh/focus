@@ -105,6 +105,18 @@ public class Node
         }
     }
 
+    public bool RemoveDeadLinks(ISet<Guid> liveNodeIds)
+    {
+        var deadKeys = Links.Keys.Where(k => !liveNodeIds.Contains(k)).ToList();
+        if (deadKeys.Count == 0)
+            return false;
+
+        foreach (var key in deadKeys)
+            Links.Remove(key);
+
+        return true;
+    }
+
     public bool SanitizeName()
     {
         var sanitizedName = SanitizeText(Name);

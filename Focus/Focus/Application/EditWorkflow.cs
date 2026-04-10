@@ -80,7 +80,7 @@ internal sealed class EditWorkflow
     };
 
     private readonly FocusAppContext _appContext;
-    private readonly string _filePath;
+    private string _filePath;
     private MindMap _map;
 
     public EditWorkflow(string filePath, FocusAppContext appContext, Guid? initialNodeIdentifier = null)
@@ -94,6 +94,8 @@ internal sealed class EditWorkflow
             _map.ChangeCurrentNodeById(initialNodeIdentifier.Value);
         }
     }
+
+    public string FilePath => _filePath;
 
     public string FileTitle => Path.GetFileName(_filePath) ?? string.Empty;
 
@@ -531,9 +533,38 @@ internal sealed class EditWorkflow
     {
         var editDialog = new EditDialog(_map, parameters);
         editDialog.Show();
-        return editDialog.DidEdit
-            ? PersistMapChange("Edit node")
-            : CommandExecutionResult.Success();
+        if (!editDialog.DidEdit)
+            return CommandExecutionResult.Success();
+
+        if (_map.IsAtRootNode())
+            RenameFileToMatchRootNode();
+
+        return PersistMapChange("Edit node");
+    }
+
+    private void RenameFileToMatchRootNode()
+    {
+        var directory = Path.GetDirectoryName(_filePath);
+        if (directory == null)
+            return;
+
+        var newBaseName = MapFileHelper.SanitizeFileName(_map.RootNode.Name);
+        var newFilePath = MapFileHelper.GetFullFilePath(directory, newBaseName);
+
+        if (string.Equals(_filePath, newFilePath, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        var candidatePath = newFilePath;
+        var counter = 2;
+        while (File.Exists(candidatePath) && !string.Equals(candidatePath, _filePath, StringComparison.OrdinalIgnoreCase))
+        {
+            var candidate = $"{newBaseName}_({counter})";
+            candidatePath = MapFileHelper.GetFullFilePath(directory, candidate);
+            counter++;
+        }
+
+        _appContext.MapRepository.MoveMap(_filePath, candidatePath);
+        _filePath = candidatePath;
     }
 
     private CommandExecutionResult ProcessExport()

@@ -18,3 +18,6 @@ export const buildTodoToggleCommitMessage = (
 
 export const buildTodoDeleteCommitMessage = (id: string): string =>
   `todo:delete ${normalizeValue(id)}`;
+
+export const buildMapRenameCommitMessage = (oldMapName: string, newMapName: string): string =>
+  `map:rename ${truncate(normalizeValue(oldMapName), 48) || 'map'} -> ${truncate(normalizeValue(newMapName), 48) || 'map'}`;

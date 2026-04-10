@@ -32,10 +32,20 @@ internal sealed class LinkIndex : ILinkIndex
         _queuedLinkSources.Clear();
 
         var usedIdentifiers = new HashSet<Guid>();
+        var loadedMaps = new List<(string FilePath, MindMap Map)>();
+
         foreach (var file in mapRepository.GetAll())
         {
             var map = mapRepository.OpenMap(file.FullName, usedIdentifiers);
             IndexMap(map, file.FullName);
+            loadedMaps.Add((file.FullName, map));
+        }
+
+        var liveGuids = new HashSet<Guid>(_nodes.Keys);
+        foreach (var (filePath, map) in loadedMaps)
+        {
+            if (map.ScrubDeadLinks(liveGuids))
+                mapRepository.SaveMap(filePath, map);
         }
     }
 

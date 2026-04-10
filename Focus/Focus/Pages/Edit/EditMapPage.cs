@@ -81,7 +81,7 @@ internal sealed class EditMapPage : PageWithSuggestedOptions
     private void RenderScreen(string? message, bool isError)
     {
         AppConsole.Current.SetTitle(
-            _appContext.StartupSyncNotificationState.BuildTitle(_workflow.FileTitle, _filePath));
+            _appContext.StartupSyncNotificationState.BuildTitle(_workflow.FileTitle, _workflow.FilePath));
         AppConsole.Current.Clear();
         AppConsole.Current.ClearScrollback();
         ColorfulConsole.Write(_workflow.BuildScreen(message, isError, _showCommands));
@@ -113,7 +113,7 @@ internal sealed class EditMapPage : PageWithSuggestedOptions
 
     private bool ShouldReturnToHomePageForUpdatedFile()
     {
-        if (!_appContext.StartupSyncNotificationState.TryConsumeCurrentFileUpdateWarning(_filePath, out var warningMessage))
+        if (!_appContext.StartupSyncNotificationState.TryConsumeCurrentFileUpdateWarning(_workflow.FilePath, out var warningMessage))
             return false;
 
         return new Confirmation(warningMessage).Confirmed();

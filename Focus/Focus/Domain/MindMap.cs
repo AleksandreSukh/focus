@@ -279,6 +279,22 @@ namespace Systems.Sanity.Focus.Domain
             return true;
         }
 
+        public bool ScrubDeadLinks(ISet<Guid> liveNodeIds)
+        {
+            var changed = ScrubNodeLinks(RootNode, liveNodeIds);
+            if (changed)
+                TouchMapTimestamp();
+            return changed;
+        }
+
+        private static bool ScrubNodeLinks(Node node, ISet<Guid> liveNodeIds)
+        {
+            var changed = node.RemoveDeadLinks(liveNodeIds);
+            foreach (var child in node.Children)
+                changed |= ScrubNodeLinks(child, liveNodeIds);
+            return changed;
+        }
+
         private void TouchMapTimestamp() => UpdatedAt = DateTimeOffset.UtcNow;
 
         private bool ClearIdeaTagsOfNode(Node nodeToClear)

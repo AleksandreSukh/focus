@@ -160,6 +160,7 @@ internal sealed class HomeWorkflow
             if (new Confirmation($"Are you sure you want to delete: \"{file.Name}\"?").Confirmed())
             {
                 _appContext.MapRepository.DeleteMap(file);
+                _appContext.RefreshLinkIndex();
             }
 
             return HomeWorkflowResult.Continue;
@@ -195,7 +196,18 @@ internal sealed class HomeWorkflow
 
         try
         {
-            new RenameFileDialog(_appContext.MapRepository, file).Show();
+            var dialog = new RenameFileDialog(_appContext.MapRepository, file);
+            dialog.Show();
+
+            if (dialog.NewFilePath != null)
+            {
+                var newBaseName = Path.GetFileNameWithoutExtension(dialog.NewFilePath);
+                var map = _appContext.MapRepository.OpenMap(dialog.NewFilePath);
+                map.RootNode.EditNode(newBaseName);
+                _appContext.MapRepository.SaveMap(dialog.NewFilePath, map);
+                _appContext.RefreshLinkIndex();
+            }
+
             return HomeWorkflowResult.Continue;
         }
         catch (Exception ex)
