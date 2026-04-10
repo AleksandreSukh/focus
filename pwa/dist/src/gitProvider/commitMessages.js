@@ -62,3 +62,17 @@ export function buildMapCreateCommitMessage(mapName) {
 export function buildConflictResolveCommitMessage(mapName) {
   return `map:resolve ${normalizeMapName(mapName)}`;
 }
+
+export function buildMapRenameCommitMessage(oldMapName, newMapName) {
+  return `map:rename ${normalizeMapName(oldMapName)} -> ${normalizeMapName(newMapName)}`;
+}
+
+export function buildAttachmentAddCommitMessage(mapName, fileName) {
+  const normalizedFileName = truncate(normalizeValue(fileName), 48);
+  return `map:attach ${normalizeMapName(mapName)} ${normalizedFileName}`.trimEnd();
+}
+
+export function buildAttachmentRemoveCommitMessage(mapName, fileName) {
+  const normalizedFileName = truncate(normalizeValue(fileName), 48);
+  return `map:detach ${normalizeMapName(mapName)} ${normalizedFileName}`.trimEnd();
+}

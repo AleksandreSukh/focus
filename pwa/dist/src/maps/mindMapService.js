@@ -159,6 +159,81 @@ export class MindMapService {
     };
   }
 
+  async uploadAttachment(mapFilePath, file, commitMessage) {
+    const ext = (file.name.includes('.') ? '.' + file.name.split('.').pop() : '').toLowerCase();
+    const relativePath = `${createAttachmentId()}${ext}`;
+    const base64Content = await readFileAsBase64(file);
+    const uploaded = await this.repository.uploadAttachment(
+      mapFilePath,
+      relativePath,
+      base64Content,
+      commitMessage,
+    );
+    if (!uploaded.ok) {
+      return uploaded;
+    }
+
+    return {
+      ok: true,
+      value: {
+        id: relativePath.replace(/\.[^.]+$/, ''),
+        relativePath,
+        mediaType: file.type || 'application/octet-stream',
+        displayName: file.name,
+        createdAtUtc: new Date().toISOString(),
+      },
+    };
+  }
+
+  async deleteAttachment(mapFilePath, relativePath, commitMessage) {
+    return this.repository.deleteAttachment(mapFilePath, relativePath, null, commitMessage);
+  }
+
+  async renameMap(oldFilePath, newFilePath, oldRevision, commitMessage) {
+    const snapshot = this.snapshotsByPath.get(newFilePath)
+      ?? this.snapshotsByPath.get(oldFilePath);
+
+    if (!snapshot) {
+      return {
+        ok: false,
+        error: {
+          code: 'NOT_FOUND',
+          message: `Map "${oldFilePath}" is not loaded.`,
+          retriable: false,
+        },
+      };
+    }
+
+    const renamed = await this.repository.renameMap(
+      oldFilePath,
+      newFilePath,
+      snapshot.document,
+      oldRevision,
+      commitMessage,
+    );
+
+    if (!renamed.ok) {
+      return renamed;
+    }
+
+    const newSnapshot = {
+      ...snapshot,
+      filePath: newFilePath,
+      fileName: newFilePath.split('/').pop() || newFilePath,
+      mapName: (newFilePath.split('/').pop() || newFilePath).replace(/\.json$/i, ''),
+      revision: renamed.revision,
+      loadedAt: Date.now(),
+    };
+
+    this.snapshotsByPath.delete(oldFilePath);
+    this.snapshotsByPath.set(newFilePath, newSnapshot);
+
+    return {
+      ok: true,
+      value: { snapshot: newSnapshot },
+    };
+  }
+
   async saveResolved(filePath, document, revision, commitMessage) {
     const saved = await this.repository.saveMap(filePath, document, revision, commitMessage);
     if (!saved.ok) {
@@ -292,6 +367,32 @@ export class MindMapService {
       },
     };
   }
+}
+
+function createAttachmentId() {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+
+  return `${Date.now().toString(16).padStart(12, '0')}-${Math.random().toString(16).slice(2, 14).padEnd(12, '0')}`;
+}
+
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== 'string') {
+        reject(new Error('FileReader did not return a string.'));
+        return;
+      }
+      // result is "data:<mediaType>;base64,<data>" — strip the prefix
+      const commaIndex = result.indexOf(',');
+      resolve(commaIndex >= 0 ? result.slice(commaIndex + 1) : result);
+    };
+    reader.onerror = () => reject(reader.error || new Error('Failed to read file.'));
+    reader.readAsDataURL(file);
+  });
 }
 
 function buildUnreadableMapEntry(error) {

@@ -21,3 +21,9 @@ export const buildTodoDeleteCommitMessage = (id: string): string =>
 
 export const buildMapRenameCommitMessage = (oldMapName: string, newMapName: string): string =>
   `map:rename ${truncate(normalizeValue(oldMapName), 48) || 'map'} -> ${truncate(normalizeValue(newMapName), 48) || 'map'}`;
+
+export const buildAttachmentAddCommitMessage = (mapName: string, fileName: string): string =>
+  `map:attach ${truncate(normalizeValue(mapName), 48) || 'map'} ${truncate(normalizeValue(fileName), 48)}`.trimEnd();
+
+export const buildAttachmentRemoveCommitMessage = (mapName: string, fileName: string): string =>
+  `map:detach ${truncate(normalizeValue(mapName), 48) || 'map'} ${truncate(normalizeValue(fileName), 48)}`.trimEnd();

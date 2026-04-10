@@ -173,6 +173,132 @@ export class MindMapRepository {
     }
   }
 
+  async uploadAttachment(mapFilePath, relativePath, base64Content, commitMessage) {
+    try {
+      const outcome = await this.provider.uploadAttachment({
+        mapFilePath,
+        relativePath,
+        base64Content,
+        commitMessage,
+      });
+      return { ok: true, versionToken: outcome.versionToken };
+    } catch (cause) {
+      return {
+        ok: false,
+        error: {
+          code: 'PERSISTENCE_ERROR',
+          message: cause?.message || `Unable to upload attachment "${relativePath}".`,
+          retriable: cause?.code === 'NETWORK' || cause?.code === 'RATE_LIMIT',
+          cause,
+        },
+      };
+    }
+  }
+
+  async deleteAttachment(mapFilePath, relativePath, versionToken, commitMessage) {
+    try {
+      await this.provider.deleteAttachment({
+        mapFilePath,
+        relativePath,
+        versionToken,
+        commitMessage,
+      });
+      return { ok: true };
+    } catch (cause) {
+      return {
+        ok: false,
+        error: {
+          code: 'PERSISTENCE_ERROR',
+          message: cause?.message || `Unable to delete attachment "${relativePath}".`,
+          retriable: cause?.code === 'NETWORK' || cause?.code === 'RATE_LIMIT',
+          cause,
+        },
+      };
+    }
+  }
+
+  async renameMap(oldFilePath, newFilePath, document, oldRevision, commitMessage) {
+    try {
+      const createOutcome = await this.provider.saveMap({
+        filePath: newFilePath,
+        document,
+        expectedRevision: null,
+        commitMessage,
+      });
+
+      if (!createOutcome.ok) {
+        if (createOutcome.reason === 'conflict') {
+          return {
+            ok: false,
+            error: {
+              code: 'ALREADY_EXISTS',
+              message: `A map file named "${newFilePath}" already exists on the remote. Choose a different name.`,
+              retriable: false,
+            },
+          };
+        }
+
+        return {
+          ok: false,
+          error: {
+            code: 'PERSISTENCE_ERROR',
+            message: createOutcome.message || `Unable to create map "${newFilePath}".`,
+            retriable: true,
+          },
+        };
+      }
+
+      const deleteOutcome = await this.provider.deleteMap({
+        filePath: oldFilePath,
+        expectedRevision: oldRevision,
+        commitMessage,
+      });
+
+      if (!deleteOutcome.ok) {
+        if (deleteOutcome.reason === 'conflict') {
+          return {
+            ok: false,
+            error: {
+              code: 'STALE_STATE',
+              message: `Remote map "${oldFilePath}" changed during rename. Refresh and try again.`,
+              retriable: true,
+            },
+          };
+        }
+
+        return {
+          ok: false,
+          error: {
+            code: 'PERSISTENCE_ERROR',
+            message: deleteOutcome.message || `Unable to delete old map "${oldFilePath}" after rename.`,
+            retriable: true,
+          },
+        };
+      }
+
+      try {
+        await this.provider.renameAttachmentDirectory(oldFilePath, newFilePath, commitMessage);
+      } catch {
+        // Attachment folder migration is best-effort — the map rename already succeeded.
+      }
+
+      return {
+        ok: true,
+        revision: createOutcome.revision,
+      };
+    } catch (cause) {
+      return {
+        ok: false,
+        error: {
+          code: 'PERSISTENCE_ERROR',
+          message: cause?.message || `Unable to rename map "${oldFilePath}".`,
+          retriable: cause?.code === 'NETWORK' || cause?.code === 'RATE_LIMIT',
+          cause,
+        },
+      };
+    }
+  }
+
   async saveMap(filePath, document, expectedRevision, commitMessage) {
     try {
       const outcome = await this.provider.saveMap({

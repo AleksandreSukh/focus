@@ -95,6 +95,49 @@ export class GitHubMindMapProvider {
     }
   }
 
+  async uploadAttachment({ mapFilePath, relativePath, base64Content, commitMessage }) {
+    const attachmentDir = mapFilePath.replace(/\.json$/i, '_attachments');
+    const attachmentPath = `${attachmentDir}/${relativePath}`;
+    const result = await this.gitProvider.putBinaryFile(
+      attachmentPath,
+      base64Content,
+      null,
+      commitMessage,
+    );
+    return { ok: true, versionToken: result.versionToken };
+  }
+
+  async deleteAttachment({ mapFilePath, relativePath, versionToken, commitMessage }) {
+    const attachmentDir = mapFilePath.replace(/\.json$/i, '_attachments');
+    const attachmentPath = `${attachmentDir}/${relativePath}`;
+    await this.gitProvider.deleteFile(attachmentPath, versionToken, commitMessage);
+    return { ok: true };
+  }
+
+  async renameAttachmentDirectory(oldMapFilePath, newMapFilePath, commitMessage) {
+    const oldDir = oldMapFilePath.replace(/\.json$/i, '_attachments');
+    const newDir = newMapFilePath.replace(/\.json$/i, '_attachments');
+
+    let entries;
+    try {
+      entries = await this.gitProvider.listDirectory(oldDir);
+    } catch (error) {
+      if (error?.code === 'NOT_FOUND') return { ok: true };
+      throw error;
+    }
+
+    const files = entries.filter((e) => e.type === 'file');
+    if (files.length === 0) return { ok: true };
+
+    for (const file of files) {
+      const raw = await this.gitProvider.getFileRaw(file.path);
+      await this.gitProvider.putBinaryFile(`${newDir}/${file.name}`, raw.base64Content, null, commitMessage);
+      await this.gitProvider.deleteFile(file.path, raw.versionToken, commitMessage);
+    }
+
+    return { ok: true };
+  }
+
   async saveMap({ filePath, document, expectedRevision, commitMessage }) {
     try {
       const result = await this.gitProvider.putFile(

@@ -173,6 +173,50 @@ export class MindMapRepository {
     }
   }
 
+  async uploadAttachment(mapFilePath, relativePath, base64Content, commitMessage) {
+    try {
+      const outcome = await this.provider.uploadAttachment({
+        mapFilePath,
+        relativePath,
+        base64Content,
+        commitMessage,
+      });
+      return { ok: true, versionToken: outcome.versionToken };
+    } catch (cause) {
+      return {
+        ok: false,
+        error: {
+          code: 'PERSISTENCE_ERROR',
+          message: cause?.message || `Unable to upload attachment "${relativePath}".`,
+          retriable: cause?.code === 'NETWORK' || cause?.code === 'RATE_LIMIT',
+          cause,
+        },
+      };
+    }
+  }
+
+  async deleteAttachment(mapFilePath, relativePath, versionToken, commitMessage) {
+    try {
+      await this.provider.deleteAttachment({
+        mapFilePath,
+        relativePath,
+        versionToken,
+        commitMessage,
+      });
+      return { ok: true };
+    } catch (cause) {
+      return {
+        ok: false,
+        error: {
+          code: 'PERSISTENCE_ERROR',
+          message: cause?.message || `Unable to delete attachment "${relativePath}".`,
+          retriable: cause?.code === 'NETWORK' || cause?.code === 'RATE_LIMIT',
+          cause,
+        },
+      };
+    }
+  }
+
   async renameMap(oldFilePath, newFilePath, document, oldRevision, commitMessage) {
     try {
       const createOutcome = await this.provider.saveMap({
@@ -230,6 +274,12 @@ export class MindMapRepository {
             retriable: true,
           },
         };
+      }
+
+      try {
+        await this.provider.renameAttachmentDirectory(oldFilePath, newFilePath, commitMessage);
+      } catch {
+        // Attachment folder migration is best-effort — the map rename already succeeded.
       }
 
       return {

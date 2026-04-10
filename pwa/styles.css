@@ -1748,7 +1748,7 @@ textarea:disabled {
 
 /* ── Screen Reader Only ── */
 
-/* ── Attachment List ── */
+/* ── Attachment List (card view) ── */
 
 .attachment-list {
   display: flex;
@@ -1773,6 +1773,77 @@ textarea:disabled {
 .attachment-item:hover {
   background: var(--accent-border);
   border-color: var(--accent-border-strong);
+}
+
+/* ── Attachments Section (edit modal) ── */
+
+.attachments-section {
+  display: grid;
+  gap: 0.5rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--border);
+}
+
+.attachments-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0;
+}
+
+.attachment-error {
+  font-size: 0.85rem;
+  color: var(--danger);
+  margin: 0;
+}
+
+.attachment-list {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.attachment-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--panel-muted);
+  min-width: 0;
+}
+
+.attachment-icon {
+  flex-shrink: 0;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.attachment-name {
+  flex: 1;
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.attachment-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.attachment-hint {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.danger-text {
+  color: var(--danger);
 }
 
 /* ── Image Viewer Modal ── */

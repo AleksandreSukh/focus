@@ -48,6 +48,38 @@ export class GitHubProvider {
       throw error;
     }
   }
+  async getFileRaw(path) {
+    try {
+      const response = await this.adapter.getContent(path, `loading raw file ${path}`);
+      recordSyncSuccess(`Loaded ${path} from GitHub.`);
+      return {
+        base64Content: response.content.replace(/\n/g, ''),
+        versionToken: response.sha,
+      };
+    } catch (error) {
+      recordSyncFailure(toErrorSummary('read', path, error));
+      throw error;
+    }
+  }
+
+  async putBinaryFile(path, base64Content, versionToken, message) {
+    try {
+      const response = await this.adapter.putContent(path, {
+        message,
+        content: base64Content,
+        sha: versionToken ?? undefined,
+      }, `saving binary file ${path}`);
+      recordSyncSuccess(`Saved ${path} to GitHub.`);
+      return {
+        versionToken: response.content?.sha ?? '',
+        commitSha: response.commit?.sha,
+      };
+    } catch (error) {
+      recordSyncFailure(toErrorSummary('write', path, error));
+      throw error;
+    }
+  }
+
   async getFileAsBlob(path, mediaType = 'application/octet-stream') {
     try {
       const response = await this.adapter.getContent(path, `loading attachment ${path}`);

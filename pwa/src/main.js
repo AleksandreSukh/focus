@@ -1,4 +1,6 @@
 import {
+  buildAttachmentAddCommitMessage,
+  buildAttachmentRemoveCommitMessage,
   buildConflictResolveCommitMessage,
   buildMapCreateCommitMessage,
   buildMapDeleteCommitMessage,
@@ -708,6 +710,20 @@ function handleDocumentClick(event) {
         clickableElement.dataset.attachmentId || '',
       );
       return;
+    case 'remove-attachment':
+      void handleRemoveAttachment(
+        clickableElement.dataset.nodeId || '',
+        clickableElement.dataset.attachmentId || '',
+        clickableElement.dataset.displayName || '',
+      );
+      return;
+    case 'trigger-attach-file': {
+      const fileInput = document.getElementById('attach-file-input');
+      if (fileInput instanceof HTMLInputElement) {
+        fileInput.click();
+      }
+      return;
+    }
     case 'viewer-zoom-in':
       if (state.activeModal?.kind === 'imageViewer') {
         state.activeModal = { ...state.activeModal, zoom: Math.min(state.activeModal.zoom + 0.25, 5) };
@@ -740,6 +756,12 @@ function handleDocumentClick(event) {
 function handleDocumentChange(event) {
   const target = event.target;
   if (!(target instanceof HTMLInputElement)) {
+    return;
+  }
+
+  if (target.id === 'attach-file-input' && target.files && target.files.length > 0) {
+    void handleAttachFile(target.files[0]);
+    target.value = '';
     return;
   }
 
@@ -1909,6 +1931,139 @@ async function handleOpenAttachment(mapPath, nodeId, attachmentId) {
     attachment,
     buildNodeFocusKey(mapPath, record.node.uniqueIdentifier),
   );
+}
+
+async function handleAttachFile(file) {
+  const modalContext = getActiveModalContext('editNode');
+  if (!modalContext || !state.service) {
+    return;
+  }
+
+  const MAX_BYTES = 10 * 1024 * 1024;
+  if (file.size > MAX_BYTES) {
+    state.activeModal = {
+      ...state.activeModal,
+      attachmentError: `File is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum size is 10 MB.`,
+    };
+    render();
+    return;
+  }
+
+  const ACCEPTED_TYPES = /^(image\/|application\/pdf$|text\/)/;
+  if (!ACCEPTED_TYPES.test(file.type)) {
+    state.activeModal = {
+      ...state.activeModal,
+      attachmentError: `Unsupported file type "${file.type}". Attach an image, PDF, or text file.`,
+    };
+    render();
+    return;
+  }
+
+  const { snapshot } = modalContext;
+  const mapName = snapshot.mapName;
+
+  state.activeModal = {
+    ...state.activeModal,
+    attachmentUploading: true,
+    attachmentError: '',
+  };
+  render();
+
+  const commitMessage = buildAttachmentAddCommitMessage(mapName, file.name);
+  const uploaded = await state.service.uploadAttachment(snapshot.filePath, file, commitMessage);
+
+  if (!uploaded.ok) {
+    state.activeModal = {
+      ...state.activeModal,
+      attachmentUploading: false,
+      attachmentError: uploaded.error?.message || 'Upload failed. Check your connection and try again.',
+    };
+    render();
+    return;
+  }
+
+  const attachment = uploaded.value;
+  const operation = {
+    type: 'addAttachment',
+    filePath: snapshot.filePath,
+    nodeId: modalContext.nodeUiState.node.uniqueIdentifier,
+    attachment,
+    timestamp: nowIso(),
+    commitMessage: buildAttachmentAddCommitMessage(mapName, attachment.displayName),
+  };
+
+  const enqueued = enqueueOperation(operation);
+  state.activeModal = {
+    ...state.activeModal,
+    attachmentUploading: false,
+    attachmentError: enqueued.ok ? '' : (enqueued.error?.message || 'Could not queue attachment update.'),
+  };
+
+  if (enqueued.ok) {
+    refreshVisibleSnapshotsFromServiceCache();
+  }
+
+  render();
+}
+
+async function handleRemoveAttachment(nodeId, attachmentId, displayName) {
+  const modalContext = getActiveModalContext('editNode');
+  if (!modalContext || !state.service) {
+    return;
+  }
+
+  const { snapshot } = modalContext;
+  const record = findNodeRecord(snapshot.document, nodeId);
+  if (!record) {
+    return;
+  }
+
+  const attachment = getNodeAttachments(record.node).find((a) => a.id === attachmentId);
+  if (!attachment) {
+    return;
+  }
+
+  state.activeModal = {
+    ...state.activeModal,
+    attachmentUploading: true,
+    attachmentError: '',
+  };
+  render();
+
+  const commitMessage = buildAttachmentRemoveCommitMessage(snapshot.mapName, displayName || attachment.displayName || attachment.relativePath);
+  const deleted = await state.service.deleteAttachment(snapshot.filePath, attachment.relativePath, commitMessage);
+
+  if (!deleted.ok) {
+    state.activeModal = {
+      ...state.activeModal,
+      attachmentUploading: false,
+      attachmentError: deleted.error?.message || 'Could not delete attachment file. Try again.',
+    };
+    render();
+    return;
+  }
+
+  const operation = {
+    type: 'removeAttachment',
+    filePath: snapshot.filePath,
+    nodeId,
+    attachmentId,
+    timestamp: nowIso(),
+    commitMessage,
+  };
+
+  const enqueued = enqueueOperation(operation);
+  state.activeModal = {
+    ...state.activeModal,
+    attachmentUploading: false,
+    attachmentError: enqueued.ok ? '' : (enqueued.error?.message || 'Could not queue attachment removal.'),
+  };
+
+  if (enqueued.ok) {
+    refreshVisibleSnapshotsFromServiceCache();
+  }
+
+  render();
 }
 
 function openUnreadableMapViewer(filePath) {
@@ -4492,6 +4647,7 @@ function renderActiveModal() {
           ${renderNodePreviewMarkup(state.activeModal.draftText, nodeUiState.node.taskState)}
         </div>
       </div>
+      ${renderAttachmentsSection(state.activeModal.mapPath, nodeUiState.node)}
     `
     : `
       <label>
@@ -4905,6 +5061,60 @@ function renderNodeTextMarkup(rawText, wrapperClass) {
   });
 }
 
+function renderAttachmentsSection(mapPath, node) {
+  const attachments = getNodeAttachments(node);
+  const uploading = state.activeModal?.attachmentUploading === true;
+  const attachmentError = state.activeModal?.attachmentError || '';
+
+  const attachmentRows = attachments.map((attachment) => `
+    <div class="attachment-row">
+      <span class="attachment-icon">${isTextAttachment(attachment) ? '📄' : '🖼'}</span>
+      <span class="attachment-name" title="${escapeHtml(attachment.displayName || attachment.relativePath)}">${escapeHtml(attachment.displayName || attachment.relativePath)}</span>
+      <button
+        type="button"
+        class="ghost-button compact-button"
+        data-action="open-attachment"
+        data-map-path="${escapeHtml(mapPath)}"
+        data-node-id="${escapeHtml(node.uniqueIdentifier)}"
+        data-attachment-id="${escapeHtml(attachment.id)}"
+      >View</button>
+      <button
+        type="button"
+        class="ghost-button compact-button danger-text"
+        data-action="remove-attachment"
+        data-node-id="${escapeHtml(node.uniqueIdentifier)}"
+        data-attachment-id="${escapeHtml(attachment.id)}"
+        data-display-name="${escapeHtml(attachment.displayName || attachment.relativePath)}"
+        ${uploading ? 'disabled' : ''}
+      >Remove</button>
+    </div>
+  `).join('');
+
+  return `
+    <div class="attachments-section">
+      <p class="attachments-label">Attachments</p>
+      ${attachmentError ? `<p class="attachment-error" role="alert">${escapeHtml(attachmentError)}</p>` : ''}
+      ${attachments.length > 0 ? `<div class="attachment-list">${attachmentRows}</div>` : ''}
+      <div class="attachment-actions">
+        <input
+          type="file"
+          id="attach-file-input"
+          accept="image/*,application/pdf,text/plain,text/markdown,.md"
+          style="display:none"
+          ${uploading ? 'disabled' : ''}
+        />
+        <button
+          type="button"
+          class="secondary-button compact-button"
+          data-action="trigger-attach-file"
+          ${uploading ? 'disabled' : ''}
+        >${uploading ? 'Uploading…' : '＋ Attach file'}</button>
+        <span class="attachment-hint">Images, PDF, text — max 10 MB</span>
+      </div>
+    </div>
+  `;
+}
+
 function renderNodePreviewMarkup(rawText, taskState) {
   return `
     <div class="preview-inline-row">
@@ -5045,6 +5255,10 @@ function describeOperation(operation) {
       return `new child note in ${mapLabel}`;
     case 'deleteNode':
       return `node removal in ${mapLabel}`;
+    case 'addAttachment':
+      return `attachment added in ${mapLabel}`;
+    case 'removeAttachment':
+      return `attachment removed in ${mapLabel}`;
     default:
       return `change in ${mapLabel}`;
   }

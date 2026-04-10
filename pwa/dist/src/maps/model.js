@@ -196,6 +196,10 @@ export function applyMapMutation(document, mutation) {
       return addChildNode(document, mutation, timestamp, TASK_STATE.TODO);
     case 'deleteNode':
       return deleteChildNode(document, mutation, timestamp);
+    case 'addAttachment':
+      return addAttachmentToNode(document, mutation, timestamp);
+    case 'removeAttachment':
+      return removeAttachmentFromNode(document, mutation, timestamp);
     default:
       return {
         ok: false,
@@ -480,6 +484,60 @@ function deleteChildNode(document, mutation, timestamp) {
     value: {
       affectedNodeId: parent.uniqueIdentifier,
       selectedNodeId: parent.uniqueIdentifier,
+    },
+  };
+}
+
+function addAttachmentToNode(document, mutation, timestamp) {
+  const record = findNodeRecord(document, mutation.nodeId);
+  if (!record) {
+    return notFoundError(mutation.nodeId);
+  }
+
+  const attachment = normalizeAttachment(mutation.attachment || {}, timestamp);
+  if (!attachment.relativePath) {
+    return validationError('Attachment must have a relativePath.');
+  }
+
+  normalizeMetadata(record.node, timestamp);
+  record.node.metadata.attachments = record.node.metadata.attachments.filter(
+    (a) => a.id !== attachment.id,
+  );
+  record.node.metadata.attachments.push(attachment);
+  touchMetadata(record.node, timestamp);
+  touchDocumentTimestamp(document, timestamp);
+  return {
+    ok: true,
+    value: {
+      affectedNodeId: record.node.uniqueIdentifier,
+      selectedNodeId: record.node.uniqueIdentifier,
+    },
+  };
+}
+
+function removeAttachmentFromNode(document, mutation, timestamp) {
+  const record = findNodeRecord(document, mutation.nodeId);
+  if (!record) {
+    return notFoundError(mutation.nodeId);
+  }
+
+  normalizeMetadata(record.node, timestamp);
+  const before = record.node.metadata.attachments.length;
+  record.node.metadata.attachments = record.node.metadata.attachments.filter(
+    (a) => a.id !== mutation.attachmentId,
+  );
+
+  if (record.node.metadata.attachments.length === before) {
+    return validationError(`Attachment "${mutation.attachmentId}" not found on node.`);
+  }
+
+  touchMetadata(record.node, timestamp);
+  touchDocumentTimestamp(document, timestamp);
+  return {
+    ok: true,
+    value: {
+      affectedNodeId: record.node.uniqueIdentifier,
+      selectedNodeId: record.node.uniqueIdentifier,
     },
   };
 }
