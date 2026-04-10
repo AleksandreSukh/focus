@@ -68,6 +68,9 @@ internal static class FocusScenario
     public static IFocusScenarioStep WaitForOutput(string expectedText, TimeSpan? timeout = null) =>
         new WaitForOutputStep(expectedText, timeout);
 
+    public static IFocusScenarioStep WaitForOutputOccurrences(string expectedText, int occurrences, TimeSpan? timeout = null) =>
+        new WaitForOutputOccurrencesStep(expectedText, occurrences, timeout);
+
     public static IFocusScenarioStep AssertMap(string fileName, Action<MindMap> assertMap) =>
         new AssertMapStep(fileName, assertMap);
 
@@ -98,6 +101,13 @@ internal static class FocusScenario
     private sealed record WaitForOutputStep(string ExpectedText, TimeSpan? Timeout) : IFocusScenarioStep
     {
         public Task ExecuteAsync(FocusScenarioContext context) => context.App.WaitForOutputAsync(ExpectedText, Timeout);
+    }
+
+    private sealed record WaitForOutputOccurrencesStep(string ExpectedText, int Occurrences, TimeSpan? Timeout)
+        : IFocusScenarioStep
+    {
+        public Task ExecuteAsync(FocusScenarioContext context) =>
+            context.App.WaitForOutputOccurrencesAsync(ExpectedText, Occurrences, Timeout);
     }
 
     private sealed record AssertMapStep(string FileName, Action<MindMap> AssertMap) : IFocusScenarioStep

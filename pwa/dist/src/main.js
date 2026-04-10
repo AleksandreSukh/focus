@@ -742,6 +742,9 @@ function handleDocumentClick(event) {
     case 'open-task-node':
       openTaskNode(clickableElement.dataset.mapPath || '', clickableElement.dataset.nodeId || '');
       return;
+    case 'open-linked-node':
+      openLinkedNode(clickableElement.dataset.targetNodeId || '');
+      return;
     case 'set-task-filter':
       state.taskFilter = state.taskFilter === clickableElement.dataset.filter
         ? ''
@@ -1769,6 +1772,11 @@ async function handleDeleteMapConfirm() {
 
 function getNodeAttachments(node) {
   return Array.isArray(node?.metadata?.attachments) ? node.metadata.attachments : [];
+}
+
+function getNodeLinks(node) {
+  if (!node?.links || typeof node.links !== 'object') return [];
+  return Object.values(node.links).filter((link) => link && typeof link.id === 'string');
 }
 
 function getPrimaryNodeAttachment(node) {
@@ -2883,6 +2891,26 @@ function openTaskNode(mapPath, nodeId) {
     : snapshot.document.rootNode?.uniqueIdentifier || '';
   navigateToMapRoute(mapPath, {
     preferredNodeId: nextNodeId,
+  });
+}
+
+function findLinkedNodeAcrossMaps(targetNodeId) {
+  for (const snapshot of Object.values(state.mapsByPath)) {
+    const record = findNodeRecord(snapshot.document, targetNodeId);
+    if (record) {
+      return { snapshot, record };
+    }
+  }
+  return null;
+}
+
+function openLinkedNode(targetNodeId) {
+  const found = findLinkedNodeAcrossMaps(targetNodeId);
+  if (!found) {
+    return;
+  }
+  navigateToMapRoute(found.snapshot.filePath, {
+    preferredNodeId: targetNodeId,
   });
 }
 
@@ -4480,8 +4508,25 @@ function renderSelectedNodeActions(snapshot, nodeUiState) {
         >${escapeHtml(att.displayName || att.relativePath)}</button>
       `).join('')}</div>`
     : '';
+  const resolvedLinks = getNodeLinks(nodeUiState.node)
+    .map((link) => {
+      const found = findLinkedNodeAcrossMaps(link.id);
+      return found ? { id: link.id, name: found.record.node.name || link.id } : null;
+    })
+    .filter(Boolean);
+  const linksMarkup = resolvedLinks.length > 0
+    ? `<div class="attachment-list">${resolvedLinks.map((l) => `
+        <button
+          type="button"
+          class="attachment-item"
+          data-action="open-linked-node"
+          data-target-node-id="${escapeHtml(l.id)}"
+          title="${escapeHtml(l.name)}"
+        >${escapeHtml(l.name)}</button>
+      `).join('')}</div>`
+    : '';
 
-  if (!isTask && !badgesMarkup && !hintMarkup && !attachmentsMarkup) {
+  if (!isTask && !badgesMarkup && !hintMarkup && !attachmentsMarkup && !linksMarkup) {
     return '';
   }
 
@@ -4499,6 +4544,7 @@ function renderSelectedNodeActions(snapshot, nodeUiState) {
       </div>
       ${badgesMarkup}
       ${attachmentsMarkup}
+      ${linksMarkup}
       ${hintMarkup}
     </div>
   `;
