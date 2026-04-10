@@ -739,6 +739,21 @@ function handleDocumentClick(event) {
     case 'viewer-download':
       handleViewerDownload();
       return;
+    case 'viewer-delete':
+      if (state.activeModal?.kind === 'imageViewer' || state.activeModal?.kind === 'textViewer') {
+        state.activeModal = { ...state.activeModal, confirmingDelete: true, deleteError: '' };
+        render();
+      }
+      return;
+    case 'viewer-delete-cancel':
+      if (state.activeModal?.kind === 'imageViewer' || state.activeModal?.kind === 'textViewer') {
+        state.activeModal = { ...state.activeModal, confirmingDelete: false, deleteError: '' };
+        render();
+      }
+      return;
+    case 'viewer-delete-confirm':
+      void handleDeleteViewerAttachment();
+      return;
     case 'open-task-node':
       openTaskNode(clickableElement.dataset.mapPath || '', clickableElement.dataset.nodeId || '');
       return;
@@ -1805,6 +1820,7 @@ async function openImageViewerForAttachment(mapPath, nodeId, attachment, returnF
     kind: 'imageViewer',
     mapPath,
     nodeId,
+    attachmentId: attachment.id,
     draftText: '',
     errorMessage: '',
     returnFocusKey: returnFocusKey || buildNodeFocusKey(mapPath, nodeId),
@@ -1815,6 +1831,8 @@ async function openImageViewerForAttachment(mapPath, nodeId, attachment, returnF
     zoom: 1,
     panX: 0,
     panY: 0,
+    confirmingDelete: false,
+    deleteError: '',
   };
   render();
 
@@ -1861,6 +1879,7 @@ async function openTextViewerForAttachment(mapPath, nodeId, attachment, returnFo
     kind: 'textViewer',
     mapPath,
     nodeId,
+    attachmentId: attachment.id,
     draftText: '',
     errorMessage: '',
     returnFocusKey: returnFocusKey || buildNodeFocusKey(mapPath, nodeId),
@@ -1869,6 +1888,8 @@ async function openTextViewerForAttachment(mapPath, nodeId, attachment, returnFo
     textContent: '',
     downloadUrl: null,
     loading: true,
+    confirmingDelete: false,
+    deleteError: '',
   };
   render();
 
@@ -2016,6 +2037,60 @@ async function handleAttachFile(file) {
   }
 
   render();
+}
+
+async function handleDeleteViewerAttachment() {
+  const modal = state.activeModal;
+  if ((modal?.kind !== 'imageViewer' && modal?.kind !== 'textViewer') || !state.service) {
+    return;
+  }
+
+  const { mapPath, nodeId, attachmentId, returnFocusKey } = modal;
+  const snapshot = state.mapsByPath[mapPath];
+  if (!snapshot) {
+    return;
+  }
+
+  const record = findNodeRecord(snapshot.document, nodeId);
+  if (!record) {
+    return;
+  }
+
+  const attachment = getNodeAttachments(record.node).find((a) => a.id === attachmentId);
+  if (!attachment) {
+    return;
+  }
+
+  const commitMessage = buildAttachmentRemoveCommitMessage(
+    snapshot.mapName,
+    attachment.displayName || attachment.relativePath,
+  );
+  const deleted = await state.service.deleteAttachment(mapPath, attachment.relativePath, commitMessage);
+
+  if (!deleted.ok) {
+    state.activeModal = {
+      ...state.activeModal,
+      deleteError: deleted.error?.message || 'Could not delete attachment. Try again.',
+    };
+    render();
+    return;
+  }
+
+  const operation = {
+    type: 'removeAttachment',
+    filePath: mapPath,
+    nodeId,
+    attachmentId,
+    timestamp: nowIso(),
+    commitMessage,
+  };
+
+  const enqueued = enqueueOperation(operation);
+  if (enqueued.ok) {
+    refreshVisibleSnapshotsFromServiceCache();
+  }
+
+  closeActiveModal({ focusKey: returnFocusKey || '' });
 }
 
 async function handleRemoveAttachment(nodeId, attachmentId, displayName) {
@@ -3769,6 +3844,8 @@ function getWorkspaceOverlayState() {
         nodeId: state.activeModal.nodeId,
         attachmentRelativePath: state.activeModal.attachmentRelativePath || '',
         displayName: state.activeModal.displayName || '',
+        confirmingDelete: state.activeModal.confirmingDelete || false,
+        deleteError: state.activeModal.deleteError || '',
       }),
     };
   }
@@ -3785,6 +3862,8 @@ function getWorkspaceOverlayState() {
         loading: state.activeModal.loading,
         errorMessage: state.activeModal.errorMessage || '',
         textLength: (state.activeModal.textContent || '').length,
+        confirmingDelete: state.activeModal.confirmingDelete || false,
+        deleteError: state.activeModal.deleteError || '',
       }),
     };
   }
@@ -4930,6 +5009,25 @@ function renderImageViewerModal() {
           draggable="false"
         />`;
 
+  const deleteControl = state.activeModal.confirmingDelete
+    ? `<span class="viewer-delete-confirm-row">
+        ${state.activeModal.deleteError
+          ? `<span class="viewer-delete-error">${escapeHtml(state.activeModal.deleteError)}</span>`
+          : '<span class="viewer-delete-prompt">Delete this file?</span>'}
+        <button type="button" class="ghost-button compact-button" data-action="viewer-delete-cancel">Cancel</button>
+        <button type="button" class="ghost-button compact-button danger-text" data-action="viewer-delete-confirm">Delete</button>
+      </span>`
+    : `<button type="button" class="ghost-button compact-button danger-text"
+          data-action="viewer-delete" aria-label="Delete attachment" title="Delete attachment">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="3 6 5 6 21 6"/>
+          <path d="M19 6l-1 14H6L5 6"/>
+          <path d="M10 11v6"/><path d="M14 11v6"/>
+          <path d="M9 6V4h6v2"/>
+        </svg>
+      </button>`;
+
   return `
     <div class="modal-layer">
       <button type="button" class="modal-backdrop" data-action="close-modal" aria-label="Close dialog"></button>
@@ -4939,6 +5037,7 @@ function renderImageViewerModal() {
             <button type="button" class="ghost-button compact-button" data-action="viewer-zoom-out" ${zoom <= 0.25 ? 'disabled' : ''} aria-label="Zoom out">&minus;</button>
             <span class="image-viewer-zoom-label">${zoomPercent}%</span>
             <button type="button" class="ghost-button compact-button" data-action="viewer-zoom-in" ${zoom >= 5 ? 'disabled' : ''} aria-label="Zoom in">&plus;</button>
+            ${deleteControl}
             <button type="button" class="ghost-button compact-button" data-action="viewer-download" ${!imageUrl ? 'disabled' : ''} aria-label="Download">Download</button>
             <button type="button" class="ghost-button compact-button" data-action="close-modal">Close</button>
           </div>
@@ -4960,12 +5059,32 @@ function renderTextViewerModal() {
       ? `<p class="form-error" role="alert">${escapeHtml(errorMessage)}</p>`
       : `<pre class="text-viewer-content">${escapeHtml(textContent)}</pre>`;
 
+  const deleteControl = state.activeModal.confirmingDelete
+    ? `<span class="viewer-delete-confirm-row">
+        ${state.activeModal.deleteError
+          ? `<span class="viewer-delete-error">${escapeHtml(state.activeModal.deleteError)}</span>`
+          : '<span class="viewer-delete-prompt">Delete this file?</span>'}
+        <button type="button" class="ghost-button compact-button" data-action="viewer-delete-cancel">Cancel</button>
+        <button type="button" class="ghost-button compact-button danger-text" data-action="viewer-delete-confirm">Delete</button>
+      </span>`
+    : `<button type="button" class="ghost-button compact-button danger-text"
+          data-action="viewer-delete" aria-label="Delete attachment" title="Delete attachment">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="3 6 5 6 21 6"/>
+          <path d="M19 6l-1 14H6L5 6"/>
+          <path d="M10 11v6"/><path d="M14 11v6"/>
+          <path d="M9 6V4h6v2"/>
+        </svg>
+      </button>`;
+
   return `
     <div class="modal-layer">
       <button type="button" class="modal-backdrop" data-action="close-modal" aria-label="Close dialog"></button>
       <div class="modal-card image-viewer-card text-viewer-card" role="dialog" aria-modal="true" aria-labelledby="viewer-title">
         <div class="image-viewer-header">
           <div class="image-viewer-controls">
+            ${deleteControl}
             <button type="button" class="ghost-button compact-button" data-action="viewer-download" ${!downloadUrl ? 'disabled' : ''} aria-label="Download">Download</button>
             <button type="button" class="ghost-button compact-button" data-action="close-modal">Close</button>
           </div>
