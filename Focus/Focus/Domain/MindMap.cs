@@ -219,6 +219,27 @@ namespace Systems.Sanity.Focus.Domain
             return true;
         }
 
+        public bool SetHideDoneTasks(bool hideDoneTasks, out string errorMessage)
+        {
+            var result = SetHideDoneTasks(_currentNode, hideDoneTasks, out errorMessage);
+            if (result) TouchMapTimestamp();
+            return result;
+        }
+
+        public bool SetHideDoneTasks(string nodeIdentifier, bool hideDoneTasks, out string errorMessage)
+        {
+            var node = FindNode(nodeIdentifier);
+            if (node == null)
+            {
+                errorMessage = $"Can't find \"{nodeIdentifier}\"";
+                return false;
+            }
+
+            var result = SetHideDoneTasks(node, hideDoneTasks, out errorMessage);
+            if (result) TouchMapTimestamp();
+            return result;
+        }
+
         public bool IsAtRootNode() => _currentNode == RootNode;
 
         public bool SetTaskState(TaskState taskState, out string errorMessage)
@@ -359,6 +380,19 @@ namespace Systems.Sanity.Focus.Domain
 
         private static bool ToggleTaskState(Node node, out string errorMessage) =>
             SetTaskState(node, node.TaskState.Toggle(), out errorMessage);
+
+        private static bool SetHideDoneTasks(Node node, bool hideDoneTasks, out string errorMessage)
+        {
+            if (node.NodeType == NodeType.IdeaBagItem)
+            {
+                errorMessage = "Hide done tasks is not supported for idea tags";
+                return false;
+            }
+
+            node.SetHideDoneTasks(hideDoneTasks);
+            errorMessage = string.Empty;
+            return true;
+        }
 
         private Node? FindNode(string parameter)
         {

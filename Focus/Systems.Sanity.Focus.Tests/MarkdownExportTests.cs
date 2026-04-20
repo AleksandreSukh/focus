@@ -79,6 +79,25 @@ public class MarkdownExportTests
     }
 
     [Fact]
+    public void Export_MarkdownUnderHideDoneAncestor_SkipsDoneDescendants()
+    {
+        var map = new MindMap("Root");
+        var branch = map.AddAtCurrentNode("Branch");
+        branch.HideDoneTasks = true;
+        var subbranch = branch.Add("Subbranch");
+        var todoChild = subbranch.Add("Todo child");
+        var doneChild = subbranch.Add("Done child");
+        todoChild.TaskState = TaskState.Todo;
+        doneChild.TaskState = TaskState.Done;
+
+        var markdown = MapExportService.Export(subbranch, ExportFormat.Markdown);
+
+        Assert.Contains("# Subbranch", markdown);
+        Assert.Contains("[ ] Todo child", markdown);
+        Assert.DoesNotContain("Done child", markdown);
+    }
+
+    [Fact]
     public void Export_MarkdownWithMissingAttachment_FallsBackToRelativeLink()
     {
         using var workspace = new TestWorkspace();

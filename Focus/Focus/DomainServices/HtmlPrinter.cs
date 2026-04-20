@@ -19,6 +19,7 @@ internal static class HtmlPrinter
     public static void Print(Node node, StringBuilder sb, NodeExportOptions options = null)
     {
         options ??= new NodeExportOptions();
+        var ancestorHidesDone = NodeBranchVisibility.HasHideDoneAncestor(node);
 
         var documentTitle = HtmlInlineFormatter.ToPlainText(NodeExportHelpers.FormatNodeName(node));
 
@@ -35,13 +36,14 @@ internal static class HtmlPrinter
         AppendLine(sb, 3, $"<h1>{HtmlInlineFormatter.ToHtml(NodeExportHelpers.FormatNodeName(node))}</h1>");
         AppendAttachments(node, sb, options, indentationLevel: 3);
 
-        var visibleChildren = NodeExportHelpers.GetVisibleChildren(node).ToArray();
+        var visibleChildren = NodeExportHelpers.GetVisibleChildren(node, ancestorHidesDone).ToArray();
         if (visibleChildren.Any())
         {
             AppendLine(sb, 3, "<ol>");
+            var hideDoneStateForChildren = NodeBranchVisibility.HideDoneStateForChildren(node, ancestorHidesDone);
             foreach (var childNode in visibleChildren)
             {
-                PrintNode(childNode, level: 1, sb, options, indentationLevel: 4);
+                PrintNode(childNode, level: 1, sb, options, indentationLevel: 4, ancestorHidesDone: hideDoneStateForChildren);
             }
 
             AppendLine(sb, 3, "</ol>");
@@ -57,20 +59,22 @@ internal static class HtmlPrinter
         int level,
         StringBuilder sb,
         NodeExportOptions options,
-        int indentationLevel)
+        int indentationLevel,
+        bool ancestorHidesDone)
     {
         AppendLine(sb, indentationLevel, "<li>");
         AppendLine(sb, indentationLevel + 1, "<div class=\"node-content\">");
         AppendLine(sb, indentationLevel + 2, $"<div class=\"node-text\">{HtmlInlineFormatter.ToHtml(NodeExportHelpers.FormatNodeName(node))}</div>");
         AppendAttachments(node, sb, options, indentationLevel + 2);
 
-        var visibleChildren = NodeExportHelpers.GetVisibleChildren(node).ToArray();
+        var visibleChildren = NodeExportHelpers.GetVisibleChildren(node, ancestorHidesDone).ToArray();
         if (visibleChildren.Any() && !(options.SkipCollapsedDescendants && node.IsCollapsed()))
         {
             AppendLine(sb, indentationLevel + 2, "<ul>");
+            var hideDoneStateForChildren = NodeBranchVisibility.HideDoneStateForChildren(node, ancestorHidesDone);
             foreach (var childNode in visibleChildren)
             {
-                PrintNode(childNode, level + 1, sb, options, indentationLevel + 3);
+                PrintNode(childNode, level + 1, sb, options, indentationLevel + 3, hideDoneStateForChildren);
             }
 
             AppendLine(sb, indentationLevel + 2, "</ul>");

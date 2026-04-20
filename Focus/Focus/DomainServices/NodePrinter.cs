@@ -17,9 +17,14 @@ internal static class NodePrinter
         bool last,
         int level,
         StringBuilder sb,
-        int maxWidth)
+        int maxWidth,
+        bool ancestorHidesDone = false)
     {
-        var hasChildren = node.Children.Count > 0;
+        if (level > 0 && NodeBranchVisibility.ShouldHideNode(node, ancestorHidesDone))
+            return;
+
+        var visibleChildren = NodeExportHelpers.GetVisibleChildren(node, ancestorHidesDone).ToArray();
+        var hasChildren = visibleChildren.Length > 0;
         var isTopLevel = level == 1;
         var isEvenLevel = level % 2 == 0;
 
@@ -55,9 +60,10 @@ internal static class NodePrinter
         if (node.IsCollapsed() && level > 0)
             return;
 
-        for (var i = 0; i < node.Children.Count; i++)
+        var hideDoneStateForChildren = NodeBranchVisibility.HideDoneStateForChildren(node, ancestorHidesDone);
+        for (var i = 0; i < visibleChildren.Length; i++)
         {
-            Print(node.Children[i], linkIndex, indent, i == node.Children.Count - 1, level + 1, sb, maxWidth);
+            Print(visibleChildren[i], linkIndex, indent, i == visibleChildren.Length - 1, level + 1, sb, maxWidth, hideDoneStateForChildren);
         }
     }
 

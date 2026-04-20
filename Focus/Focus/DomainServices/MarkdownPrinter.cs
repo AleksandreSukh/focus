@@ -12,12 +12,13 @@ namespace Systems.Sanity.Focus.DomainServices
         public static void Print(Node node, StringBuilder sb, NodeExportOptions options = null)
         {
             options ??= new NodeExportOptions();
+            var ancestorHidesDone = NodeBranchVisibility.HasHideDoneAncestor(node);
 
             sb.Append("# ");
             sb.AppendLine(FormatNodeName(node));
 
             var rootAttachments = NodeExportHelpers.GetAttachments(node, options);
-            var visibleChildren = NodeExportHelpers.GetVisibleChildren(node).ToArray();
+            var visibleChildren = NodeExportHelpers.GetVisibleChildren(node, ancestorHidesDone).ToArray();
             if (!rootAttachments.Any() && !visibleChildren.Any())
                 return;
 
@@ -29,18 +30,21 @@ namespace Systems.Sanity.Focus.DomainServices
             if (!visibleChildren.Any())
                 return;
 
-            PrintChildren(visibleChildren, level: 1, sb, options);
+            PrintChildren(node, visibleChildren, level: 1, sb, options, ancestorHidesDone);
         }
 
         private static void PrintChildren(
+            Node parent,
             IReadOnlyList<Node> children,
             int level,
             StringBuilder sb,
-            NodeExportOptions options)
+            NodeExportOptions options,
+            bool ancestorHidesDone)
         {
+            var hideDoneStateForChildren = NodeBranchVisibility.HideDoneStateForChildren(parent, ancestorHidesDone);
             for (var index = 0; index < children.Count; index++)
             {
-                PrintNode(children[index], level, index + 1, sb, options);
+                PrintNode(children[index], level, index + 1, sb, options, hideDoneStateForChildren);
             }
         }
 
@@ -49,7 +53,8 @@ namespace Systems.Sanity.Focus.DomainServices
             int level,
             int visibleIndex,
             StringBuilder sb,
-            NodeExportOptions options)
+            NodeExportOptions options,
+            bool ancestorHidesDone)
         {
             var indent = new string(' ', (level - 1) * Indentation.Length);
             var prefix = level == 1
@@ -62,14 +67,14 @@ namespace Systems.Sanity.Focus.DomainServices
 
             AppendAttachments(NodeExportHelpers.GetAttachments(node, options), level, sb, options, isRoot: false);
 
-            var visibleChildren = NodeExportHelpers.GetVisibleChildren(node).ToArray();
+            var visibleChildren = NodeExportHelpers.GetVisibleChildren(node, ancestorHidesDone).ToArray();
             if (!visibleChildren.Any())
                 return;
 
             if (options.SkipCollapsedDescendants && node.IsCollapsed())
                 return;
 
-            PrintChildren(visibleChildren, level + 1, sb, options);
+            PrintChildren(node, visibleChildren, level + 1, sb, options, ancestorHidesDone);
         }
 
         private static void AppendAttachments(

@@ -16,8 +16,13 @@ internal static class NodeExportHelpers
 {
     private const string UntitledNodeName = "Untitled";
 
-    public static IEnumerable<Node> GetVisibleChildren(Node node) =>
-        node.Children.Where(child => child.NodeType != NodeType.IdeaBagItem);
+    public static IEnumerable<Node> GetVisibleChildren(Node node, bool ancestorHidesDone = false)
+    {
+        var hideDoneStateForChildren = NodeBranchVisibility.HideDoneStateForChildren(node, ancestorHidesDone);
+        return node.Children.Where(child =>
+            child.NodeType != NodeType.IdeaBagItem &&
+            !NodeBranchVisibility.ShouldHideNode(child, hideDoneStateForChildren));
+    }
 
     public static string NormalizeNodeName(string nodeName)
     {

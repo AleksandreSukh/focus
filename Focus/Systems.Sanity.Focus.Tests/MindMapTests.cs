@@ -82,6 +82,23 @@ public class MindMapTests
     }
 
     [Fact]
+    public void SetHideDoneTasks_AllowsRootAndRejectsIdeaTags()
+    {
+        var map = new MindMap("Root");
+
+        var rootResult = map.SetHideDoneTasks(true, out var rootError);
+
+        map.AddIdeaAtCurrentNode("Idea");
+        var ideaResult = map.SetHideDoneTasks("1", true, out var ideaError);
+
+        Assert.True(rootResult);
+        Assert.Equal(string.Empty, rootError);
+        Assert.True(map.RootNode.HideDoneTasks);
+        Assert.False(ideaResult);
+        Assert.Equal("Hide done tasks is not supported for idea tags", ideaError);
+    }
+
+    [Fact]
     public void SetTaskState_RejectsRootAndIdeaTags()
     {
         var map = new MindMap("Root");
@@ -127,8 +144,13 @@ public class MindMapTests
         Assert.True(map.SetTaskState(TaskState.Todo, out _));
         var taskUpdatedAt = map.GetCurrentNode().Metadata!.UpdatedAtUtc;
 
+        PauseForTimestampResolution();
+        Assert.True(map.SetHideDoneTasks(true, out _));
+        var hideDoneUpdatedAt = map.GetCurrentNode().Metadata!.UpdatedAtUtc;
+
         Assert.True(editedUpdatedAt > initialUpdatedAt);
         Assert.True(taskUpdatedAt > editedUpdatedAt);
+        Assert.True(hideDoneUpdatedAt > taskUpdatedAt);
     }
 
     [Fact]

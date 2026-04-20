@@ -48,6 +48,8 @@ internal sealed class EditWorkflow
     private const string NoTaskOption = "notask";
     private const string ToggleTaskOption = "toggle";
     private const string ToggleTaskAliasOption = "tg";
+    private const string HideDoneTasksOption = "hidedone";
+    private const string ShowDoneTasksOption = "showdone";
     private const string TasksOption = "tasks";
     private const string TasksAliasOption = "ts";
     private const string CaptureOption = "capture";
@@ -76,6 +78,8 @@ internal sealed class EditWorkflow
         NoTaskOption,
         ToggleTaskOption,
         ToggleTaskAliasOption,
+        HideDoneTasksOption,
+        ShowDoneTasksOption,
         MetaOption
     };
 
@@ -167,6 +171,8 @@ internal sealed class EditWorkflow
             $"{DoneOption}/{DoneAliasOption} [child]",
             $"{NoTaskOption} [child]",
             $"{ToggleTaskOption}/{ToggleTaskAliasOption} [child]",
+            $"{HideDoneTasksOption} [child]",
+            $"{ShowDoneTasksOption} [child]",
             $"{TasksOption}/{TasksAliasOption} [todo|doing|done|all]"
         }));
         helpGroups.Add(new CommandHelpGroup("Links", new[]
@@ -248,6 +254,8 @@ internal sealed class EditWorkflow
                 DoneOption or DoneAliasOption => ProcessSetTaskState(parameters, TaskState.Done),
                 NoTaskOption => ProcessSetTaskState(parameters, TaskState.None),
                 ToggleTaskOption or ToggleTaskAliasOption => ProcessToggleTaskState(parameters),
+                HideDoneTasksOption => ProcessSetHideDoneTasks(parameters, hideDoneTasks: true),
+                ShowDoneTasksOption => ProcessSetHideDoneTasks(parameters, hideDoneTasks: false),
                 TasksOption or TasksAliasOption => ProcessTasks(parameters),
                 CaptureOption => ProcessCapture(),
                 MetaOption => ProcessMeta(parameters),
@@ -300,7 +308,8 @@ internal sealed class EditWorkflow
             false,
             0,
             sb,
-            AppConsole.Current.WindowWidth - 5);
+            AppConsole.Current.WindowWidth - 5,
+            NodeBranchVisibility.HasHideDoneAncestor(_map.GetCurrentNode()));
         return sb.ToString();
     }
 
@@ -337,6 +346,8 @@ internal sealed class EditWorkflow
                 NoTaskOption,
                 ToggleTaskOption,
                 ToggleTaskAliasOption,
+                HideDoneTasksOption,
+                ShowDoneTasksOption,
                 TasksOption,
                 TasksAliasOption,
                 CaptureOption,
@@ -901,6 +912,18 @@ internal sealed class EditWorkflow
 
         return success
             ? PersistMapChange("Toggle task state")
+            : CommandExecutionResult.Error(errorMessage);
+    }
+
+    private CommandExecutionResult ProcessSetHideDoneTasks(string parameters, bool hideDoneTasks)
+    {
+        string errorMessage;
+        var success = string.IsNullOrWhiteSpace(parameters)
+            ? _map.SetHideDoneTasks(hideDoneTasks, out errorMessage)
+            : _map.SetHideDoneTasks(parameters, hideDoneTasks, out errorMessage);
+
+        return success
+            ? PersistMapChange(hideDoneTasks ? "Hide done tasks" : "Show done tasks")
             : CommandExecutionResult.Error(errorMessage);
     }
 

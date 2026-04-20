@@ -153,6 +153,35 @@ public class EditWorkflowTests
     }
 
     [Fact]
+    public void Execute_HideDoneAndShowDone_PersistNodeFlag()
+    {
+        using var workspace = new TestWorkspace();
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("Branch");
+        var filePath = workspace.SaveMap("workflow-map", map);
+
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+        var hideResult = workflow.Execute(new ConsoleInput("hidedone 1"));
+        workflow.Save(hideResult.SyncCommitMessage!);
+        var hiddenMap = workspace.MapsStorage.OpenMap(filePath);
+
+        var showWorkflow = new EditWorkflow(filePath, workspace.AppContext);
+        Assert.True(showWorkflow.Execute(new ConsoleInput("cd 1")).IsSuccess);
+        var showResult = showWorkflow.Execute(new ConsoleInput("showdone"));
+        showWorkflow.Save(showResult.SyncCommitMessage!);
+        var shownMap = workspace.MapsStorage.OpenMap(filePath);
+
+        Assert.True(hideResult.IsSuccess);
+        Assert.True(hideResult.ShouldPersist);
+        Assert.Equal("Hide done tasks in workflow-map", hideResult.SyncCommitMessage);
+        Assert.True(hiddenMap.GetNode("1")!.HideDoneTasks);
+        Assert.True(showResult.IsSuccess);
+        Assert.True(showResult.ShouldPersist);
+        Assert.Equal("Show done tasks in workflow-map", showResult.SyncCommitMessage);
+        Assert.False(shownMap.GetNode("1")!.HideDoneTasks);
+    }
+
+    [Fact]
     public void Execute_TodoAtRoot_ReturnsValidationError()
     {
         using var workspace = new TestWorkspace();
@@ -208,6 +237,34 @@ public class EditWorkflowTests
     }
 
     [Fact]
+    public void BuildScreen_WhenAncestorHidesDoneTasks_SkipsDoneDescendants()
+    {
+        using var workspace = new TestWorkspace();
+        var map = new MindMap("Root");
+        var branch = map.AddAtCurrentNode("Branch");
+        branch.HideDoneTasks = true;
+        Assert.True(map.ChangeCurrentNode("1"));
+        map.AddAtCurrentNode("Subbranch");
+        Assert.True(map.ChangeCurrentNode("1"));
+        map.AddAtCurrentNode("Open child");
+        map.AddAtCurrentNode("Done child");
+        Assert.True(map.SetTaskState("1", TaskState.Todo, out _));
+        Assert.True(map.SetTaskState("2", TaskState.Done, out _));
+        map.GoToRoot();
+        var filePath = workspace.SaveMap("workflow-map", map);
+
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+        Assert.True(workflow.Execute(new ConsoleInput("cd 1")).IsSuccess);
+        Assert.True(workflow.Execute(new ConsoleInput("cd 1")).IsSuccess);
+
+        var screen = workflow.BuildScreen();
+
+        Assert.Contains("Subbranch", screen);
+        Assert.Contains("[ ] Open child", screen);
+        Assert.DoesNotContain("Done child", screen);
+    }
+
+    [Fact]
     public void BuildScreen_ShowsGroupedHelpLines()
     {
         using var workspace = new TestWorkspace();
@@ -225,6 +282,8 @@ public class EditWorkflowTests
         Assert.DoesNotContain("...", goToLine);
         Assert.Contains(ColorLabel("To Do"), screen);
         Assert.Contains(ColorLabel("Navigate"), screen);
+        Assert.Contains("hidedone [child]", screen);
+        Assert.Contains("showdone [child]", screen);
     }
 
     [Fact]

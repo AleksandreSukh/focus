@@ -115,6 +115,25 @@ public class HtmlExportTests
     }
 
     [Fact]
+    public void Export_HtmlUnderHideDoneAncestor_SkipsDoneDescendants()
+    {
+        var map = new MindMap("Root");
+        var branch = map.AddAtCurrentNode("Branch");
+        branch.HideDoneTasks = true;
+        var subbranch = branch.Add("Subbranch");
+        var todoChild = subbranch.Add("Todo child");
+        var doneChild = subbranch.Add("Done child");
+        todoChild.TaskState = TaskState.Todo;
+        doneChild.TaskState = TaskState.Done;
+
+        var html = MapExportService.Export(subbranch, ExportFormat.Html);
+
+        Assert.Contains("<h1>Subbranch</h1>", html);
+        Assert.Contains("[ ] Todo child", html);
+        Assert.DoesNotContain("Done child", html);
+    }
+
+    [Fact]
     public void Export_HtmlWithMissingAttachment_FallsBackToRelativeLink()
     {
         using var workspace = new TestWorkspace();

@@ -445,6 +445,52 @@ public class ConsoleAppE2ETests
     }
 
     [Fact]
+    public async Task TaskWorkflows_HideDoneTasks_HidesAndRestoresDoneDescendants()
+    {
+        using var workspace = new FocusE2EWorkspace();
+        workspace.WriteConfig();
+
+        var map = new MindMap("Alpha root");
+        var branch = map.AddAtCurrentNode("Branch");
+        var openChild = branch.Add("Open child");
+        var doneChild = branch.Add("Done child");
+        openChild.TaskState = TaskState.Todo;
+        doneChild.TaskState = TaskState.Done;
+        SaveMap(workspace, "alpha", map);
+
+        await using var app = new FocusAppProcessHarness(workspace);
+        await app.StartAsync();
+        var context = new FocusScenarioContext(app, workspace);
+
+        await FocusScenario.RunAsync(
+            context,
+            FocusScenario.WaitForOutput("Welcome"),
+            FocusScenario.SendLine("alpha"),
+            FocusScenario.WaitForOutput("| * Alpha root"),
+            FocusScenario.SendLine("hidedone 1"),
+            FocusScenario.AssertMap("alpha.json", savedMap => Assert.True(savedMap.RootNode.Children[0].HideDoneTasks)),
+            FocusScenario.SendLine("cd 1"),
+            FocusScenario.WaitForOutput("Open child"));
+
+        Assert.DoesNotContain("[x] Done child", app.GetTranscript(), StringComparison.Ordinal);
+
+        await FocusScenario.RunAsync(
+            context,
+            FocusScenario.SendLine("showdone"),
+            FocusScenario.WaitForOutput("Done child"),
+            FocusScenario.SendLine("exit"),
+            FocusScenario.WaitForOutput("Welcome"),
+            FocusScenario.SendLine("exit"));
+
+        var exitCode = await app.WaitForExitAsync();
+
+        Assert.Equal(0, exitCode);
+        await FocusScenario.RunAsync(
+            context,
+            FocusScenario.AssertMap("alpha.json", savedMap => Assert.False(savedMap.RootNode.Children[0].HideDoneTasks)));
+    }
+
+    [Fact]
     public async Task ViewState_Tilde_TogglesCommandHelp()
     {
         using var workspace = new FocusE2EWorkspace();

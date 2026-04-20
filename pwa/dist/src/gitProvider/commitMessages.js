@@ -47,6 +47,10 @@ export function buildNodeTaskStateCommitMessage(mapName, nodeId, taskState) {
   return `map:task ${normalizeMapName(mapName)} ${normalizeValue(nodeId)} -> ${stateLabel}`;
 }
 
+export function buildNodeHideDoneTasksCommitMessage(mapName, nodeId, hideDoneTasks) {
+  return `map:hide-done ${normalizeMapName(mapName)} ${normalizeValue(nodeId)} -> ${hideDoneTasks ? 'hide' : 'show'}`;
+}
+
 export function buildNodeDeleteCommitMessage(mapName, nodeId) {
   return `map:delete ${normalizeMapName(mapName)} ${normalizeValue(nodeId)}`;
 }

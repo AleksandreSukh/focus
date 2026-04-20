@@ -8,6 +8,7 @@ import {
   buildNodeAddCommitMessage,
   buildNodeDeleteCommitMessage,
   buildNodeEditCommitMessage,
+  buildNodeHideDoneTasksCommitMessage,
   buildNodeTaskStateCommitMessage,
   getSyncMetadata,
   recordSyncState,
@@ -39,14 +40,17 @@ import {
   cloneMapDocument,
   collectTaskEntries,
   findNodeRecord,
+  getTreeHideDoneState,
   getNodeBadges,
   getNodeUiState,
+  getVisibleTreeChildren,
   isClipboardImageNode,
   NODE_TYPE,
   normalizeMindMapDocument,
   normalizeNodeDisplayText,
   nowIso,
   parseMindMapDocument,
+  resolveVisibleNodeId,
   serializeMindMapDocument,
   TASK_STATE,
 } from './maps/model.js';
@@ -751,6 +755,40 @@ function handleDocumentClick(event) {
     case 'open-linked-node':
       openLinkedNode(clickableElement.dataset.targetNodeId || '');
       return;
+    case 'show-done-items': {
+      const mapPath = clickableElement.dataset.mapPath || '';
+      const nodeId = clickableElement.dataset.nodeId || '';
+      const snapshot = state.mapsByPath[mapPath];
+      if (!snapshot) return;
+      enqueueOperation({
+        type: 'setHideDoneTasks',
+        filePath: mapPath,
+        nodeId,
+        hideDoneTasks: false,
+        timestamp: nowIso(),
+        commitMessage: buildNodeHideDoneTasksCommitMessage(snapshot.mapName, nodeId, false),
+      }, {
+        selectedNodeIdOverride: nodeId,
+      });
+      return;
+    }
+    case 'hide-done-items': {
+      const mapPath = clickableElement.dataset.mapPath || '';
+      const nodeId = clickableElement.dataset.nodeId || '';
+      const snapshot = state.mapsByPath[mapPath];
+      if (!snapshot) return;
+      enqueueOperation({
+        type: 'setHideDoneTasks',
+        filePath: mapPath,
+        nodeId,
+        hideDoneTasks: true,
+        timestamp: nowIso(),
+        commitMessage: buildNodeHideDoneTasksCommitMessage(snapshot.mapName, nodeId, true),
+      }, {
+        selectedNodeIdOverride: nodeId,
+      });
+      return;
+    }
     case 'set-task-filter':
       state.taskFilter = state.taskFilter === clickableElement.dataset.filter
         ? ''
@@ -771,6 +809,18 @@ function handleDocumentChange(event) {
   if (target.id === 'attach-file-input' && target.files && target.files.length > 0) {
     void handleAttachFile(target.files[0]);
     target.value = '';
+    return;
+  }
+
+  if (
+    state.activeModal?.kind === 'editNode' &&
+    target.name === 'hideDoneTasks'
+  ) {
+    state.activeModal = {
+      ...state.activeModal,
+      hideDoneTasks: target.checked,
+      errorMessage: '',
+    };
     return;
   }
 
@@ -795,7 +845,10 @@ function handleDocumentInput(event) {
     return;
   }
 
-  if (target instanceof HTMLInputElement && target.type === 'file') {
+  if (
+    target instanceof HTMLInputElement &&
+    (target.type === 'file' || target.type === 'checkbox' || target.type === 'radio')
+  ) {
     return;
   }
 
@@ -1150,6 +1203,50 @@ function enqueueOperation(operation, options = {}) {
     };
   }
 
+  if (operation.type === 'renameMap') {
+    const renamed = buildRenamedSnapshot(currentSnapshot, operation);
+    if (!renamed.ok) {
+      state.syncState = {
+        kind: 'error',
+        tone: 'error',
+        message: renamed.error.message,
+        detail: buildErrorDetail(renamed.error),
+        canRetry: false,
+      };
+      render();
+      return renamed;
+    }
+
+    state.pendingOperations = [...state.pendingOperations, operation];
+    state.currentView = 'map';
+    state.selectedMapPath = renamed.value.snapshot.filePath;
+    state.selectedNodeId = selectedNodeIdOverride || renamed.value.mutation.selectedNodeId || state.selectedNodeId;
+    if (state.activeModal?.mapPath === operation.filePath) {
+      state.activeModal = {
+        ...state.activeModal,
+        mapPath: renamed.value.snapshot.filePath,
+      };
+    }
+    setSnapshots([
+      ...getSnapshots().filter((item) => !operationTouchesFilePath(operation, item.filePath)),
+      renamed.value.snapshot,
+    ]);
+    persistRepoScopedState();
+    state.syncState = {
+      kind: 'syncing',
+      tone: 'pending',
+      message: `${state.pendingOperations.length} local change${state.pendingOperations.length === 1 ? '' : 's'} waiting to sync.`,
+      detail: buildStatusDetail(),
+      canRetry: false,
+    };
+    render();
+    void processPendingOperations();
+    return {
+      ok: true,
+      value: renamed.value.mutation,
+    };
+  }
+
   const nextSnapshot = {
     ...currentSnapshot,
     document: cloneMapDocument(currentSnapshot.document),
@@ -1226,11 +1323,18 @@ async function processPendingOperations() {
     };
     render();
 
-    const result = await state.service.applyMutation(
-      currentOperation.filePath,
-      currentOperation,
-      currentOperation.commitMessage,
-    );
+    const result = currentOperation.type === 'renameMap'
+      ? await state.service.renameMap(
+        currentOperation.filePath,
+        currentOperation.newFilePath,
+        currentOperation.oldRevision,
+        currentOperation.commitMessage,
+      )
+      : await state.service.applyMutation(
+        currentOperation.filePath,
+        currentOperation,
+        currentOperation.commitMessage,
+      );
 
     if (!result.ok) {
       state.processingQueue = false;
@@ -1244,9 +1348,10 @@ async function processPendingOperations() {
       }
 
       if (result.error?.code === 'NOT_FOUND' || result.error?.cause?.code === 'NOT_FOUND') {
-        upsertBlockedPendingMap(buildBlockedPendingMapEntry(currentOperation.filePath));
-        state.syncState = buildBlockedPendingMapSyncState(currentOperation.filePath);
-        focusRepairEntry(currentOperation.filePath, true);
+        const blockedFilePath = getOperationDisplayFilePath(currentOperation);
+        upsertBlockedPendingMap(buildBlockedPendingMapEntry(blockedFilePath));
+        state.syncState = buildBlockedPendingMapSyncState(blockedFilePath);
+        focusRepairEntry(blockedFilePath, true);
         render();
         return;
       }
@@ -1256,7 +1361,7 @@ async function processPendingOperations() {
       return;
     }
 
-    clearBlockedPendingMap(currentOperation.filePath);
+    getOperationFilePaths(currentOperation).forEach((filePath) => clearBlockedPendingMap(filePath));
     state.pendingOperations = state.pendingOperations.slice(1);
     syncBlockedPendingMaps();
     refreshVisibleSnapshotsFromServiceCache();
@@ -1397,86 +1502,92 @@ async function handleEditNodeSubmit(form) {
   }
 
   const text = String(new FormData(form).get('text') ?? '').trim();
+  const hideDoneTasks = Boolean(state.activeModal?.hideDoneTasks);
   state.activeModal = {
     ...state.activeModal,
     draftText: text,
+    hideDoneTasks,
     errorMessage: '',
   };
 
   const { snapshot, nodeUiState } = modalContext;
+  const nodeId = nodeUiState.node.uniqueIdentifier;
+  const textChanged = text !== (nodeUiState.node.name || '');
+  const hideDoneTasksChanged = hideDoneTasks !== Boolean(nodeUiState.node.hideDoneTasks);
   const isRootNode = nodeUiState.parent === null;
   const oldFilePath = snapshot.filePath;
   const newFilePath = isRootNode ? computeRenamedFilePath(oldFilePath, text) : oldFilePath;
-  const isRename = isRootNode && newFilePath !== oldFilePath;
+  const isRename = isRootNode && textChanged && newFilePath !== oldFilePath;
 
-  if (isRename) {
-    const oldRevision = snapshot.revision;
-    const oldMapName = snapshot.mapName;
-    const newMapName = (newFilePath.split('/').pop() || newFilePath).replace(/\.json$/i, '');
-
-    const operation = {
-      type: 'renameMap',
-      filePath: oldFilePath,
-      newFilePath,
-      nodeId: nodeUiState.node.uniqueIdentifier,
-      text,
-      oldRevision,
-      timestamp: nowIso(),
-      commitMessage: buildMapRenameCommitMessage(oldMapName, newMapName),
-    };
-
-    // Optimistically update local snapshot to new path/name
-    const updatedSnapshot = {
-      ...snapshot,
-      filePath: newFilePath,
-      fileName: newFilePath.split('/').pop() || newFilePath,
-      mapName: newMapName,
-      document: cloneMapDocument(snapshot.document),
-    };
-    updatedSnapshot.document.rootNode.name = text;
-
-    state.service.removeCachedSnapshot(oldFilePath);
-    state.service.replaceCachedSnapshot(updatedSnapshot);
-
-    const result = enqueueOperation(operation);
-    if (!result.ok) {
-      // Roll back optimistic update
-      state.service.removeCachedSnapshot(newFilePath);
-      state.service.replaceCachedSnapshot(snapshot);
-      setActiveModalError(result.error.message);
-      return;
-    }
-
-    setSnapshots(getSnapshots().map((s) =>
-      s.filePath === oldFilePath ? updatedSnapshot : s,
-    ));
-
+  if (!textChanged && !hideDoneTasksChanged) {
     closeActiveModal({
-      focusKey: buildNodeFocusKey(newFilePath, state.selectedNodeId || operation.nodeId),
+      focusKey: buildNodeFocusKey(oldFilePath, nodeId),
     });
     return;
   }
 
-  const operation = {
-    type: 'editNodeText',
-    filePath: oldFilePath,
-    nodeId: nodeUiState.node.uniqueIdentifier,
-    text,
-    timestamp: nowIso(),
-    commitMessage: buildNodeEditCommitMessage(
-      snapshot.mapName,
-      nodeUiState.node.uniqueIdentifier,
-    ),
-  };
+  let currentFilePath = oldFilePath;
+  let currentMapName = snapshot.mapName;
 
-  const result = enqueueOperation(operation);
-  if (!result.ok) {
-    setActiveModalError(result.error.message);
-    return;
+  if (isRename) {
+    const newMapName = (newFilePath.split('/').pop() || newFilePath).replace(/\.json$/i, '');
+    const renameOperation = {
+      type: 'renameMap',
+      filePath: oldFilePath,
+      newFilePath,
+      nodeId,
+      text,
+      oldRevision: snapshot.revision,
+      timestamp: nowIso(),
+      commitMessage: buildMapRenameCommitMessage(snapshot.mapName, newMapName),
+    };
+
+    const renameResult = enqueueOperation(renameOperation, {
+      selectedNodeIdOverride: nodeId,
+    });
+    if (!renameResult.ok) {
+      setActiveModalError(renameResult.error.message);
+      return;
+    }
+
+    currentFilePath = newFilePath;
+    currentMapName = newMapName;
+  } else if (textChanged) {
+    const editOperation = {
+      type: 'editNodeText',
+      filePath: oldFilePath,
+      nodeId,
+      text,
+      timestamp: nowIso(),
+      commitMessage: buildNodeEditCommitMessage(snapshot.mapName, nodeId),
+    };
+
+    const editResult = enqueueOperation(editOperation);
+    if (!editResult.ok) {
+      setActiveModalError(editResult.error.message);
+      return;
+    }
+  }
+
+  if (hideDoneTasksChanged) {
+    const hideDoneResult = enqueueOperation({
+      type: 'setHideDoneTasks',
+      filePath: currentFilePath,
+      nodeId,
+      hideDoneTasks,
+      timestamp: nowIso(),
+      commitMessage: buildNodeHideDoneTasksCommitMessage(currentMapName, nodeId, hideDoneTasks),
+    }, {
+      selectedNodeIdOverride: nodeId,
+    });
+    if (!hideDoneResult.ok) {
+      setActiveModalError(hideDoneResult.error.message);
+      return;
+    }
   }
 
   closeActiveModal({
-    focusKey: buildNodeFocusKey(operation.filePath, state.selectedNodeId || operation.nodeId),
+    focusKey: buildNodeFocusKey(currentFilePath, nodeId),
   });
 }
 
@@ -2412,7 +2523,7 @@ async function resetLocalMapToRemote(filePath) {
 
     if (loaded.error?.cause?.code === 'NOT_FOUND') {
       // File was deleted on GitHub — discard all local state for it
-      state.pendingOperations = state.pendingOperations.filter((op) => op.filePath !== filePath);
+      state.pendingOperations = state.pendingOperations.filter((op) => !operationTouchesFilePath(op, filePath));
       clearUnreadableMap(filePath);
       clearBlockedPendingMap(filePath);
       state.service.removeCachedSnapshot(filePath);
@@ -2439,7 +2550,7 @@ async function resetLocalMapToRemote(filePath) {
     return;
   }
 
-  state.pendingOperations = state.pendingOperations.filter((operation) => operation.filePath !== filePath);
+  state.pendingOperations = state.pendingOperations.filter((operation) => !operationTouchesFilePath(operation, filePath));
   clearUnreadableMap(filePath);
   clearBlockedPendingMap(filePath);
   refreshVisibleSnapshotsFromServiceCache();
@@ -2482,7 +2593,7 @@ function handleDiscardPendingMapOperations(filePath) {
     return;
   }
 
-  state.pendingOperations = state.pendingOperations.filter((operation) => operation.filePath !== filePath);
+  state.pendingOperations = state.pendingOperations.filter((operation) => !operationTouchesFilePath(operation, filePath));
   clearBlockedPendingMap(filePath);
   syncBlockedPendingMaps();
   refreshVisibleSnapshotsFromServiceCache();
@@ -2597,7 +2708,7 @@ async function openConflictModal() {
 
   const filePath = failingOp.filePath;
   const mapName = getMapLabel(filePath);
-  const opsForMap = state.pendingOperations.filter((op) => op.filePath === filePath);
+  const opsForMap = state.pendingOperations.filter((op) => operationTouchesFilePath(op, filePath));
 
   state.activeModal = {
     kind: 'resolveConflict',
@@ -2879,7 +2990,7 @@ async function handleAcceptConflictResolution() {
     return;
   }
 
-  state.pendingOperations = state.pendingOperations.filter((op) => op.filePath !== filePath);
+  state.pendingOperations = state.pendingOperations.filter((op) => !operationTouchesFilePath(op, filePath));
   replaceSnapshot(result.value);
   persistRepoScopedState();
 
@@ -2948,6 +3059,7 @@ function openNodeModal(kind, mapPath, nodeId, returnFocusKey = '') {
     mapPath,
     nodeId: nodeUiState.node.uniqueIdentifier,
     draftText: kind === 'editNode' ? nodeUiState.node.name || '' : '',
+    hideDoneTasks: kind === 'editNode' ? Boolean(nodeUiState.node.hideDoneTasks) : false,
     errorMessage: '',
     returnFocusKey: focusKey,
     fixedParentNodeId: kind === 'addChildNote' ? nodeUiState.node.uniqueIdentifier : '',
@@ -3216,19 +3328,22 @@ function getSelectedNodeUiState(snapshot = getSelectedSnapshot()) {
     return null;
   }
 
+  const rootNodeId = snapshot.document.rootNode?.uniqueIdentifier || '';
+  const requestedNodeId = state.selectedNodeId || rootNodeId;
+  const visibleNodeId = resolveVisibleNodeId(snapshot.document, requestedNodeId) || rootNodeId;
   const selectedRecord = getNodeUiState(
     snapshot.document,
-    state.selectedNodeId || snapshot.document.rootNode?.uniqueIdentifier,
+    visibleNodeId,
   );
 
   if (selectedRecord) {
-    if (!state.selectedNodeId) {
+    if (state.selectedNodeId !== selectedRecord.node.uniqueIdentifier) {
       state.selectedNodeId = selectedRecord.node.uniqueIdentifier;
     }
     return selectedRecord;
   }
 
-  return getNodeUiState(snapshot.document, snapshot.document.rootNode?.uniqueIdentifier || '');
+  return getNodeUiState(snapshot.document, rootNodeId);
 }
 
 function getNodeUiStateForLocation(mapPath, nodeId) {
@@ -3260,6 +3375,36 @@ function getActiveModalContext(expectedKind = '') {
   return getNodeUiStateForLocation(state.activeModal.mapPath, state.activeModal.nodeId);
 }
 
+function buildRenamedSnapshot(snapshot, operation) {
+  const nextDocument = cloneMapDocument(snapshot.document);
+  const applied = applyMapMutation(nextDocument, {
+    type: 'editNodeText',
+    nodeId: operation.nodeId,
+    text: operation.text,
+    timestamp: operation.timestamp,
+  });
+  if (!applied.ok) {
+    return applied;
+  }
+
+  const nextFilePath = operation.newFilePath || snapshot.filePath;
+  const nextFileName = nextFilePath.split('/').pop() || nextFilePath;
+  return {
+    ok: true,
+    value: {
+      snapshot: {
+        ...snapshot,
+        filePath: nextFilePath,
+        fileName: nextFileName,
+        mapName: nextFileName.replace(/\.json$/i, ''),
+        document: nextDocument,
+        loadedAt: Date.now(),
+      },
+      mutation: applied.value,
+    },
+  };
+}
+
 function applyPendingOperationsLocally(snapshots, pendingOperations) {
   const snapshotsByPath = new Map(
     snapshots.map((snapshot) => [
@@ -3272,6 +3417,23 @@ function applyPendingOperationsLocally(snapshots, pendingOperations) {
   );
 
   pendingOperations.forEach((operation) => {
+    if (operation.type === 'renameMap') {
+      const snapshot = snapshotsByPath.get(operation.filePath) ?? snapshotsByPath.get(operation.newFilePath);
+      if (!snapshot) {
+        return;
+      }
+
+      const renamed = buildRenamedSnapshot(snapshot, operation);
+      if (!renamed.ok) {
+        return;
+      }
+
+      snapshotsByPath.delete(operation.filePath);
+      snapshotsByPath.delete(operation.newFilePath);
+      snapshotsByPath.set(renamed.value.snapshot.filePath, renamed.value.snapshot);
+      return;
+    }
+
     const snapshot = snapshotsByPath.get(operation.filePath);
     if (!snapshot) {
       return;
@@ -4011,6 +4173,7 @@ function getWorkspaceOverlayState() {
       mapPath: state.activeModal.mapPath || '',
       nodeId: state.activeModal.nodeId || '',
       draftText: state.activeModal.draftText || '',
+      hideDoneTasks: state.activeModal.hideDoneTasks || false,
       errorMessage: state.activeModal.errorMessage || '',
       attachmentUploading: state.activeModal.attachmentUploading || false,
       attachmentError: state.activeModal.attachmentError || '',
@@ -4575,7 +4738,8 @@ function renderMapView() {
   }
 
   const rootNode = snapshot.document.rootNode;
-  const rootHasChildren = Array.isArray(rootNode?.children) && rootNode.children.length > 0;
+  const rootVisibleChildren = getVisibleTreeChildren(rootNode, false);
+  const rootHasChildren = rootVisibleChildren.length > 0;
   const rootCollapsed = getLocalCollapsedState(snapshot.filePath, rootNode);
   const isRootSelected = selectedNodeState.node.uniqueIdentifier === rootNode.uniqueIdentifier;
 
@@ -4613,7 +4777,7 @@ function renderMapView() {
         </header>
 
         ${rootHasChildren && !rootCollapsed
-          ? `<ol class="reader-list reader-root-list">${rootNode.children.map((child) => renderTreeNode(snapshot, child, 1, selectedNodeState)).join('')}</ol>`
+          ? `<ol class="reader-list reader-root-list">${rootVisibleChildren.map((child) => renderTreeNode(snapshot, child, 1, selectedNodeState, getTreeHideDoneState(rootNode, false))).join('')}</ol>`
           : ''}
       </article>
 
@@ -4638,11 +4802,12 @@ function renderMapView() {
   `;
 }
 
-function renderTreeNode(snapshot, node, depth, selectedNodeState) {
+function renderTreeNode(snapshot, node, depth, selectedNodeState, ancestorHidesDone = false) {
   const isSelected =
     state.selectedMapPath === snapshot.filePath &&
     state.selectedNodeId === node.uniqueIdentifier;
-  const hasChildren = Array.isArray(node.children) && node.children.length > 0;
+  const visibleChildren = getVisibleTreeChildren(node, ancestorHidesDone);
+  const hasChildren = visibleChildren.length > 0;
   const isCollapsed = getLocalCollapsedState(snapshot.filePath, node);
   const nodeTextMarkup = renderNodeTextMarkup(node.name, 'formatted-inline tree-inline');
 
@@ -4676,7 +4841,7 @@ function renderTreeNode(snapshot, node, depth, selectedNodeState) {
         </div>
       </div>
       ${hasChildren && !isCollapsed
-        ? `<ul class="reader-list child-list">${node.children.map((child) => renderTreeNode(snapshot, child, depth + 1, selectedNodeState)).join('')}</ul>`
+        ? `<ul class="reader-list child-list">${visibleChildren.map((child) => renderTreeNode(snapshot, child, depth + 1, selectedNodeState, getTreeHideDoneState(node, ancestorHidesDone))).join('')}</ul>`
         : ''}
     </li>
   `;
@@ -4688,9 +4853,12 @@ function renderSelectedNodeActions(snapshot, nodeUiState) {
   const taskDisabled = nodeUiState.canChangeTaskState ? '' : 'disabled';
   const isTask = nodeUiState.node.taskState !== TASK_STATE.NONE;
   const isClipboardImage = isClipboardImageNode(nodeUiState.node);
-  const badgesMarkup = nodeUiState.badges.length > 0
-    ? `<div class="selected-node-meta">${renderBadgeMarkup(nodeUiState.badges)}</div>`
+  const canHideDone = !nodeUiState.node.hideDoneTasks && nodeUiState.node.nodeType !== NODE_TYPE.IDEA_BAG_ITEM;
+  const hideDoneButton = canHideDone
+    ? `<button type="button" class="pill subtle" data-action="hide-done-items" data-map-path="${escapeHtml(mapPath)}" data-node-id="${escapeHtml(nodeId)}">Hide done items</button>`
     : '';
+  const metaContent = renderBadgeMarkup(nodeUiState.badges, { mapPath, nodeId }) + hideDoneButton;
+  const badgesMarkup = metaContent ? `<div class="selected-node-meta">${metaContent}</div>` : '';
   const hintMarkup = renderSelectedNodeHint(nodeUiState);
   const attachments = isClipboardImage ? [] : getNodeAttachments(nodeUiState.node);
   const attachmentsMarkup = attachments.length > 0
@@ -5495,12 +5663,17 @@ function describeSelectionCapabilities(nodeUiState) {
   return 'You can edit text, add child notes or tasks, and change task state for this node.';
 }
 
-function renderBadgeMarkup(badges) {
+function renderBadgeMarkup(badges, context = {}) {
   if (!Array.isArray(badges) || badges.length === 0) {
     return '';
   }
 
-  return badges.map((badge) => `<span class="pill subtle">${escapeHtml(badge)}</span>`).join('');
+  return badges.map((badge) => {
+    if (badge === 'Hide done' && context.mapPath && context.nodeId) {
+      return `<button type="button" class="pill subtle" data-action="show-done-items" data-map-path="${escapeHtml(context.mapPath)}" data-node-id="${escapeHtml(context.nodeId)}">Show done items</button>`;
+    }
+    return `<span class="pill subtle">${escapeHtml(badge)}</span>`;
+  }).join('');
 }
 
 function renderStatusDetailPrefix() {
@@ -5562,14 +5735,39 @@ function buildErrorDetail(error) {
   return parts.join(' | ');
 }
 
+function getOperationFilePaths(operation) {
+  const paths = [operation?.filePath];
+  if (operation?.type === 'renameMap') {
+    paths.push(operation.newFilePath);
+  }
+
+  return [...new Set(paths.filter(Boolean))];
+}
+
+function operationTouchesFilePath(operation, filePath) {
+  return Boolean(filePath) && getOperationFilePaths(operation).includes(filePath);
+}
+
+function getOperationDisplayFilePath(operation) {
+  if (operation?.type === 'renameMap' && operation.newFilePath) {
+    return operation.newFilePath;
+  }
+
+  return operation?.filePath || '';
+}
+
 function describeOperation(operation) {
-  const mapLabel = getMapLabel(operation.filePath);
+  const mapLabel = getMapLabel(getOperationDisplayFilePath(operation));
 
   switch (operation.type) {
+    case 'renameMap':
+      return `map rename in ${mapLabel}`;
     case 'editNodeText':
       return `text change in ${mapLabel}`;
     case 'setTaskState':
       return `task state update in ${mapLabel}`;
+    case 'setHideDoneTasks':
+      return `branch task visibility update in ${mapLabel}`;
     case 'addChildTask':
       return `new child task in ${mapLabel}`;
     case 'addChildNote':
@@ -5593,7 +5791,7 @@ function getMapLabel(filePath) {
 }
 
 function getPendingCountForMap(filePath) {
-  return state.pendingOperations.filter((operation) => operation.filePath === filePath).length;
+  return state.pendingOperations.filter((operation) => operationTouchesFilePath(operation, filePath)).length;
 }
 
 function buildRepairFocusKey(filePath) {

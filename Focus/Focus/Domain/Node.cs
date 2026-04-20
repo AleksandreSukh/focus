@@ -40,6 +40,8 @@ public class Node
 
     public bool Collapsed { get; set; }
 
+    public bool HideDoneTasks { get; set; }
+
     public TaskState TaskState { get; set; }
 
     public NodeMetadata? Metadata { get; set; }
@@ -136,6 +138,12 @@ public class Node
     internal void Expand()
     {
         Collapsed = false;
+        TouchMetadata();
+    }
+
+    internal void SetHideDoneTasks(bool hideDoneTasks)
+    {
+        HideDoneTasks = hideDoneTasks;
         TouchMetadata();
     }
 

@@ -27,7 +27,9 @@ public class MapsStorageTests
     {
         using var workspace = new TestWorkspace();
         var map = new MindMap("Root");
+        map.RootNode.HideDoneTasks = true;
         var child = map.AddAtCurrentNode("Captured note");
+        child.HideDoneTasks = true;
         child.Metadata!.Source = NodeMetadataSources.ClipboardText;
         child.Metadata.Device = "device-a";
         child.AddAttachment(new NodeAttachment
@@ -43,8 +45,10 @@ public class MapsStorageTests
         var reopened = workspace.MapsStorage.OpenMap(filePath);
         var reopenedChild = reopened.GetNode("1");
 
+        Assert.True(reopened.RootNode.HideDoneTasks);
         Assert.NotNull(reopenedChild);
         Assert.NotNull(reopenedChild!.Metadata);
+        Assert.True(reopenedChild.HideDoneTasks);
         Assert.Equal(NodeMetadataSources.ClipboardText, reopenedChild.Metadata!.Source);
         Assert.Equal("device-a", reopenedChild.Metadata.Device);
         Assert.Single(reopenedChild.Metadata.Attachments);

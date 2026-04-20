@@ -3,6 +3,9 @@ const normalizeValue = (value: string): string => value.trim().replace(/\s+/g, '
 const truncate = (value: string, maxLength: number): string =>
   value.length > maxLength ? value.slice(0, maxLength).trimEnd() : value;
 
+const normalizeMapName = (mapName: string): string =>
+  truncate(normalizeValue(mapName), 48) || 'map';
+
 export const buildTodoAddCommitMessage = (shortText: string): string => {
   const normalized = truncate(normalizeValue(shortText), 72);
   return `todo:add ${normalized}`;
@@ -20,10 +23,22 @@ export const buildTodoDeleteCommitMessage = (id: string): string =>
   `todo:delete ${normalizeValue(id)}`;
 
 export const buildMapRenameCommitMessage = (oldMapName: string, newMapName: string): string =>
-  `map:rename ${truncate(normalizeValue(oldMapName), 48) || 'map'} -> ${truncate(normalizeValue(newMapName), 48) || 'map'}`;
+  `map:rename ${normalizeMapName(oldMapName)} -> ${normalizeMapName(newMapName)}`;
+
+export const buildNodeTaskStateCommitMessage = (mapName: string, nodeId: string, taskState: number): string => {
+  const stateLabel =
+    taskState === 1 ? 'todo' :
+      taskState === 2 ? 'doing' :
+        taskState === 3 ? 'done' :
+          'clear';
+  return `map:task ${normalizeMapName(mapName)} ${normalizeValue(nodeId)} -> ${stateLabel}`;
+};
+
+export const buildNodeHideDoneTasksCommitMessage = (mapName: string, nodeId: string, hideDoneTasks: boolean): string =>
+  `map:hide-done ${normalizeMapName(mapName)} ${normalizeValue(nodeId)} -> ${hideDoneTasks ? 'hide' : 'show'}`;
 
 export const buildAttachmentAddCommitMessage = (mapName: string, fileName: string): string =>
-  `map:attach ${truncate(normalizeValue(mapName), 48) || 'map'} ${truncate(normalizeValue(fileName), 48)}`.trimEnd();
+  `map:attach ${normalizeMapName(mapName)} ${truncate(normalizeValue(fileName), 48)}`.trimEnd();
 
 export const buildAttachmentRemoveCommitMessage = (mapName: string, fileName: string): string =>
-  `map:detach ${truncate(normalizeValue(mapName), 48) || 'map'} ${truncate(normalizeValue(fileName), 48)}`.trimEnd();
+  `map:detach ${normalizeMapName(mapName)} ${truncate(normalizeValue(fileName), 48)}`.trimEnd();

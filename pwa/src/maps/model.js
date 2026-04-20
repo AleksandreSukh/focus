@@ -190,6 +190,8 @@ export function applyMapMutation(document, mutation) {
       return editNodeText(document, mutation, timestamp);
     case 'setTaskState':
       return setNodeTaskState(document, mutation, timestamp);
+    case 'setHideDoneTasks':
+      return setNodeHideDoneTasks(document, mutation, timestamp);
     case 'addChildNote':
       return addChildNode(document, mutation, timestamp, TASK_STATE.NONE);
     case 'addChildTask':
@@ -224,6 +226,7 @@ export function createMapDocument(rootName) {
       links: {},
       number: 1,
       collapsed: false,
+      hideDoneTasks: false,
       taskState: TASK_STATE.NONE,
       metadata: createMetadata(timestamp, MANUAL_SOURCE, DEFAULT_DEVICE),
     },
@@ -268,11 +271,68 @@ export function getNodeBadges(node) {
     badges.push('Idea');
   }
 
+  if (node.hideDoneTasks) {
+    badges.push('Hide done');
+  }
+
   if (node.links && typeof node.links === 'object' && Object.keys(node.links).length > 0) {
     badges.push('Links');
   }
 
   return badges;
+}
+
+export function getTreeHideDoneState(node, ancestorHidesDone = false) {
+  return Boolean(ancestorHidesDone || node?.hideDoneTasks);
+}
+
+export function shouldHideNodeInTree(node, ancestorHidesDone = false) {
+  return Boolean(node && ancestorHidesDone && node.taskState === TASK_STATE.DONE);
+}
+
+export function getVisibleTreeChildren(node, ancestorHidesDone = false) {
+  if (!Array.isArray(node?.children)) {
+    return [];
+  }
+
+  const hideDoneStateForChildren = getTreeHideDoneState(node, ancestorHidesDone);
+  return node.children.filter((child) => !shouldHideNodeInTree(child, hideDoneStateForChildren));
+}
+
+export function resolveVisibleNodeId(document, nodeId) {
+  const rootNode = document?.rootNode;
+  if (!rootNode || typeof rootNode !== 'object') {
+    return '';
+  }
+
+  const rootId = rootNode.uniqueIdentifier || '';
+  if (!nodeId) {
+    return rootId;
+  }
+
+  let resolvedNodeId = '';
+
+  const visit = (node, ancestorHidesDone, nearestVisibleAncestorId, isRoot) => {
+    const nodeIsHidden = !isRoot && shouldHideNodeInTree(node, ancestorHidesDone);
+    const visibleNodeId = nodeIsHidden
+      ? nearestVisibleAncestorId
+      : (node.uniqueIdentifier || nearestVisibleAncestorId);
+
+    if (node.uniqueIdentifier === nodeId) {
+      resolvedNodeId = visibleNodeId;
+      return true;
+    }
+
+    if (!Array.isArray(node.children)) {
+      return false;
+    }
+
+    const hideDoneStateForChildren = getTreeHideDoneState(node, ancestorHidesDone);
+    return node.children.some((child) => visit(child, hideDoneStateForChildren, visibleNodeId, false));
+  };
+
+  visit(rootNode, false, rootId, true);
+  return resolvedNodeId || rootId;
 }
 
 // Canonical UTC timestamp format shared with the console app: yyyy-MM-ddTHH:mm:ssZ
@@ -297,6 +357,7 @@ function normalizeNode(node, context) {
   node.links = takeCanonicalProperty(node, 'links', 'Links');
   node.number = takeCanonicalProperty(node, 'number', 'Number');
   node.collapsed = takeCanonicalProperty(node, 'collapsed', 'Collapsed');
+  node.hideDoneTasks = takeCanonicalProperty(node, 'hideDoneTasks', 'HideDoneTasks');
   node.taskState = takeCanonicalProperty(node, 'taskState', 'TaskState');
   node.metadata = takeCanonicalProperty(node, 'metadata', 'Metadata');
 
@@ -307,6 +368,7 @@ function normalizeNode(node, context) {
   node.links = normalizeLinks(node.links);
   node.number = Number.isInteger(node.number) && node.number > 0 ? node.number : context.number;
   node.collapsed = Boolean(node.collapsed);
+  node.hideDoneTasks = Boolean(node.hideDoneTasks);
   node.taskState = isValidTaskState(node.taskState) ? node.taskState : TASK_STATE.NONE;
   normalizeMetadata(node, context.legacyTimestamp);
 
@@ -406,6 +468,28 @@ function setNodeTaskState(document, mutation, timestamp) {
   record.node.taskState = isValidTaskState(mutation.taskState)
     ? mutation.taskState
     : TASK_STATE.NONE;
+  touchMetadata(record.node, timestamp);
+  touchDocumentTimestamp(document, timestamp);
+  return {
+    ok: true,
+    value: {
+      affectedNodeId: record.node.uniqueIdentifier,
+      selectedNodeId: record.node.uniqueIdentifier,
+    },
+  };
+}
+
+function setNodeHideDoneTasks(document, mutation, timestamp) {
+  const record = findNodeRecord(document, mutation.nodeId);
+  if (!record) {
+    return notFoundError(mutation.nodeId);
+  }
+
+  if (record.node.nodeType === NODE_TYPE.IDEA_BAG_ITEM) {
+    return validationError('Hide done tasks is not supported for idea tags');
+  }
+
+  record.node.hideDoneTasks = Boolean(mutation.hideDoneTasks);
   touchMetadata(record.node, timestamp);
   touchDocumentTimestamp(document, timestamp);
   return {
@@ -564,6 +648,7 @@ function createNode(name, taskState, options = {}) {
     links: {},
     number: options.number || 1,
     collapsed: false,
+    hideDoneTasks: false,
     taskState,
     metadata: createMetadata(timestamp, options.source || MANUAL_SOURCE, options.device ?? DEFAULT_DEVICE),
   };
