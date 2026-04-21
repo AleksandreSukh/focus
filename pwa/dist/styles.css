@@ -279,7 +279,6 @@ h3 {
 .status-panel,
 .workspace-nav,
 .settings-header,
-.map-reader-header,
 .compact-row,
 .compact-row-main,
 .compact-row-actions,
@@ -486,6 +485,10 @@ h3 {
   margin-top: 0;
 }
 
+.maps-list-view {
+  padding-bottom: 5.5rem;
+}
+
 .workspace-nav {
   align-items: center;
   gap: 0.55rem;
@@ -601,6 +604,29 @@ h3 {
   color: var(--accent-strong);
   border-color: var(--accent-border-strong);
   animation: glow-pulse 2s ease-in-out infinite;
+}
+
+.done-visibility-button {
+  --floating-fab-size: 2.55rem;
+  --floating-fab-icon-size: 1.35rem;
+  --floating-fab-icon-stroke: 2.1;
+  color: var(--task-done);
+  border-color: var(--task-done-border);
+  background: var(--task-done-soft);
+}
+
+.done-visibility-button:hover {
+  color: var(--task-done);
+  border-color: var(--task-done);
+  background: var(--task-done-soft);
+  box-shadow: 0 0 0 3px var(--task-done-soft);
+}
+
+.done-visibility-button[aria-pressed='true'] {
+  color: var(--task-done);
+  border-color: var(--task-done);
+  background: var(--task-done-soft);
+  box-shadow: 0 0 0 3px var(--task-done-soft);
 }
 
 .danger-button {
@@ -1138,10 +1164,6 @@ h3 {
 
 /* ── Map Reader / Tree ── */
 
-.map-reader-header {
-  align-items: center;
-}
-
 .map-document {
   width: min(100%, 62rem);
   margin: 0 auto;
@@ -1320,65 +1342,97 @@ h3 {
 
 /* ── FAB (Floating Action Button) ── */
 
-.add-note-fab {
+.map-floating-actions {
   position: fixed;
   bottom: 1.5rem;
-  width: 3.8rem;
-  height: 3.8rem;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  z-index: 20;
+}
+
+.map-floating-actions--right {
+  right: 1.5rem;
+  left: auto;
+  flex-direction: row-reverse;
+}
+
+.map-floating-actions--left {
+  left: 1.5rem;
+  right: auto;
+  flex-direction: row;
+}
+
+.floating-fab {
+  --floating-fab-size: 3.8rem;
+  --floating-fab-icon-size: 2rem;
+  --floating-fab-icon-stroke: 2.5;
+  position: fixed;
+  bottom: 1.5rem;
+  width: var(--floating-fab-size);
+  height: var(--floating-fab-size);
   border-radius: 999px;
-  background: var(--accent);
-  color: #fff;
-  border: none;
   display: flex;
   align-items: center;
   justify-content: center;
   box-shadow: var(--shadow);
   z-index: 20;
   cursor: pointer;
-  transition: background-color 180ms ease, box-shadow 200ms ease, transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition:
+    background-color 180ms ease,
+    color 180ms ease,
+    border-color 180ms ease,
+    box-shadow 200ms ease,
+    transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-:root[data-theme='dark'] .add-note-fab {
-  background: var(--gradient-accent);
-  border: 1px solid rgba(255,255,255,0.1);
-}
-
-.add-note-fab svg {
-  width: 2rem;
-  height: 2rem;
+.floating-fab svg {
+  width: var(--floating-fab-icon-size);
+  height: var(--floating-fab-icon-size);
   stroke: currentColor;
-  stroke-width: 2.5;
+  stroke-width: var(--floating-fab-icon-stroke);
   stroke-linecap: round;
   fill: none;
 }
 
-.add-note-fab:hover {
-  background: var(--accent-strong);
+.map-floating-actions .floating-fab {
+  position: static;
+  bottom: auto;
+}
+
+.add-note-fab,
+.create-map-fab {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  border: 1px solid var(--accent-border-strong);
+}
+
+.add-note-fab:hover,
+.create-map-fab:hover {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
   transform: scale(1.08);
-  box-shadow: var(--shadow), 0 0 0 4px var(--accent-soft), 0 0 24px var(--glow-accent-strong);
+  box-shadow: var(--shadow), 0 0 0 4px var(--accent-soft), 0 0 24px var(--glow-accent);
 }
 
-:root[data-theme='dark'] .add-note-fab:hover {
-  background: var(--gradient-accent);
-}
-
-.add-note-fab:active {
+.floating-fab:active {
   transform: scale(0.95);
   transition-duration: 80ms;
 }
 
-.add-note-fab:focus-visible {
+.floating-fab:focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px var(--page-bg), 0 0 0 4px var(--accent);
 }
 
-.add-note-fab:disabled {
+.floating-fab:disabled {
   opacity: 0.35;
   cursor: not-allowed;
 }
 
-.add-note-fab--right { right: 1.5rem; left: auto; }
-.add-note-fab--left  { left: 1.5rem;  right: auto; }
+.floating-fab--right { right: 1.5rem; left: auto; }
+.floating-fab--left  { left: 1.5rem;  right: auto; }
 
 /* ── Selected Node ── */
 
@@ -2030,7 +2084,6 @@ textarea:disabled {
   .status-panel,
   .workspace-nav,
   .settings-header,
-  .map-reader-header,
   .compact-row,
   .compact-row-actions,
   .modal-header {

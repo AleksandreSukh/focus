@@ -3807,6 +3807,7 @@ function renderWorkspaceNavigation() {
 
 function buildMapsViewKey(summaries) {
   return JSON.stringify({
+    fabSide: state.fabSide,
     summaries: summaries.map((summary) => [
       summary.filePath,
       summary.rootTitle,
@@ -3971,21 +3972,24 @@ function applyRenderedNodeSelection(snapshot, nodeId, isSelected) {
   actionContainer.insertAdjacentHTML('beforeend', nextActionsMarkup);
 }
 
-function updateRenderedMapFab(snapshot, selectedNodeState) {
+function updateRenderedMapFloatingActions(snapshot, selectedNodeState) {
   if (!(ui.workspaceView instanceof HTMLElement)) {
     return;
   }
 
-  const fab = ui.workspaceView.querySelector('.add-note-fab');
-  if (!(fab instanceof HTMLButtonElement) || !selectedNodeState) {
+  const existingActions = ui.workspaceView.querySelector('.map-floating-actions');
+  if (!selectedNodeState) {
+    existingActions?.remove();
     return;
   }
 
-  fab.classList.toggle('add-note-fab--left', state.fabSide === 'left');
-  fab.classList.toggle('add-note-fab--right', state.fabSide !== 'left');
-  fab.dataset.mapPath = snapshot.filePath;
-  fab.dataset.nodeId = selectedNodeState.node.uniqueIdentifier;
-  fab.disabled = !selectedNodeState.canEditNode;
+  const nextActionsMarkup = renderMapFloatingActions(snapshot, selectedNodeState);
+  if (existingActions instanceof HTMLElement) {
+    existingActions.outerHTML = nextActionsMarkup;
+    return;
+  }
+
+  ui.workspaceView.insertAdjacentHTML('beforeend', nextActionsMarkup);
 }
 
 function updateRenderedMapSelection(snapshot, previousNodeId, nextNodeId) {
@@ -3997,7 +4001,65 @@ function updateRenderedMapSelection(snapshot, previousNodeId, nextNodeId) {
     applyRenderedNodeSelection(snapshot, nextNodeId, true);
   }
 
-  updateRenderedMapFab(snapshot, getSelectedNodeUiState(snapshot));
+  updateRenderedMapFloatingActions(snapshot, getSelectedNodeUiState(snapshot));
+}
+
+function getDoneVisibilityButtonState(snapshot, nodeUiState) {
+  if (!snapshot || !nodeUiState) {
+    return null;
+  }
+
+  const nodeId = nodeUiState.node.uniqueIdentifier;
+  if (nodeUiState.node.hideDoneTasks) {
+    return {
+      mapPath: snapshot.filePath,
+      nodeId,
+      hideDoneTasks: true,
+    };
+  }
+
+  const canHideDone =
+    nodeUiState.node.nodeType !== NODE_TYPE.IDEA_BAG_ITEM
+    && hasDoneDescendants(snapshot.document, nodeId);
+
+  if (!canHideDone) {
+    return null;
+  }
+
+  return {
+    mapPath: snapshot.filePath,
+    nodeId,
+    hideDoneTasks: false,
+  };
+}
+
+function renderMapFloatingActions(snapshot, nodeUiState) {
+  const doneVisibilityState = getDoneVisibilityButtonState(snapshot, nodeUiState);
+  const doneVisibilityButton = doneVisibilityState
+    ? renderDoneVisibilityButton(doneVisibilityState)
+    : '';
+  return `
+    <div class="map-floating-actions map-floating-actions--${state.fabSide}">
+      <button
+        type="button"
+        class="floating-fab add-note-fab"
+        data-action="open-modal"
+        data-modal-kind="addChildNote"
+        data-map-path="${escapeHtml(snapshot.filePath)}"
+        data-node-id="${escapeHtml(nodeUiState.node.uniqueIdentifier)}"
+        data-focus-key="add-note-fab"
+        aria-label="Add note"
+        title="Add note"
+        ${nodeUiState.canEditNode ? '' : 'disabled'}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <line x1="12" y1="5" x2="12" y2="19"/>
+          <line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+      </button>
+      ${doneVisibilityButton}
+    </div>
+  `;
 }
 
 function findRenderedMapCard(mapPath) {
@@ -4063,7 +4125,7 @@ function renderMapViewRegion() {
     return;
   }
 
-  updateRenderedMapFab(snapshot, getSelectedNodeUiState(snapshot));
+  updateRenderedMapFloatingActions(snapshot, getSelectedNodeUiState(snapshot));
 }
 
 function getWorkspaceOverlayState() {
@@ -4544,25 +4606,28 @@ function renderMapsView(summaries) {
             <p class="section-copy">Point <code>repoPath</code> directly at the FocusMaps folder, for example <code>Tool/PMMT/FocusMaps</code>, and make sure the folder contains map JSON files.</p>
           </article>
         `
-    : `
+      : `
         <div class="compact-list map-list">
           ${summaries.map((summary) => renderMapCard(summary)).join('')}
         </div>
       `;
   return `
-    <section class="workspace-panel ${isEmpty ? 'empty-panel' : ''}">
-      <div class="map-reader-header">
-        <div class="compact-row-actions">
-          <button
-            type="button"
-            class="secondary-button compact-button"
-            data-action="open-create-map-modal"
-            data-focus-key="create-map-trigger"
-          >New map</button>
-        </div>
-      </div>
+    <section class="workspace-panel maps-list-view ${isEmpty ? 'empty-panel' : ''}">
       ${repairSection}
       ${contentMarkup}
+      <button
+        type="button"
+        class="floating-fab create-map-fab floating-fab--${state.fabSide}"
+        data-action="open-create-map-modal"
+        data-focus-key="create-map-trigger"
+        aria-label="New map"
+        title="New map"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <line x1="12" y1="5" x2="12" y2="19"/>
+          <line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+      </button>
     </section>
   `;
 }
@@ -4774,23 +4839,7 @@ function renderMapView() {
           : ''}
       </article>
 
-      <button
-        type="button"
-        class="add-note-fab add-note-fab--${state.fabSide}"
-        data-action="open-modal"
-        data-modal-kind="addChildNote"
-        data-map-path="${escapeHtml(snapshot.filePath)}"
-        data-node-id="${escapeHtml(selectedNodeState.node.uniqueIdentifier)}"
-        data-focus-key="add-note-fab"
-        aria-label="Add note"
-        title="Add note"
-        ${selectedNodeState.canEditNode ? '' : 'disabled'}
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <line x1="12" y1="5" x2="12" y2="19"/>
-          <line x1="5" y1="12" x2="19" y2="12"/>
-        </svg>
-      </button>
+      ${renderMapFloatingActions(snapshot, selectedNodeState)}
     </section>
   `;
 }
@@ -4846,14 +4895,7 @@ function renderSelectedNodeActions(snapshot, nodeUiState) {
   const taskDisabled = nodeUiState.canChangeTaskState ? '' : 'disabled';
   const isTask = nodeUiState.node.taskState !== TASK_STATE.NONE;
   const isClipboardImage = isClipboardImageNode(nodeUiState.node);
-  const canHideDone =
-    !nodeUiState.node.hideDoneTasks
-    && nodeUiState.node.nodeType !== NODE_TYPE.IDEA_BAG_ITEM
-    && hasDoneDescendants(snapshot.document, nodeId);
-  const hideDoneButton = canHideDone
-    ? `<button type="button" class="pill subtle" data-action="hide-done-items" data-map-path="${escapeHtml(mapPath)}" data-node-id="${escapeHtml(nodeId)}">Hide done items</button>`
-    : '';
-  const metaContent = renderBadgeMarkup(nodeUiState.badges, { mapPath, nodeId }) + hideDoneButton;
+  const metaContent = renderBadgeMarkup(nodeUiState.badges);
   const badgesMarkup = metaContent ? `<div class="selected-node-meta">${metaContent}</div>` : '';
   const hintMarkup = renderSelectedNodeHint(nodeUiState);
   const attachments = isClipboardImage ? [] : getNodeAttachments(nodeUiState.node);
@@ -4909,6 +4951,27 @@ function renderSelectedNodeActions(snapshot, nodeUiState) {
       ${linksMarkup}
       ${hintMarkup}
     </div>
+  `;
+}
+
+function renderDoneVisibilityButton({ mapPath, nodeId, hideDoneTasks }) {
+  const isActive = Boolean(hideDoneTasks);
+  const action = isActive ? 'show-done-items' : 'hide-done-items';
+  const label = isActive ? 'Show done items' : 'Hide done items';
+  const icon = isActive
+    ? `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z"/><circle cx="12" cy="12" r="2.5"/></svg>`
+    : `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z"/><circle cx="12" cy="12" r="2.5"/><path d="M4 4l16 16"/></svg>`;
+  return `
+    <button
+      type="button"
+      class="floating-fab done-visibility-button"
+      data-action="${action}"
+      data-map-path="${escapeHtml(mapPath)}"
+      data-node-id="${escapeHtml(nodeId)}"
+      aria-label="${label}"
+      title="${label}"
+      aria-pressed="${isActive ? 'true' : 'false'}"
+    >${icon}</button>
   `;
 }
 
@@ -5684,17 +5747,15 @@ function describeSelectionCapabilities(nodeUiState) {
   return 'You can edit text, add child notes or tasks, and change task state for this node.';
 }
 
-function renderBadgeMarkup(badges, context = {}) {
+function renderBadgeMarkup(badges) {
   if (!Array.isArray(badges) || badges.length === 0) {
     return '';
   }
 
-  return badges.map((badge) => {
-    if (badge === 'Hide done' && context.mapPath && context.nodeId) {
-      return `<button type="button" class="pill subtle" data-action="show-done-items" data-map-path="${escapeHtml(context.mapPath)}" data-node-id="${escapeHtml(context.nodeId)}">Show done items</button>`;
-    }
-    return `<span class="pill subtle">${escapeHtml(badge)}</span>`;
-  }).join('');
+  return badges
+    .filter((badge) => badge !== 'Hide done')
+    .map((badge) => `<span class="pill subtle">${escapeHtml(badge)}</span>`)
+    .join('');
 }
 
 function renderStatusDetailPrefix() {
