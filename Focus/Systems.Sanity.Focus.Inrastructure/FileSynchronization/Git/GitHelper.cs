@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text;
 using Systems.Sanity.Focus.Infrastructure.Diagnostics;
 using Systems.Sanity.Focus.Infrastructure.FileSynchronization;
 
@@ -299,14 +300,18 @@ public class GitHelper
 
     private List<string> GetUnmergedFiles()
     {
-        string[] arguments = ["diff", "--name-only", "--diff-filter=U"];
+        string[] arguments = ["diff", "--name-only", "--diff-filter=U", "-z"];
         var result = _executeGitCommand(_gitRepositoryPath, true, false, arguments);
         if (result.ExitCode != 0)
             throw CreateCommandException(arguments, result);
 
-        return result.StandardOutput
-            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
-            .Select(path => NormalizeGitPath(path.Trim()))
+        // `git diff -z` preserves raw paths for names with spaces/non-ASCII.
+        var rawPaths = result.StandardOutput.IndexOf('\0') >= 0
+            ? result.StandardOutput.Split('\0', StringSplitOptions.RemoveEmptyEntries)
+            : result.StandardOutput.Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries);
+
+        return rawPaths
+            .Select(NormalizeGitPath)
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .ToList();
     }
@@ -483,6 +488,8 @@ public class GitHelper
         {
             startInfo.RedirectStandardOutput = true;
             startInfo.RedirectStandardError = true;
+            startInfo.StandardOutputEncoding = Encoding.UTF8;
+            startInfo.StandardErrorEncoding = Encoding.UTF8;
         }
 
         try

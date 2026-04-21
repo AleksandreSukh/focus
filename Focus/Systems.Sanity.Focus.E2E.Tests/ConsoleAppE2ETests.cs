@@ -1328,7 +1328,8 @@ public class ConsoleAppE2ETests
 
         await FocusScenario.RunAsync(
             context,
-            FocusScenario.WaitForOutput("Welcome"));
+            FocusScenario.WaitForOutput("Welcome"),
+            FocusScenario.Pause(TimeSpan.FromSeconds(1)));
 
         gitSandbox.SetWorkingRemoteToMissingPath();
 
@@ -1515,7 +1516,60 @@ public class ConsoleAppE2ETests
             context,
             FocusScenario.SendLine("alpha"),
             FocusScenario.WaitForOutput("Alpha resolved"),
-            FocusScenario.WaitForOutput("Navigate"),
+            FocusScenario.WaitForOutputOccurrences("Commands hidden. Press \"~\" to show.", 2),
+            FocusScenario.SendLine("exit"),
+            FocusScenario.WaitForOutputOccurrences("Welcome", 2),
+            FocusScenario.SendLine("ls"),
+            FocusScenario.WaitForOutputOccurrences("Welcome", 3),
+            FocusScenario.SendLine("exit"));
+
+        var exitCode = await app.WaitForExitAsync();
+
+        Assert.Equal(0, exitCode);
+        Assert.False(gitSandbox.HasWorkingMergeInProgress());
+        Assert.Empty(gitSandbox.GetWorkingUnmergedFiles());
+        Assert.DoesNotContain("Git merge still has unresolved files", app.GetTranscript(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task System_OpenAlreadyResolvedButStillUnmergedMap_WithSpacesAndNonAsciiFileName_FinalizesMergeAutomatically()
+    {
+        const string fileName = "საოჯახო map";
+
+        var canonicalFileName = "\u10E1\u10D0\u10DD\u10EF\u10D0\u10EE\u10DD map";
+        _ = fileName;
+
+        using var workspace = new FocusE2EWorkspace();
+        using var gitSandbox = new GitSandbox(Path.Combine(workspace.RootDirectory, "git"));
+        gitSandbox.WriteWorkingMap(canonicalFileName, new MindMap("Alpha root"));
+        gitSandbox.CommitAndPushWorking("Add alpha");
+        workspace.WriteConfig(gitSandbox.WorkingDirectory, gitSandbox.WorkingDirectory);
+        await using var app = new FocusAppProcessHarness(workspace);
+
+        await app.StartAsync();
+        var context = new FocusScenarioContext(app, workspace, gitSandbox);
+
+        await FocusScenario.RunAsync(
+            context,
+            FocusScenario.WaitForOutput("Welcome"),
+            FocusScenario.Pause(TimeSpan.FromSeconds(1)));
+
+        gitSandbox.WriteWorkingMap(canonicalFileName, new MindMap("Alpha local"));
+        gitSandbox.CommitWorking("Local alpha edit");
+        gitSandbox.PullCollaborator();
+        gitSandbox.WriteCollaboratorMap(canonicalFileName, new MindMap("Alpha remote"));
+        gitSandbox.CommitAndPushCollaborator("Remote alpha edit");
+        gitSandbox.PullWorkingExpectConflict();
+        gitSandbox.WriteWorkingMap(canonicalFileName, new MindMap("Alpha resolved"));
+
+        Assert.True(gitSandbox.HasWorkingMergeInProgress());
+        Assert.Contains($"FocusMaps/{canonicalFileName}.json", gitSandbox.GetWorkingUnmergedFiles());
+
+        await FocusScenario.RunAsync(
+            context,
+            FocusScenario.SendLine("1"),
+            FocusScenario.WaitForOutput("Alpha resolved"),
+            FocusScenario.WaitForOutputOccurrences("Commands hidden. Press \"~\" to show.", 2),
             FocusScenario.SendLine("exit"),
             FocusScenario.WaitForOutputOccurrences("Welcome", 2),
             FocusScenario.SendLine("ls"),

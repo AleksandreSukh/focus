@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text;
 using Systems.Sanity.Focus.Domain;
 
 namespace Systems.Sanity.Focus.E2E.Tests;
@@ -93,10 +94,12 @@ internal sealed class GitSandbox : IDisposable
 
     public IReadOnlyList<string> GetWorkingUnmergedFiles()
     {
-        var result = RunGit(WorkingDirectory, "diff", "--name-only", "--diff-filter=U");
-        return result.StandardOutput
-            .Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries)
-            .Select(path => path.Trim())
+        var result = RunGit(WorkingDirectory, "diff", "--name-only", "--diff-filter=U", "-z");
+        var paths = result.StandardOutput.IndexOf('\0') >= 0
+            ? result.StandardOutput.Split('\0', StringSplitOptions.RemoveEmptyEntries)
+            : result.StandardOutput.Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries);
+
+        return paths
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .ToArray();
     }
@@ -163,6 +166,8 @@ internal sealed class GitSandbox : IDisposable
             WorkingDirectory = workingDirectory,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
             UseShellExecute = false,
             CreateNoWindow = true
         };

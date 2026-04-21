@@ -159,6 +159,33 @@ public class GitHelperMergeRecoveryTests
     }
 
     [Fact]
+    public void PullLatestAtStartup_WhenUnmergedJsonFileNameHasSpacesAndNonAscii_StagesFileAndCommitsMerge()
+    {
+        const string fileName = "საოჯახო map.json";
+
+        using var repository = new MergeRecoveryTestRepository();
+        repository.EnableMerge();
+        var filePath = repository.WriteFile(fileName, BuildMapJson("Alpha", "2026-04-20T08:00:00Z"));
+        var executedCommands = new List<string[]>();
+        var unmergedFiles = new HashSet<string>([fileName], StringComparer.OrdinalIgnoreCase);
+        var gitHelper = new GitHelper(
+            repository.RootPath,
+            executeGitCommand: (_, _, _, arguments) =>
+            {
+                executedCommands.Add(arguments);
+                return ExecuteMergeRecoveryCommand(arguments, unmergedFiles);
+            });
+
+        var result = gitHelper.PullLatestAtStartup();
+
+        Assert.Equal(StartupSyncStatus.Succeeded, result.Status);
+        Assert.DoesNotContain("<<<<<<<", File.ReadAllText(filePath), StringComparison.Ordinal);
+        Assert.Contains(executedCommands, arguments => arguments.SequenceEqual(["add", "--", fileName]));
+        Assert.Contains(executedCommands, arguments => arguments.SequenceEqual(["commit", "--no-edit"]));
+        Assert.Contains(executedCommands, arguments => arguments.SequenceEqual(["pull", "--no-rebase", "--quiet"]));
+    }
+
+    [Fact]
     public void PullLatestAtStartup_WhenAutoResolveSucceeds_StagesResolvedJsonAndCommitsMerge()
     {
         using var repository = new MergeRecoveryTestRepository();
@@ -228,11 +255,11 @@ public class GitHelperMergeRecoveryTests
         IReadOnlyList<string> arguments,
         ISet<string> unmergedFiles)
     {
-        if (arguments.SequenceEqual(["diff", "--name-only", "--diff-filter=U"]))
+        if (arguments.SequenceEqual(["diff", "--name-only", "--diff-filter=U", "-z"]))
         {
             var output = unmergedFiles.Count == 0
                 ? string.Empty
-                : string.Join("\n", unmergedFiles.OrderBy(path => path, StringComparer.OrdinalIgnoreCase));
+                : string.Join("\0", unmergedFiles.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)) + "\0";
             return (0, output, string.Empty);
         }
 
