@@ -4,6 +4,8 @@ import {
   TASK_STATE,
   applyMapMutation,
   getVisibleTreeChildren,
+  hasDoneDescendants,
+  hasHideDoneAncestor,
   normalizeMindMapDocument,
   resolveVisibleNodeId,
 } from './model.js';
@@ -91,5 +93,108 @@ describe('mind map model hide-done support', () => {
     const hiddenDoneChildId = document.rootNode.children[0].children[1].uniqueIdentifier;
 
     assert.equal(resolveVisibleNodeId(document, hiddenDoneChildId), branchId);
+  });
+
+  it('detects hide-done ancestors for subtree rendering', () => {
+    const document = createDocument();
+    const openChildId = document.rootNode.children[0].children[0].uniqueIdentifier;
+
+    assert.equal(hasHideDoneAncestor(document, openChildId), true);
+  });
+
+  it('returns false when a node has no descendants', () => {
+    const document = normalizeMindMapDocument({
+      rootNode: {
+        name: 'Root',
+        children: [],
+      },
+    }, {
+      fileTimestampIso: '2026-04-20T08:00:00Z',
+    });
+
+    assert.equal(hasDoneDescendants(document, document.rootNode.uniqueIdentifier), false);
+  });
+
+  it('returns false when descendants are open only', () => {
+    const document = normalizeMindMapDocument({
+      rootNode: {
+        name: 'Root',
+        children: [
+          {
+            name: 'Todo child',
+            taskState: TASK_STATE.TODO,
+            children: [],
+          },
+          {
+            name: 'Doing child',
+            taskState: TASK_STATE.DOING,
+            children: [],
+          },
+        ],
+      },
+    }, {
+      fileTimestampIso: '2026-04-20T08:00:00Z',
+    });
+
+    assert.equal(hasDoneDescendants(document, document.rootNode.uniqueIdentifier), false);
+  });
+
+  it('returns true when a node has a done descendant', () => {
+    const document = normalizeMindMapDocument({
+      rootNode: {
+        name: 'Root',
+        children: [
+          {
+            name: 'Done child',
+            taskState: TASK_STATE.DONE,
+            children: [],
+          },
+        ],
+      },
+    }, {
+      fileTimestampIso: '2026-04-20T08:00:00Z',
+    });
+
+    assert.equal(hasDoneDescendants(document, document.rootNode.uniqueIdentifier), true);
+  });
+
+  it('ignores the selected node task state when checking descendants', () => {
+    const document = normalizeMindMapDocument({
+      rootNode: {
+        name: 'Root',
+        taskState: TASK_STATE.DONE,
+        children: [],
+      },
+    }, {
+      fileTimestampIso: '2026-04-20T08:00:00Z',
+    });
+
+    assert.equal(hasDoneDescendants(document, document.rootNode.uniqueIdentifier), false);
+  });
+
+  it('detects nested done descendants recursively', () => {
+    const document = normalizeMindMapDocument({
+      rootNode: {
+        name: 'Root',
+        children: [
+          {
+            name: 'Branch',
+            taskState: TASK_STATE.TODO,
+            children: [
+              {
+                name: 'Nested done',
+                taskState: TASK_STATE.DONE,
+                children: [],
+              },
+            ],
+          },
+        ],
+      },
+    }, {
+      fileTimestampIso: '2026-04-20T08:00:00Z',
+    });
+    const branchId = document.rootNode.children[0].uniqueIdentifier;
+
+    assert.equal(hasDoneDescendants(document, branchId), true);
   });
 });

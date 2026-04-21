@@ -335,6 +335,34 @@ export function resolveVisibleNodeId(document, nodeId) {
   return resolvedNodeId || rootId;
 }
 
+export function hasHideDoneAncestor(document, nodeId) {
+  const record = findNodeRecord(document, nodeId);
+  if (!record) {
+    return false;
+  }
+
+  let parentNode = record.parent;
+  while (parentNode) {
+    if (parentNode.hideDoneTasks) {
+      return true;
+    }
+
+    const parentRecord = findNodeRecord(document, parentNode.uniqueIdentifier);
+    parentNode = parentRecord?.parent || null;
+  }
+
+  return false;
+}
+
+export function hasDoneDescendants(document, nodeId) {
+  const record = findNodeRecord(document, nodeId);
+  if (!record || !Array.isArray(record.node?.children)) {
+    return false;
+  }
+
+  return record.node.children.some((child) => subtreeHasDoneNode(child));
+}
+
 // Canonical UTC timestamp format shared with the console app: yyyy-MM-ddTHH:mm:ssZ
 // No milliseconds, Z suffix — matches Newtonsoft.Json DateTimeOffset UTC serialization.
 export function nowIso() {
@@ -702,6 +730,18 @@ function traverseNode(node, parent, pathSegments, depth, visitor) {
   node.children.forEach((child) => {
     traverseNode(child, node, nextPath, depth + 1, visitor);
   });
+}
+
+function subtreeHasDoneNode(node) {
+  if (!node || typeof node !== 'object') {
+    return false;
+  }
+
+  if (node.taskState === TASK_STATE.DONE) {
+    return true;
+  }
+
+  return Array.isArray(node.children) && node.children.some((child) => subtreeHasDoneNode(child));
 }
 
 function matchesTaskFilter(taskState, filter) {

@@ -15,6 +15,34 @@
     <main class="app-shell">
       <header class="app-header">
         <div class="header-actions">
+          <div id="history-controls" class="history-controls" hidden>
+            <button
+              id="history-back-button"
+              type="button"
+              class="secondary-button icon-button history-control-button"
+              data-action="history-back"
+              data-focus-key="history-back-button"
+              aria-label="Go back"
+              title="Go back"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
+            </button>
+            <button
+              id="history-forward-button"
+              type="button"
+              class="secondary-button icon-button history-control-button"
+              data-action="history-forward"
+              data-focus-key="history-forward-button"
+              aria-label="Go forward"
+              title="Go forward"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M9 18l6-6-6-6" />
+              </svg>
+            </button>
+          </div>
           <div id="theme-root" class="theme-root" hidden></div>
           <button
             id="refresh-toggle"

@@ -294,6 +294,10 @@ h3 {
   gap: 0.85rem;
 }
 
+.app-header {
+  align-items: center;
+}
+
 .eyebrow {
   color: var(--accent);
   font-size: 0.7rem;
@@ -353,6 +357,16 @@ h3 {
 .header-actions {
   margin-left: auto;
   justify-content: flex-end;
+}
+
+.history-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.22rem;
+}
+
+.history-controls[hidden] {
+  display: none;
 }
 
 .theme-root {
@@ -1597,6 +1611,7 @@ h3 {
 
 .theme-choice input {
   margin: 0;
+  accent-color: var(--accent);
 }
 
 /* ── Diagnostics ── */
@@ -1730,6 +1745,7 @@ h3 {
 .ghost-button,
 .install-button,
 .compact-button,
+.history-control-button,
 .theme-choice,
 .clickable-card {
   transition: background-color 200ms cubic-bezier(0.16, 1, 0.3, 1),
@@ -1752,6 +1768,7 @@ h3 {
 .ghost-button:focus-visible,
 .install-button:focus-visible,
 .compact-button:focus-visible,
+.history-control-button:focus-visible,
 .theme-choice:focus-within {
   outline: none;
   box-shadow: 0 0 0 2px var(--page-bg), 0 0 0 4px var(--accent);

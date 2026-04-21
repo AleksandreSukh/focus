@@ -40,6 +40,8 @@ import {
   cloneMapDocument,
   collectTaskEntries,
   findNodeRecord,
+  hasDoneDescendants,
+  hasHideDoneAncestor,
   getTreeHideDoneState,
   getNodeBadges,
   getNodeUiState,
@@ -50,10 +52,16 @@ import {
   normalizeNodeDisplayText,
   nowIso,
   parseMindMapDocument,
-  resolveVisibleNodeId,
   serializeMindMapDocument,
   TASK_STATE,
 } from './maps/model.js';
+import {
+  HASH_ROUTE,
+  buildHashRoute,
+  parseHashRoute,
+  resolveViewportNodeId,
+  shouldShowWorkspaceTabs,
+} from './maps/routes.js';
 import { renderInlineHtml, toPlainText } from './formatting/inlineFormatter.js';
 
 const THEME_STORAGE_KEY = 'focus.pwa.theme';
@@ -61,10 +69,6 @@ const FAB_SIDE_STORAGE_KEY = 'focus.pwa.fabSide';
 const THEME_META_COLORS = {
   light: '#ffffff',
   dark: '#000000',
-};
-const HASH_ROUTE = {
-  maps: '#maps',
-  tasks: '#tasks',
 };
 const MODAL_HISTORY_STATE_KEY = 'focusModal';
 
@@ -167,6 +171,7 @@ export async function bootstrapApp() {
 function wireUi() {
   ui.installButton = document.getElementById('install-button');
   ui.installFallback = document.getElementById('install-fallback');
+  ui.historyControls = document.getElementById('history-controls');
   ui.themeRoot = document.getElementById('theme-root');
   ui.refreshToggle = document.getElementById('refresh-toggle');
   ui.statusToggle = document.getElementById('status-toggle');
@@ -269,50 +274,6 @@ function replaceHashRoute(nextHash) {
   window.history.replaceState(window.history.state, '', `${currentPath}${nextHash}`);
 }
 
-function buildHashRoute(view, mapPath = '') {
-  if (view === 'tasks') {
-    return HASH_ROUTE.tasks;
-  }
-
-  if (view === 'map' && mapPath) {
-    return `#map/${encodeURIComponent(mapPath)}`;
-  }
-
-  return HASH_ROUTE.maps;
-}
-
-function parseHashRoute(hashValue) {
-  const normalizedHash = typeof hashValue === 'string' ? hashValue : '';
-  const routeText = normalizedHash.startsWith('#') ? normalizedHash.slice(1) : normalizedHash;
-
-  if (!routeText || routeText === 'maps') {
-    return { view: 'maps', isInvalid: false };
-  }
-
-  if (routeText === 'tasks') {
-    return { view: 'tasks', isInvalid: false };
-  }
-
-  if (routeText.startsWith('map/')) {
-    const encodedPath = routeText.slice(4);
-    if (!encodedPath) {
-      return { view: 'maps', isInvalid: true };
-    }
-
-    try {
-      return {
-        view: 'map',
-        mapPath: decodeURIComponent(encodedPath),
-        isInvalid: false,
-      };
-    } catch (error) {
-      return { view: 'maps', isInvalid: true };
-    }
-  }
-
-  return { view: 'maps', isInvalid: true };
-}
-
 function applyRouteFromHash(options = {}) {
   if (state.authState !== 'authenticated') {
     return false;
@@ -354,8 +315,11 @@ function applyRouteFromHash(options = {}) {
 
     state.currentView = 'map';
     state.selectedMapPath = route.mapPath;
-    if (!findNodeRecord(snapshot.document, state.selectedNodeId)) {
-      state.selectedNodeId = snapshot.document.rootNode?.uniqueIdentifier || '';
+    const rootNodeId = snapshot.document.rootNode?.uniqueIdentifier || '';
+    state.selectedNodeId = resolveViewportNodeId(snapshot.document, route.nodeId || rootNodeId) || rootNodeId;
+    const canonicalHash = buildHashRoute('map', route.mapPath, state.selectedNodeId, rootNodeId);
+    if (window.location.hash !== canonicalHash) {
+      replaceHashRoute(canonicalHash);
     }
     render();
     return true;
@@ -401,18 +365,9 @@ function navigateToMapRoute(mapPath, options = {}) {
   }
 
   const { replace = false, preferredNodeId = '' } = options;
-  const nextHash = buildHashRoute('map', mapPath);
-
-  state.selectedMapPath = mapPath;
-  if (preferredNodeId && findNodeRecord(snapshot.document, preferredNodeId)) {
-    state.selectedNodeId = preferredNodeId;
-  } else if (!findNodeRecord(snapshot.document, state.selectedNodeId)) {
-    state.selectedNodeId = snapshot.document.rootNode?.uniqueIdentifier || '';
-  }
-
-  if (window.location.hash !== HASH_ROUTE.maps) {
-    replaceHashRoute(HASH_ROUTE.maps);
-  }
+  const rootNodeId = snapshot.document.rootNode?.uniqueIdentifier || '';
+  const nextNodeId = resolveViewportNodeId(snapshot.document, preferredNodeId || rootNodeId) || rootNodeId;
+  const nextHash = buildHashRoute('map', mapPath, nextNodeId, rootNodeId);
 
   navigateToHashRoute(nextHash, { replace });
 }
@@ -611,6 +566,12 @@ function handleDocumentClick(event) {
 
       navigateToMapsRoute();
       return;
+    case 'history-back':
+      window.history.back();
+      return;
+    case 'history-forward':
+      window.history.forward();
+      return;
     case 'refresh-maps':
       void loadWorkspace(true);
       return;
@@ -795,6 +756,14 @@ function handleDocumentClick(event) {
         : clickableElement.dataset.filter || 'open';
       render();
       return;
+    case 'toggle-theme': {
+      const nextTheme = state.theme === 'dark' ? 'light' : 'dark';
+      state.theme = nextTheme;
+      saveThemePreference(nextTheme);
+      applyThemePreference();
+      render();
+      return;
+    }
     default:
       return;
   }
@@ -824,11 +793,11 @@ function handleDocumentChange(event) {
     return;
   }
 
-  if (target.name !== 'theme-mode') {
+  if (target.name !== 'theme-dark') {
     return;
   }
 
-  const nextTheme = target.value === 'dark' ? 'dark' : 'light';
+  const nextTheme = target.checked ? 'dark' : 'light';
   if (state.theme === nextTheme) {
     return;
   }
@@ -3225,15 +3194,9 @@ function selectNode(mapPath, nodeId) {
     return;
   }
 
-  const prevNodeId = state.selectedNodeId;
-  state.activeModal = null;
-  state.currentView = 'map';
-  state.selectedMapPath = mapPath;
-  state.selectedNodeId = findNodeRecord(snapshot.document, nodeId)
-    ? nodeId
-    : snapshot.document.rootNode?.uniqueIdentifier || '';
-
-  render();
+  navigateToMapRoute(mapPath, {
+    preferredNodeId: nodeId,
+  });
 }
 
 function toggleLocalNodeCollapse(mapPath, nodeId) {
@@ -3330,7 +3293,7 @@ function getSelectedNodeUiState(snapshot = getSelectedSnapshot()) {
 
   const rootNodeId = snapshot.document.rootNode?.uniqueIdentifier || '';
   const requestedNodeId = state.selectedNodeId || rootNodeId;
-  const visibleNodeId = resolveVisibleNodeId(snapshot.document, requestedNodeId) || rootNodeId;
+  const visibleNodeId = resolveViewportNodeId(snapshot.document, requestedNodeId) || rootNodeId;
   const selectedRecord = getNodeUiState(
     snapshot.document,
     visibleNodeId,
@@ -3527,6 +3490,7 @@ function resetWorkspaceDomState() {
 
 function render() {
   renderStatusPanel();
+  renderHeaderHistoryControls();
   renderHeaderThemeControl();
 
   if (ui.refreshToggle) {
@@ -3593,6 +3557,14 @@ function renderHeaderThemeControl() {
   ui.themeRoot.hidden = false;
   ui.themeRoot.innerHTML = renderThemeModeControl('theme-switcher--header');
   renderCache.headerThemeKey = nextKey;
+}
+
+function renderHeaderHistoryControls() {
+  if (!(ui.historyControls instanceof HTMLElement)) {
+    return;
+  }
+
+  ui.historyControls.hidden = state.authState !== 'authenticated';
 }
 
 function renderStatusPanel() {
@@ -3799,6 +3771,22 @@ function renderWorkspaceNavigation() {
     return;
   }
 
+  const navRoot = ui.workspaceShell.querySelector('.workspace-nav');
+  if (!(navRoot instanceof HTMLElement)) {
+    return;
+  }
+
+  const snapshot = getSelectedSnapshot();
+  const showTabs = shouldShowWorkspaceTabs(
+    state.currentView,
+    snapshot?.document,
+    state.selectedNodeId,
+  );
+  navRoot.hidden = !showTabs;
+  if (!showTabs) {
+    return;
+  }
+
   const activeView = state.currentView === 'tasks' ? 'tasks' : 'maps';
   const navTabs = ui.workspaceShell.querySelector('.nav-tabs');
   if (navTabs instanceof HTMLElement) {
@@ -3869,19 +3857,21 @@ function buildMapSummariesForView() {
 }
 
 function buildMapViewKey(snapshot) {
+  const selectedNodeState = getSelectedNodeUiState(snapshot);
   return JSON.stringify({
     mapPath: snapshot.filePath,
     revision: snapshot.revision || '',
     loadedAt: snapshot.loadedAt || 0,
     updatedAt: snapshot.document?.updatedAt || '',
     collapsed: state.localCollapsedByMap[snapshot.filePath] || {},
+    viewportNodeId: selectedNodeState?.node.uniqueIdentifier || '',
   });
 }
 
 function buildMapSelectionKey(snapshot) {
   const selectedNodeState = getSelectedNodeUiState(snapshot);
   return JSON.stringify({
-    selectedNodeId: state.selectedNodeId,
+    selectedNodeId: selectedNodeState?.node.uniqueIdentifier || '',
     fabSide: state.fabSide,
     canEditNode: Boolean(selectedNodeState?.canEditNode),
   });
@@ -4052,6 +4042,7 @@ function renderMapViewRegion() {
     return;
   }
 
+  syncCurrentMapHashRoute(snapshot);
   const nextViewKey = buildMapViewKey(snapshot);
   const nextSelectionKey = buildMapSelectionKey(snapshot);
 
@@ -4737,16 +4728,18 @@ function renderMapView() {
     `;
   }
 
-  const rootNode = snapshot.document.rootNode;
-  const rootVisibleChildren = getVisibleTreeChildren(rootNode, false);
+  const documentRoot = snapshot.document.rootNode;
+  const viewportRootNode = selectedNodeState.node;
+  const ancestorHidesDone = hasHideDoneAncestor(snapshot.document, viewportRootNode.uniqueIdentifier);
+  const rootVisibleChildren = getVisibleTreeChildren(viewportRootNode, ancestorHidesDone);
   const rootHasChildren = rootVisibleChildren.length > 0;
-  const rootCollapsed = getLocalCollapsedState(snapshot.filePath, rootNode);
-  const isRootSelected = selectedNodeState.node.uniqueIdentifier === rootNode.uniqueIdentifier;
+  const rootCollapsed = getLocalCollapsedState(snapshot.filePath, viewportRootNode);
+  const isSubtreeView = viewportRootNode.uniqueIdentifier !== documentRoot.uniqueIdentifier;
 
   return `
     <section class="workspace-panel map-reader-view">
       <article class="map-document" aria-label="Map reader">
-        <header class="map-document-header ${isRootSelected ? 'selected' : ''}">
+        <header class="map-document-header selected ${isSubtreeView ? 'map-document-header--subtree' : ''}">
           <div class="map-document-line">
             ${rootHasChildren
               ? `<button
@@ -4754,30 +4747,30 @@ function renderMapView() {
                   class="tree-toggle compact-toggle"
                   data-action="toggle-node"
                   data-map-path="${escapeHtml(snapshot.filePath)}"
-                  data-node-id="${escapeHtml(rootNode.uniqueIdentifier)}"
+                  data-node-id="${escapeHtml(viewportRootNode.uniqueIdentifier)}"
                   aria-label="${rootCollapsed ? 'Expand' : 'Collapse'} node"
                 >${rootCollapsed ? '+' : '-'}</button>`
               : '<span class="tree-spacer root-spacer" aria-hidden="true"></span>'}
-            ${renderPassiveTaskDot(rootNode.taskState, 'root-task-dot')}
+            ${renderPassiveTaskDot(viewportRootNode.taskState, 'root-task-dot')}
             <div class="map-document-body">
               <div
                 role="button"
                 tabindex="0"
-                class="map-document-title ${isRootSelected ? 'selected' : ''}"
+                class="map-document-title selected"
                 data-action="select-node"
                 data-map-path="${escapeHtml(snapshot.filePath)}"
-                data-node-id="${escapeHtml(rootNode.uniqueIdentifier)}"
-                data-focus-key="${escapeHtml(buildNodeFocusKey(snapshot.filePath, rootNode.uniqueIdentifier))}"
+                data-node-id="${escapeHtml(viewportRootNode.uniqueIdentifier)}"
+                data-focus-key="${escapeHtml(buildNodeFocusKey(snapshot.filePath, viewportRootNode.uniqueIdentifier))}"
               >
-                ${renderNodeTextMarkup(rootNode.name, 'formatted-inline map-title-inline')}
+                ${renderNodeTextMarkup(viewportRootNode.name, 'formatted-inline map-title-inline')}
               </div>
-              ${isRootSelected ? renderSelectedNodeActions(snapshot, selectedNodeState) : ''}
+              ${renderSelectedNodeActions(snapshot, selectedNodeState)}
             </div>
           </div>
         </header>
 
         ${rootHasChildren && !rootCollapsed
-          ? `<ol class="reader-list reader-root-list">${rootVisibleChildren.map((child) => renderTreeNode(snapshot, child, 1, selectedNodeState, getTreeHideDoneState(rootNode, false))).join('')}</ol>`
+          ? `<ol class="reader-list reader-root-list">${rootVisibleChildren.map((child) => renderTreeNode(snapshot, child, 1, selectedNodeState, getTreeHideDoneState(viewportRootNode, ancestorHidesDone))).join('')}</ol>`
           : ''}
       </article>
 
@@ -4853,7 +4846,10 @@ function renderSelectedNodeActions(snapshot, nodeUiState) {
   const taskDisabled = nodeUiState.canChangeTaskState ? '' : 'disabled';
   const isTask = nodeUiState.node.taskState !== TASK_STATE.NONE;
   const isClipboardImage = isClipboardImageNode(nodeUiState.node);
-  const canHideDone = !nodeUiState.node.hideDoneTasks && nodeUiState.node.nodeType !== NODE_TYPE.IDEA_BAG_ITEM;
+  const canHideDone =
+    !nodeUiState.node.hideDoneTasks
+    && nodeUiState.node.nodeType !== NODE_TYPE.IDEA_BAG_ITEM
+    && hasDoneDescendants(snapshot.document, nodeId);
   const hideDoneButton = canHideDone
     ? `<button type="button" class="pill subtle" data-action="hide-done-items" data-map-path="${escapeHtml(mapPath)}" data-node-id="${escapeHtml(nodeId)}">Hide done items</button>`
     : '';
@@ -5527,20 +5523,45 @@ function renderTasksView(entries = null) {
   `;
 }
 
-function renderThemeModeControl(extraClass = '') {
-  const className = ['theme-switcher', extraClass].filter(Boolean).join(' ');
+function renderThemeModeControl() {
+  const isDark = state.theme === 'dark';
+  const label = isDark ? 'Switch to light theme' : 'Switch to dark theme';
+  const icon = isDark
+    ? `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>`
+    : `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
   return `
-    <fieldset class="${className}" aria-label="Theme preference">
-      <label class="theme-choice ${state.theme === 'light' ? 'active' : ''}">
-        <input type="radio" name="theme-mode" value="light" ${state.theme === 'light' ? 'checked' : ''} />
-        <span>Light</span>
-      </label>
-      <label class="theme-choice ${state.theme === 'dark' ? 'active' : ''}">
-        <input type="radio" name="theme-mode" value="dark" ${state.theme === 'dark' ? 'checked' : ''} />
-        <span>Dark</span>
-      </label>
-    </fieldset>
+    <button
+      type="button"
+      class="secondary-button icon-button"
+      data-action="toggle-theme"
+      data-focus-key="theme-toggle"
+      aria-label="${label}"
+      title="${label}"
+      aria-pressed="${isDark ? 'true' : 'false'}"
+    >${icon}</button>
   `;
+}
+
+function syncCurrentMapHashRoute(snapshot = getSelectedSnapshot()) {
+  if (state.currentView !== 'map' || !snapshot) {
+    return;
+  }
+
+  const selectedNodeState = getSelectedNodeUiState(snapshot);
+  if (!selectedNodeState) {
+    return;
+  }
+
+  const rootNodeId = snapshot.document.rootNode?.uniqueIdentifier || '';
+  const nextHash = buildHashRoute(
+    'map',
+    snapshot.filePath,
+    selectedNodeState.node.uniqueIdentifier,
+    rootNodeId,
+  );
+  if (window.location.hash !== nextHash) {
+    replaceHashRoute(nextHash);
+  }
 }
 
 function renderNodeTextMarkup(rawText, wrapperClass) {
