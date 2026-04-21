@@ -177,8 +177,8 @@ describe('MindMapService.listMaps', () => {
             fileName: 'conflicted.json',
             mapName: 'conflicted',
             revision: 'rev-conflict',
-            reason: 'mergeConflict',
-            message: 'Map "conflicted.json" contains unresolved Git merge markers and cannot be loaded.',
+            reason: 'autoResolveFailed',
+            message: `This map has merge conflicts that couldn't be auto-resolved. Repair locally or reset it from GitHub.`,
             rawText: '<<<<<<< HEAD\nold\n=======\nnew\n>>>>>>> main\n',
           },
         };
@@ -199,12 +199,42 @@ describe('MindMapService.listMaps', () => {
         fileName: 'conflicted.json',
         mapName: 'conflicted',
         revision: 'rev-conflict',
-        reason: 'mergeConflict',
-        message: 'Map "conflicted.json" contains unresolved Git merge markers and cannot be loaded.',
+        reason: 'autoResolveFailed',
+        message: `This map has merge conflicts that couldn't be auto-resolved. Repair locally or reset it from GitHub.`,
         rawText: '<<<<<<< HEAD\nold\n=======\nnew\n>>>>>>> main\n',
       },
     ]);
     assert.equal(service.getCachedSnapshot('FocusMaps/conflicted.json'), null);
+  });
+
+  it('keeps successfully loaded maps out of unreadableMaps even when their filenames were previously conflicted', async () => {
+    const conflictedSnapshot = createSnapshot({
+      fileName: 'conflicted.json',
+      mapName: 'Conflicted',
+      updatedAt: '2026-04-09T12:00:00Z',
+    });
+    const repository = createRepository({
+      listFiles: async () => ({
+        ok: true,
+        value: [
+          {
+            filePath: conflictedSnapshot.filePath,
+            fileName: conflictedSnapshot.fileName,
+          },
+        ],
+      }),
+      loadMap: async () => ({
+        ok: true,
+        value: conflictedSnapshot,
+      }),
+    });
+    const service = new MindMapService(repository);
+
+    const listed = await service.listMaps(true);
+
+    assert.equal(listed.ok, true);
+    assert.deepEqual(listed.value.snapshots, [conflictedSnapshot]);
+    assert.deepEqual(listed.value.unreadableMaps, []);
   });
 
   it('hard-fails when listing map files fails', async () => {

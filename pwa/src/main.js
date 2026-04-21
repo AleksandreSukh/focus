@@ -6029,6 +6029,8 @@ function buildBlockedPendingMapSyncState(filePath) {
 
 function describeUnreadableMapReason(reason) {
   switch (reason) {
+    case 'autoResolveFailed':
+      return 'Automatic merge conflict resolution could not finish safely';
     case 'mergeConflict':
       return 'Unresolved merge conflict markers were found';
     case 'invalidJson':

@@ -1,3 +1,4 @@
+import { buildConflictResolveCommitMessage } from '../gitProvider/commitMessages.js';
 import { GitHubApiError } from '../gitProvider/adapters/githubAdapter.js';
 import { GitHubProvider } from '../gitProvider/githubProvider.js';
 import {
@@ -5,8 +6,10 @@ import {
   parseMindMapDocument,
   serializeMindMapDocument,
 } from './model.js';
+import { hasConflictMarkers, tryResolveMapConflict } from './mapConflictResolver.js';
 
 export const UNREADABLE_MAP_REASON = Object.freeze({
+  AUTO_RESOLVE_FAILED: 'autoResolveFailed',
   MERGE_CONFLICT: 'mergeConflict',
   INVALID_JSON: 'invalidJson',
   UNKNOWN: 'unknown',
@@ -44,15 +47,23 @@ export class GitHubMindMapProvider {
     const fileName = filePath.split('/').pop() || filePath;
     const mapName = fileName.replace(/\.json$/i, '');
 
-    try {
-      return {
+    if (hasConflictMarkers(snapshot.content)) {
+      return this.loadResolvedConflictMap({
         filePath,
         fileName,
         mapName,
-        document: normalizeMindMapDocument(parseMindMapDocument(snapshot.content)),
+        snapshot,
+      });
+    }
+
+    try {
+      return buildLoadedMapSnapshot({
+        filePath,
+        fileName,
+        mapName,
+        content: snapshot.content,
         revision: snapshot.versionToken,
-        loadedAt: Date.now(),
-      };
+      });
     } catch (cause) {
       throw createUnreadableMapError({
         filePath,
@@ -92,6 +103,105 @@ export class GitHubMindMapProvider {
       }
 
       throw error;
+    }
+  }
+
+  async loadResolvedConflictMap({ filePath, fileName, mapName, snapshot }) {
+    const initialResolved = buildResolvedDocument(snapshot.content);
+    if (!initialResolved.ok) {
+      throw createUnreadableMapError({
+        filePath,
+        fileName,
+        mapName,
+        revision: snapshot.versionToken,
+        rawText: snapshot.content,
+        cause: createAutoResolveFailureError(initialResolved.cause),
+      });
+    }
+
+    try {
+      const saved = await this.gitProvider.putFile(
+        filePath,
+        initialResolved.value.serializedContent,
+        snapshot.versionToken,
+        buildConflictResolveCommitMessage(mapName),
+      );
+      return buildLoadedMapSnapshot({
+        filePath,
+        fileName,
+        mapName,
+        content: initialResolved.value.serializedContent,
+        revision: saved.versionToken,
+        document: initialResolved.value.document,
+      });
+    } catch (error) {
+      if (!(error instanceof GitHubApiError) || error.code !== 'CONFLICT') {
+        throw error;
+      }
+    }
+
+    const latest = await this.gitProvider.getFile(filePath);
+    if (!hasConflictMarkers(latest.content)) {
+      try {
+        return buildLoadedMapSnapshot({
+          filePath,
+          fileName,
+          mapName,
+          content: latest.content,
+          revision: latest.versionToken,
+        });
+      } catch (cause) {
+        throw createUnreadableMapError({
+          filePath,
+          fileName,
+          mapName,
+          revision: latest.versionToken,
+          rawText: latest.content,
+          cause,
+        });
+      }
+    }
+
+    const retriedResolved = buildResolvedDocument(latest.content);
+    if (!retriedResolved.ok) {
+      throw createUnreadableMapError({
+        filePath,
+        fileName,
+        mapName,
+        revision: latest.versionToken,
+        rawText: latest.content,
+        cause: createAutoResolveFailureError(retriedResolved.cause),
+      });
+    }
+
+    try {
+      const saved = await this.gitProvider.putFile(
+        filePath,
+        retriedResolved.value.serializedContent,
+        latest.versionToken,
+        buildConflictResolveCommitMessage(mapName),
+      );
+      return buildLoadedMapSnapshot({
+        filePath,
+        fileName,
+        mapName,
+        content: retriedResolved.value.serializedContent,
+        revision: saved.versionToken,
+        document: retriedResolved.value.document,
+      });
+    } catch (cause) {
+      if (cause instanceof GitHubApiError && cause.code === 'CONFLICT') {
+        throw createUnreadableMapError({
+          filePath,
+          fileName,
+          mapName,
+          revision: latest.versionToken,
+          rawText: latest.content,
+          cause: createAutoResolveFailureError(cause),
+        });
+      }
+
+      throw cause;
     }
   }
 
@@ -180,7 +290,11 @@ export class GitHubMindMapProvider {
 }
 
 export function classifyUnreadableMapReason(rawText, cause) {
-  if (containsMergeConflictMarkers(rawText)) {
+  if (cause?.code === 'AUTO_RESOLVE_FAILED') {
+    return UNREADABLE_MAP_REASON.AUTO_RESOLVE_FAILED;
+  }
+
+  if (hasConflictMarkers(rawText)) {
     return UNREADABLE_MAP_REASON.MERGE_CONFLICT;
   }
 
@@ -216,6 +330,8 @@ function createUnreadableMapError({
 
 function buildUnreadableMapMessage(fileName, reason) {
   switch (reason) {
+    case UNREADABLE_MAP_REASON.AUTO_RESOLVE_FAILED:
+      return `This map has merge conflicts that couldn't be auto-resolved. Repair locally or reset it from GitHub.`;
     case UNREADABLE_MAP_REASON.MERGE_CONFLICT:
       return `Map "${fileName}" contains unresolved Git merge markers and cannot be loaded.`;
     case UNREADABLE_MAP_REASON.INVALID_JSON:
@@ -225,12 +341,54 @@ function buildUnreadableMapMessage(fileName, reason) {
   }
 }
 
-function containsMergeConflictMarkers(rawText) {
-  if (typeof rawText !== 'string' || !rawText) {
-    return false;
+function buildResolvedDocument(content) {
+  const resolved = tryResolveMapConflict(content);
+  if (!resolved.ok || typeof resolved.resolvedContent !== 'string' || !resolved.resolvedContent.trim()) {
+    return {
+      ok: false,
+      cause: new Error('Map conflict resolver could not safely resolve this file.'),
+    };
   }
 
-  return /^<<<<<<<(?: .*)?$/m.test(rawText)
-    && /^=======$/m.test(rawText)
-    && /^>>>>>>> (?:.*)$/m.test(rawText);
+  try {
+    const document = normalizeMindMapDocument(parseMindMapDocument(resolved.resolvedContent));
+    return {
+      ok: true,
+      value: {
+        document,
+        serializedContent: serializeMindMapDocument(document),
+      },
+    };
+  } catch (cause) {
+    return {
+      ok: false,
+      cause,
+    };
+  }
+}
+
+function buildLoadedMapSnapshot({
+  filePath,
+  fileName,
+  mapName,
+  content,
+  revision,
+  document,
+}) {
+  const parsedDocument = document ?? normalizeMindMapDocument(parseMindMapDocument(content));
+  return {
+    filePath,
+    fileName,
+    mapName,
+    document: parsedDocument,
+    revision,
+    loadedAt: Date.now(),
+  };
+}
+
+function createAutoResolveFailureError(cause) {
+  const error = new Error('Map conflict auto-resolution failed.');
+  error.code = 'AUTO_RESOLVE_FAILED';
+  error.cause = cause;
+  return error;
 }
