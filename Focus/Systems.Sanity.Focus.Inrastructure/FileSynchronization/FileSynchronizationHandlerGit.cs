@@ -14,4 +14,7 @@ public class FileSynchronizationHandlerGit : IFileSynchronizationHandler
     public void Synchronize(string commitMessage) => _gitHelper.SynchronizeToRemote(commitMessage);
 
     public StartupSyncResult PullLatestAtStartup() => _gitHelper.PullLatestAtStartup();
+
+    public MergeRecoveryResult TryRecoverResolvedFile(string absoluteFilePath) =>
+        _gitHelper.TryRecoverResolvedFile(absoluteFilePath);
 }

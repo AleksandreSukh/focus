@@ -140,6 +140,26 @@ public class HomeWorkflowTests
     }
 
     [Fact]
+    public void Execute_WhenOpeningMapHasAutoResolveConflict_ReturnsSpecificConflictMessage()
+    {
+        using var diagnosticsScope = new ExceptionDiagnosticsScope();
+        var navigator = new RecordingPageNavigator
+        {
+            OpenEditMapException = new MapConflictAutoResolveException()
+        };
+        using var workspace = new TestWorkspace(navigator);
+        workspace.SaveMap("alpha", new MindMap("Alpha"));
+        var workflow = new HomeWorkflow(workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("1"), workflow.GetFileSelection());
+
+        Assert.False(result.ShouldExit);
+        Assert.True(result.IsError);
+        Assert.Equal(MapConflictAutoResolveException.DefaultMessage, result.Message);
+        Assert.DoesNotContain("Action: opening map", diagnosticsScope.ReadLog(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Execute_Tasks_OpensSelectedMapAndNode()
     {
         var navigator = new RecordingPageNavigator();

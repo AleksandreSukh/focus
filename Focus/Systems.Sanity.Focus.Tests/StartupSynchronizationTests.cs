@@ -231,5 +231,10 @@ public class StartupSynchronizationTests
         public void Synchronize(string commitMessage)
         {
         }
+
+        public MergeRecoveryResult TryRecoverResolvedFile(string absoluteFilePath)
+        {
+            return MergeRecoveryResult.NoAction;
+        }
     }
 }

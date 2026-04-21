@@ -190,6 +190,10 @@ internal sealed class HomeWorkflow
             _appContext.Navigator.OpenEditMap(file.FullName);
             return HomeWorkflowResult.Continue;
         }
+        catch (MapConflictAutoResolveException ex)
+        {
+            return HomeWorkflowResult.Error(ex.Message);
+        }
         catch (Exception ex)
         {
             return HomeWorkflowResult.Error(ExceptionDiagnostics.LogException(ex, "opening map"));
@@ -245,6 +249,10 @@ internal sealed class HomeWorkflow
 
             return HomeWorkflowResult.Continue;
         }
+        catch (MapConflictAutoResolveException ex)
+        {
+            return HomeWorkflowResult.Error(ex.Message);
+        }
         catch (Exception ex)
         {
             return HomeWorkflowResult.Error(ExceptionDiagnostics.LogException(ex, "searching maps"));
@@ -279,6 +287,10 @@ internal sealed class HomeWorkflow
             }
 
             return HomeWorkflowResult.Continue;
+        }
+        catch (MapConflictAutoResolveException ex)
+        {
+            return HomeWorkflowResult.Error(ex.Message);
         }
         catch (Exception ex)
         {

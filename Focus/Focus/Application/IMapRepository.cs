@@ -17,6 +17,8 @@ public interface IMapRepository
 
     MindMap OpenMap(string filePath, ISet<Guid>? usedIdentifiers = null);
 
+    MindMap OpenMapForEditing(string filePath);
+
     void SaveMap(string filePath, MindMap map);
 
     void DeleteMap(FileInfo file);

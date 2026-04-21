@@ -78,9 +78,27 @@ namespace Systems.Sanity.Focus.Domain
             return MapFile.OpenFile(filePath, usedIdentifiers);
         }
 
+        public MindMap OpenMapForEditing(string filePath)
+        {
+            var fileContent = File.ReadAllText(filePath);
+            if (!HasConflictMarkers(fileContent))
+            {
+                _fileSynchronizationHandler.TryRecoverResolvedFile(filePath);
+                return MapFile.OpenFile(filePath);
+            }
+
+            if (!MapConflictResolver.TryResolve(fileContent, out var resolvedContent) || string.IsNullOrWhiteSpace(resolvedContent))
+                throw new MapConflictAutoResolveException();
+
+            File.WriteAllText(filePath, resolvedContent);
+            _fileSynchronizationHandler.TryRecoverResolvedFile(filePath);
+            return MapFile.OpenFile(filePath);
+        }
+
         public void SaveMap(string filePath, MindMap map)
         {
             MapFile.Save(filePath, map);
+            _fileSynchronizationHandler.TryRecoverResolvedFile(filePath);
         }
 
         public void Sync(string commitMessage)
@@ -105,11 +123,21 @@ namespace Systems.Sanity.Focus.Domain
                 var gitHelper = new GitHelper(
                     gitRepositoryPath,
                     message => AppConsole.Current.WriteBackgroundMessage(message),
-                    gitSynchronizationOptions);
+                    gitSynchronizationOptions,
+                    (absoluteFilePath, conflictedContent) =>
+                    {
+                        if (!MapConflictResolver.TryResolve(conflictedContent, out var resolved))
+                            return false;
+                        File.WriteAllText(absoluteFilePath, resolved!);
+                        return true;
+                    });
                 return new FileSynchronizationHandlerGit(gitHelper);
             }
 
             return new FileSynchronizationHandlerEmpty();
         }
+
+        private static bool HasConflictMarkers(string content) =>
+            content.Contains("<<<<<<< ", StringComparison.Ordinal);
     }
 }

@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using Systems.Sanity.Focus.Infrastructure.Diagnostics;
 using Systems.Sanity.Focus.Infrastructure.FileSynchronization;
@@ -20,15 +21,16 @@ public class GitHelper
     private readonly Action<string>? _writeBackgroundMessage;
     private readonly Action<TimeSpan> _waitForSynchronizationDelay;
     private readonly GitSynchronizationOptions _synchronizationOptions;
+    private readonly Func<string, string, bool>? _autoResolveConflict;
     private bool _syncWorkerRunning;
 
     public GitHelper(string gitRepositoryPath)
-        : this(gitRepositoryPath, ExecuteGitCommand, Thread.Sleep, null, null)
+        : this(gitRepositoryPath, ExecuteGitCommand, Thread.Sleep, null, null, null)
     {
     }
 
     public GitHelper(string gitRepositoryPath, Action<string>? writeBackgroundMessage)
-        : this(gitRepositoryPath, ExecuteGitCommand, Thread.Sleep, writeBackgroundMessage, null)
+        : this(gitRepositoryPath, ExecuteGitCommand, Thread.Sleep, writeBackgroundMessage, null, null)
     {
     }
 
@@ -36,7 +38,16 @@ public class GitHelper
         string gitRepositoryPath,
         Action<string>? writeBackgroundMessage,
         GitSynchronizationOptions synchronizationOptions)
-        : this(gitRepositoryPath, ExecuteGitCommand, Thread.Sleep, writeBackgroundMessage, synchronizationOptions)
+        : this(gitRepositoryPath, ExecuteGitCommand, Thread.Sleep, writeBackgroundMessage, synchronizationOptions, null)
+    {
+    }
+
+    public GitHelper(
+        string gitRepositoryPath,
+        Action<string>? writeBackgroundMessage,
+        GitSynchronizationOptions synchronizationOptions,
+        Func<string, string, bool>? autoResolveConflict)
+        : this(gitRepositoryPath, ExecuteGitCommand, Thread.Sleep, writeBackgroundMessage, synchronizationOptions, autoResolveConflict)
     {
     }
 
@@ -45,13 +56,15 @@ public class GitHelper
         Func<string, bool, bool, string[], (int ExitCode, string StandardOutput, string StandardError)> executeGitCommand,
         Action<TimeSpan>? waitForSynchronizationDelay = null,
         Action<string>? writeBackgroundMessage = null,
-        GitSynchronizationOptions? synchronizationOptions = null)
+        GitSynchronizationOptions? synchronizationOptions = null,
+        Func<string, string, bool>? autoResolveConflict = null)
     {
         _gitRepositoryPath = gitRepositoryPath;
         _executeGitCommand = executeGitCommand;
         _waitForSynchronizationDelay = waitForSynchronizationDelay ?? Thread.Sleep;
         _writeBackgroundMessage = writeBackgroundMessage;
         _synchronizationOptions = synchronizationOptions ?? GitSynchronizationOptions.BackgroundDebounced;
+        _autoResolveConflict = autoResolveConflict;
     }
 
     public static bool IsRepositoryAvailable(string gitRepositoryPath)
@@ -111,9 +124,25 @@ public class GitHelper
 
             try
             {
+                TryHandleOngoingMerge();
+
                 TrySetConsoleTitle("Syncing (git pull)");
-                RunGitCommand("pull", "--no-rebase", "--quiet");
+                try
+                {
+                    RunGitCommand("pull", "--no-rebase", "--quiet");
+                }
+                catch
+                {
+                    TryHandleOngoingMerge();
+                    throw;
+                }
+
                 return StartupSyncResult.Succeeded;
+            }
+            catch (UnresolvedGitMergeException e)
+            {
+                ExceptionDiagnostics.LogException(e, "refreshing maps from git");
+                return StartupSyncResult.Failed(e.Message);
             }
             catch (Exception e)
             {
@@ -128,11 +157,21 @@ public class GitHelper
         }
     }
 
+    public MergeRecoveryResult TryRecoverResolvedFile(string absoluteFilePath)
+    {
+        lock (_gitSyncLock)
+        {
+            return TryRecoverResolvedFileCore(absoluteFilePath);
+        }
+    }
+
     private void CommitPullAndPush(IReadOnlyList<string>? commitMessages = null)
     {
         var consoleOldTitle = TryGetConsoleTitle();
         try
         {
+            TryHandleOngoingMerge();
+
             var pendingMessageCount = commitMessages == null
                 ? GetPendingCommitMessageCount()
                 : 0;
@@ -152,7 +191,15 @@ public class GitHelper
             }
 
             TrySetConsoleTitle("Syncing (git pull)");
-            RunBackgroundGitCommand("pull", "--no-rebase", "--quiet");
+            try
+            {
+                RunBackgroundGitCommand("pull", "--no-rebase", "--quiet");
+            }
+            catch
+            {
+                TryHandleOngoingMerge();
+                throw;
+            }
 
             TrySetConsoleTitle("Syncing (git push)");
             RunBackgroundGitCommand("push", "--quiet");
@@ -176,6 +223,17 @@ public class GitHelper
                 {
                     CommitPullAndPush();
                 }
+            }
+            catch (UnresolvedGitMergeException e)
+            {
+                ExceptionDiagnostics.LogException(e, "synchronizing changes to git");
+                _writeBackgroundMessage?.Invoke(e.Message);
+                lock (_syncStateLock)
+                {
+                    _syncWorkerRunning = false;
+                }
+
+                return;
             }
             catch (Exception e)
             {
@@ -201,6 +259,137 @@ public class GitHelper
             }
         }
     }
+
+    private void TryHandleOngoingMerge()
+    {
+        if (!IsMergeInProgress())
+            return;
+
+        var unmergedFiles = GetUnmergedFiles();
+        if (unmergedFiles.Count == 0)
+        {
+            FinalizeMergeIfReady(unmergedFiles);
+            return;
+        }
+
+        foreach (var relativePath in unmergedFiles)
+        {
+            if (!relativePath.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var absolutePath = Path.Combine(_gitRepositoryPath, relativePath.Replace('/', Path.DirectorySeparatorChar));
+            if (!File.Exists(absolutePath))
+                continue;
+
+            var currentContent = File.ReadAllText(absolutePath);
+            if (HasConflictMarkers(currentContent))
+            {
+                _autoResolveConflict?.Invoke(absolutePath, currentContent);
+            }
+
+            var recoveryResult = TryRecoverResolvedFileCore(absolutePath);
+            if (recoveryResult.Status == MergeRecoveryStatus.MergeCommitted)
+                return;
+        }
+
+        var finalizationResult = FinalizeMergeIfReady();
+        if (finalizationResult.Status == MergeRecoveryStatus.UnresolvedFilesRemain)
+            throw new UnresolvedGitMergeException(finalizationResult.RemainingUnmergedFiles);
+    }
+
+    private List<string> GetUnmergedFiles()
+    {
+        string[] arguments = ["diff", "--name-only", "--diff-filter=U"];
+        var result = _executeGitCommand(_gitRepositoryPath, true, false, arguments);
+        if (result.ExitCode != 0)
+            throw CreateCommandException(arguments, result);
+
+        return result.StandardOutput
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(path => NormalizeGitPath(path.Trim()))
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .ToList();
+    }
+
+    private MergeRecoveryResult TryRecoverResolvedFileCore(string absoluteFilePath)
+    {
+        if (!IsMergeInProgress())
+            return MergeRecoveryResult.NoAction;
+
+        var relativePath = TryGetRepositoryRelativePath(absoluteFilePath);
+        if (relativePath == null)
+            return MergeRecoveryResult.NoAction;
+
+        var unmergedFiles = GetUnmergedFiles();
+        if (!unmergedFiles.Contains(relativePath, StringComparer.OrdinalIgnoreCase))
+            return MergeRecoveryResult.NoAction;
+
+        if (!File.Exists(absoluteFilePath))
+            return MergeRecoveryResult.UnresolvedFilesRemainResult(unmergedFiles);
+
+        if (HasConflictMarkers(File.ReadAllText(absoluteFilePath)))
+            return MergeRecoveryResult.UnresolvedFilesRemainResult(unmergedFiles);
+
+        RunGitCommand("add", "--", relativePath);
+
+        var remainingUnmergedFiles = GetUnmergedFiles();
+        if (remainingUnmergedFiles.Count > 0)
+            return MergeRecoveryResult.FileStagedResult(remainingUnmergedFiles);
+
+        return FinalizeMergeIfReady(remainingUnmergedFiles);
+    }
+
+    private static bool HasConflictMarkers(string content) =>
+        content.Contains("<<<<<<< ", StringComparison.Ordinal);
+
+    private MergeRecoveryResult FinalizeMergeIfReady(IReadOnlyList<string>? currentUnmergedFiles = null)
+    {
+        if (!IsMergeInProgress())
+            return MergeRecoveryResult.NoAction;
+
+        var remainingUnmergedFiles = currentUnmergedFiles ?? GetUnmergedFiles();
+        if (remainingUnmergedFiles.Count > 0)
+            return MergeRecoveryResult.UnresolvedFilesRemainResult(remainingUnmergedFiles);
+
+        RunGitCommand("commit", "--no-edit");
+        return MergeRecoveryResult.MergeCommitted;
+    }
+
+    private bool IsMergeInProgress()
+    {
+        var mergeHeadPath = Path.Combine(_gitRepositoryPath, ".git", "MERGE_HEAD");
+        return File.Exists(mergeHeadPath);
+    }
+
+    private string? TryGetRepositoryRelativePath(string absoluteFilePath)
+    {
+        if (string.IsNullOrWhiteSpace(absoluteFilePath))
+            return null;
+
+        var repositoryFullPath = Path.GetFullPath(_gitRepositoryPath)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var fileFullPath = Path.GetFullPath(absoluteFilePath);
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        var repositoryPrefix = repositoryFullPath + Path.DirectorySeparatorChar;
+
+        if (!fileFullPath.StartsWith(repositoryPrefix, comparison)
+            && !string.Equals(fileFullPath, repositoryFullPath, comparison))
+        {
+            return null;
+        }
+
+        var relativePath = Path.GetRelativePath(repositoryFullPath, fileFullPath);
+        return relativePath.StartsWith("..", StringComparison.Ordinal)
+            ? null
+            : NormalizeGitPath(relativePath);
+    }
+
+    private static string NormalizeGitPath(string path) =>
+        path
+            .Replace(Path.DirectorySeparatorChar, '/')
+            .Replace(Path.AltDirectorySeparatorChar, '/');
 
     private bool HasPendingChanges()
     {

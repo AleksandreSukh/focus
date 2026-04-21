@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using Systems.Sanity.Focus.Application;
 using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Infrastructure.Diagnostics;
+using Systems.Sanity.Focus.Infrastructure.FileSynchronization.Git;
 using Systems.Sanity.Focus.Pages.Shared;
 using Systems.Sanity.Focus.Pages.Shared.Dialogs;
 
@@ -52,6 +53,12 @@ internal sealed class EditMapPage : PageWithSuggestedOptions
                         {
                             _workflow.Save(commandResult.SyncCommitMessage
                                 ?? throw new InvalidOperationException("Sync commit message is required for persisted commands."));
+                        }
+                        catch (UnresolvedGitMergeException ex)
+                        {
+                            message = ex.Message;
+                            isError = true;
+                            continue;
                         }
                         catch (Exception ex)
                         {

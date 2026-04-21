@@ -361,6 +361,8 @@ internal sealed class ThrowingFileSynchronizationHandler : IFileSynchronizationH
 
     public Exception? PullLatestAtStartupException { get; set; }
 
+    public Exception? TryRecoverResolvedFileException { get; set; }
+
     public StartupSyncResult PullLatestAtStartup()
     {
         if (PullLatestAtStartupException != null)
@@ -373,6 +375,14 @@ internal sealed class ThrowingFileSynchronizationHandler : IFileSynchronizationH
     {
         if (SynchronizeException != null)
             throw SynchronizeException;
+    }
+
+    public MergeRecoveryResult TryRecoverResolvedFile(string absoluteFilePath)
+    {
+        if (TryRecoverResolvedFileException != null)
+            throw TryRecoverResolvedFileException;
+
+        return MergeRecoveryResult.NoAction;
     }
 }
 

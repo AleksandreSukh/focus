@@ -91,7 +91,7 @@ internal sealed class EditWorkflow
     {
         _filePath = filePath;
         _appContext = appContext;
-        _map = _appContext.MapRepository.OpenMap(filePath);
+        _map = _appContext.MapRepository.OpenMapForEditing(filePath);
         _appContext.RefreshLinkIndex();
         if (initialNodeIdentifier.HasValue)
         {
@@ -720,37 +720,46 @@ internal sealed class EditWorkflow
 
     private CommandExecutionResult ProcessGoToRoot()
     {
-        PullAndReloadIfChanged();
+        var reloadErrorMessage = PullAndReloadIfChanged();
+        if (!string.IsNullOrWhiteSpace(reloadErrorMessage))
+            return CommandExecutionResult.Error(reloadErrorMessage);
 
         return _map.GoToRoot()
             ? CommandExecutionResult.Success()
             : CommandExecutionResult.Error("Can't go to root");
     }
 
-    private void PullAndReloadIfChanged()
+    private string? PullAndReloadIfChanged()
     {
         try
         {
             var fileInfo = new FileInfo(_filePath);
             if (!fileInfo.Exists)
-                return;
+                return null;
 
             var beforeWrite = fileInfo.LastWriteTimeUtc;
             var beforeLength = fileInfo.Length;
 
             var result = _appContext.MapsStorage.PullLatestAtStartup();
             if (result.Status != Infrastructure.FileSynchronization.StartupSyncStatus.Succeeded)
-                return;
+                return null;
 
             fileInfo.Refresh();
             if (fileInfo.LastWriteTimeUtc != beforeWrite || fileInfo.Length != beforeLength)
             {
-                _map = _appContext.MapRepository.OpenMap(_filePath);
+                _map = _appContext.MapRepository.OpenMapForEditing(_filePath);
                 _appContext.RefreshLinkIndex();
             }
+
+            return null;
+        }
+        catch (MapConflictAutoResolveException ex)
+        {
+            return ex.Message;
         }
         catch
         {
+            return null;
             // Pull failed (e.g., uncommitted local changes) – continue with normal ls behavior.
         }
     }
@@ -1163,8 +1172,15 @@ internal sealed class EditWorkflow
                 : CommandExecutionResult.Error("Couldn't open selected node");
         }
 
-        _appContext.Navigator.OpenEditMap(selectedResult.MapFilePath, selectedResult.NodeId);
-        return CommandExecutionResult.Success();
+        try
+        {
+            _appContext.Navigator.OpenEditMap(selectedResult.MapFilePath, selectedResult.NodeId);
+            return CommandExecutionResult.Success();
+        }
+        catch (MapConflictAutoResolveException ex)
+        {
+            return CommandExecutionResult.Error(ex.Message);
+        }
     }
 
     private static LinkRelationType? SelectLinkRelationType()

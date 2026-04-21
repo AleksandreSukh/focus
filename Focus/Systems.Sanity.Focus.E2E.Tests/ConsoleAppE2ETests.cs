@@ -1420,6 +1420,117 @@ public class ConsoleAppE2ETests
     }
 
     [Fact]
+    public async Task System_OpenConflictedMap_AutoResolvesAndOpensEditor()
+    {
+        using var workspace = new FocusE2EWorkspace();
+        workspace.WriteConfig();
+        Directory.CreateDirectory(workspace.MapsDirectory);
+        var filePath = Path.Combine(workspace.MapsDirectory, "conflicted.json");
+        File.WriteAllText(
+            filePath,
+            BuildWholeDocumentConflict(
+                BuildConflictMapJson("Root ours", "2026-04-20T08:00:00Z"),
+                BuildConflictMapJson("Root theirs", "2026-04-20T10:00:00Z")));
+        await using var app = new FocusAppProcessHarness(workspace);
+
+        await app.StartAsync();
+        var context = new FocusScenarioContext(app, workspace);
+
+        await FocusScenario.RunAsync(
+            context,
+            FocusScenario.WaitForOutput("Welcome"),
+            FocusScenario.SendLine("conflicted"),
+            FocusScenario.WaitForOutput("Root theirs"),
+            FocusScenario.WaitForOutput("Navigate"),
+            FocusScenario.SendLine("exit"),
+            FocusScenario.WaitForOutputOccurrences("Welcome", 2),
+            FocusScenario.SendLine("exit"));
+
+        var exitCode = await app.WaitForExitAsync();
+
+        Assert.Equal(0, exitCode);
+        Assert.DoesNotContain("<<<<<<<", File.ReadAllText(filePath), StringComparison.Ordinal);
+        Assert.DoesNotContain("Error occured while opening map.", app.GetTranscript(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task System_OpenConflictedMap_WhenAutoResolveFails_ShowsSpecificConflictMessage()
+    {
+        using var workspace = new FocusE2EWorkspace();
+        workspace.WriteConfig();
+        Directory.CreateDirectory(workspace.MapsDirectory);
+        File.WriteAllText(
+            Path.Combine(workspace.MapsDirectory, "conflicted.json"),
+            "<<<<<<< HEAD\nnot json\n=======\nstill not json\n>>>>>>> abc123");
+        await using var app = new FocusAppProcessHarness(workspace);
+
+        await app.StartAsync();
+        var context = new FocusScenarioContext(app, workspace);
+
+        await FocusScenario.RunAsync(
+            context,
+            FocusScenario.WaitForOutput("Welcome"),
+            FocusScenario.SendLine("conflicted"),
+            FocusScenario.WaitForOutput(MapConflictAutoResolveException.DefaultMessage),
+            FocusScenario.WaitForOutput("Press any key to continue"),
+            FocusScenario.SendKey(new ConsoleKeyInfo('e', ConsoleKey.E, shift: false, alt: false, control: false)),
+            FocusScenario.WaitForOutputOccurrences("Welcome", 2),
+            FocusScenario.SendLine("exit"));
+
+        var exitCode = await app.WaitForExitAsync();
+
+        Assert.Equal(0, exitCode);
+        Assert.DoesNotContain("Error occured while opening map.", app.GetTranscript(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task System_OpenAlreadyResolvedButStillUnmergedMap_FinalizesMergeAutomatically()
+    {
+        using var workspace = new FocusE2EWorkspace();
+        using var gitSandbox = new GitSandbox(Path.Combine(workspace.RootDirectory, "git"));
+        gitSandbox.WriteWorkingMap("alpha", new MindMap("Alpha root"));
+        gitSandbox.CommitAndPushWorking("Add alpha");
+        workspace.WriteConfig(gitSandbox.WorkingDirectory, gitSandbox.WorkingDirectory);
+        await using var app = new FocusAppProcessHarness(workspace);
+
+        await app.StartAsync();
+        var context = new FocusScenarioContext(app, workspace, gitSandbox);
+
+        await FocusScenario.RunAsync(
+            context,
+            FocusScenario.WaitForOutput("Welcome"));
+
+        gitSandbox.WriteWorkingMap("alpha", new MindMap("Alpha local"));
+        gitSandbox.CommitWorking("Local alpha edit");
+        gitSandbox.PullCollaborator();
+        gitSandbox.WriteCollaboratorMap("alpha", new MindMap("Alpha remote"));
+        gitSandbox.CommitAndPushCollaborator("Remote alpha edit");
+        gitSandbox.PullWorkingExpectConflict();
+        gitSandbox.WriteWorkingMap("alpha", new MindMap("Alpha resolved"));
+
+        Assert.True(gitSandbox.HasWorkingMergeInProgress());
+        Assert.Contains("FocusMaps/alpha.json", gitSandbox.GetWorkingUnmergedFiles());
+
+        await FocusScenario.RunAsync(
+            context,
+            FocusScenario.SendLine("alpha"),
+            FocusScenario.WaitForOutput("Alpha resolved"),
+            FocusScenario.WaitForOutput("Navigate"),
+            FocusScenario.SendLine("exit"),
+            FocusScenario.WaitForOutputOccurrences("Welcome", 2),
+            FocusScenario.SendLine("ls"),
+            FocusScenario.WaitForOutputOccurrences("Welcome", 3),
+            FocusScenario.SendLine("exit"));
+
+        var exitCode = await app.WaitForExitAsync();
+
+        Assert.Equal(0, exitCode);
+        Assert.False(gitSandbox.HasWorkingMergeInProgress());
+        Assert.Empty(gitSandbox.GetWorkingUnmergedFiles());
+        Assert.DoesNotContain("Git merge still has unresolved files", app.GetTranscript(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task System_CaptureFailure_ShowsGenericErrorAndDoesNotCreateAttachment()
     {
         using var workspace = new FocusE2EWorkspace();
@@ -1587,6 +1698,34 @@ public class ConsoleAppE2ETests
         MapFile.Save(filePath, map);
         return filePath;
     }
+
+    private static string BuildWholeDocumentConflict(string ours, string theirs) =>
+        $"<<<<<<< HEAD\n{ours}\n=======\n{theirs}\n>>>>>>> abc123";
+
+    private static string BuildConflictMapJson(string rootName, string updatedAtUtc) =>
+        $$"""
+        {
+          "rootNode": {
+            "nodeType": 0,
+            "uniqueIdentifier": "11111111-1111-1111-1111-111111111111",
+            "name": "{{rootName}}",
+            "children": [],
+            "links": {},
+            "number": 1,
+            "collapsed": false,
+            "hideDoneTasks": false,
+            "taskState": 0,
+            "metadata": {
+              "createdAtUtc": "2026-04-20T07:00:00Z",
+              "updatedAtUtc": "{{updatedAtUtc}}",
+              "source": "manual",
+              "device": "focus-pwa-web",
+              "attachments": []
+            }
+          },
+          "updatedAt": "{{updatedAtUtc}}"
+        }
+        """;
 
     private static void AddTextAttachment(Node node, string relativePath, string displayName)
     {

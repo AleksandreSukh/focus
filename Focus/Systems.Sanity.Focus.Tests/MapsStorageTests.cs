@@ -1,4 +1,5 @@
 using Systems.Sanity.Focus.Domain;
+using Systems.Sanity.Focus.Infrastructure.FileSynchronization;
 using Newtonsoft.Json.Linq;
 
 namespace Systems.Sanity.Focus.Tests;
@@ -94,6 +95,70 @@ public class MapsStorageTests
     }
 
     [Fact]
+    public void OpenMapForEditing_OpensNormalMapWithoutRewriting()
+    {
+        var syncHandler = new RecordingFileSynchronizationHandler();
+        using var workspace = new TestWorkspace(fileSynchronizationHandler: syncHandler);
+        var filePath = workspace.SaveMap("alpha", new MindMap("Root"));
+        var originalJson = File.ReadAllText(filePath);
+        syncHandler.RecoveredFilePaths.Clear();
+
+        var reopened = workspace.MapsStorage.OpenMapForEditing(filePath);
+
+        Assert.Equal("Root", reopened.RootNode.Name);
+        Assert.Equal(originalJson, File.ReadAllText(filePath));
+        Assert.Equal([filePath], syncHandler.RecoveredFilePaths);
+    }
+
+    [Fact]
+    public void OpenMapForEditing_ResolvesConflictedJsonAndRewritesFile()
+    {
+        var syncHandler = new RecordingFileSynchronizationHandler();
+        using var workspace = new TestWorkspace(fileSynchronizationHandler: syncHandler);
+        var filePath = Path.Combine(workspace.MapsStorage.UserMindMapsDirectory, "conflicted.json");
+        File.WriteAllText(
+            filePath,
+            BuildWholeDocumentConflict(
+                BuildMapJson("Root ours", "2026-04-20T08:00:00Z", "2026-04-20T08:00:00Z"),
+                BuildMapJson("Root theirs", "2026-04-20T10:00:00Z", "2026-04-20T10:00:00Z")));
+
+        var reopened = workspace.MapsStorage.OpenMapForEditing(filePath);
+        var resolvedJson = File.ReadAllText(filePath);
+
+        Assert.Equal("Root theirs", reopened.RootNode.Name);
+        Assert.DoesNotContain("<<<<<<<", resolvedJson, StringComparison.Ordinal);
+        Assert.Contains("\"name\": \"Root theirs\"", resolvedJson, StringComparison.Ordinal);
+        Assert.Equal([filePath], syncHandler.RecoveredFilePaths);
+    }
+
+    [Fact]
+    public void OpenMapForEditing_WhenConflictCannotBeResolved_ThrowsDedicatedException()
+    {
+        using var workspace = new TestWorkspace();
+        var filePath = Path.Combine(workspace.MapsStorage.UserMindMapsDirectory, "conflicted.json");
+        const string conflictedContent = "<<<<<<< HEAD\nnot json\n=======\nstill not json\n>>>>>>> abc123";
+        File.WriteAllText(filePath, conflictedContent);
+
+        var exception = Assert.Throws<MapConflictAutoResolveException>(() => workspace.MapsStorage.OpenMapForEditing(filePath));
+
+        Assert.Equal(MapConflictAutoResolveException.DefaultMessage, exception.Message);
+        Assert.Equal(conflictedContent, File.ReadAllText(filePath));
+    }
+
+    [Fact]
+    public void SaveMap_AttemptsMergeRecoveryAfterWritingFile()
+    {
+        var syncHandler = new RecordingFileSynchronizationHandler();
+        using var workspace = new TestWorkspace(fileSynchronizationHandler: syncHandler);
+        var filePath = Path.Combine(workspace.MapsStorage.UserMindMapsDirectory, "alpha.json");
+
+        workspace.MapsStorage.SaveMap(filePath, new MindMap("Root"));
+
+        Assert.Equal([filePath], syncHandler.RecoveredFilePaths);
+        Assert.True(File.Exists(filePath));
+    }
+
+    [Fact]
     public void MoveMap_RenamesAttachmentDirectory()
     {
         using var workspace = new TestWorkspace();
@@ -125,5 +190,53 @@ public class MapsStorageTests
 
         Assert.False(File.Exists(filePath));
         Assert.False(Directory.Exists(attachmentDirectory));
+    }
+
+    private static string BuildWholeDocumentConflict(string ours, string theirs) =>
+        $"<<<<<<< HEAD\n{ours}\n=======\n{theirs}\n>>>>>>> abc123";
+
+    private static string BuildMapJson(string rootName, string rootUpdatedAtUtc, string updatedAt) =>
+        $$"""
+        {
+          "rootNode": {
+            "nodeType": 0,
+            "uniqueIdentifier": "11111111-1111-1111-1111-111111111111",
+            "name": "{{rootName}}",
+            "children": [],
+            "links": {},
+            "number": 1,
+            "collapsed": false,
+            "hideDoneTasks": false,
+            "taskState": 0,
+            "metadata": {
+              "createdAtUtc": "2026-04-20T07:00:00Z",
+              "updatedAtUtc": "{{rootUpdatedAtUtc}}",
+              "source": "manual",
+              "device": "focus-pwa-web",
+              "attachments": []
+            }
+          },
+          "updatedAt": "{{updatedAt}}"
+        }
+        """;
+
+    private sealed class RecordingFileSynchronizationHandler : IFileSynchronizationHandler
+    {
+        public List<string> RecoveredFilePaths { get; } = new();
+
+        public void Synchronize(string commitMessage)
+        {
+        }
+
+        public StartupSyncResult PullLatestAtStartup()
+        {
+            return StartupSyncResult.Skipped;
+        }
+
+        public MergeRecoveryResult TryRecoverResolvedFile(string absoluteFilePath)
+        {
+            RecoveredFilePaths.Add(absoluteFilePath);
+            return MergeRecoveryResult.NoAction;
+        }
     }
 }

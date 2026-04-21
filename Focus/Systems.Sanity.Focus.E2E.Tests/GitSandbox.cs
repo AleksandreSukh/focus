@@ -62,6 +62,45 @@ internal sealed class GitSandbox : IDisposable
         RunGit(CollaboratorDirectory, "push", "origin", "main");
     }
 
+    public void PullCollaborator()
+    {
+        RunGit(CollaboratorDirectory, "pull", "--no-rebase", "origin", "main");
+    }
+
+    public void CommitWorking(string commitMessage)
+    {
+        RunGit(WorkingDirectory, "add", "--all");
+        RunGit(WorkingDirectory, "commit", "-m", commitMessage);
+    }
+
+    public void CommitAndPushWorking(string commitMessage)
+    {
+        CommitWorking(commitMessage);
+        RunGit(WorkingDirectory, "push", "origin", "main");
+    }
+
+    public void PullWorkingExpectConflict()
+    {
+        var result = RunGit(WorkingDirectory, throwOnFailure: false, "pull", "--no-rebase", "origin", "main");
+        if (result.ExitCode == 0)
+            throw new InvalidOperationException("Expected git pull to produce a merge conflict.");
+    }
+
+    public bool HasWorkingMergeInProgress()
+    {
+        return File.Exists(Path.Combine(WorkingDirectory, ".git", "MERGE_HEAD"));
+    }
+
+    public IReadOnlyList<string> GetWorkingUnmergedFiles()
+    {
+        var result = RunGit(WorkingDirectory, "diff", "--name-only", "--diff-filter=U");
+        return result.StandardOutput
+            .Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries)
+            .Select(path => path.Trim())
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .ToArray();
+    }
+
     public string GetRemoteHeadCommitMessage()
     {
         return RunGit(
@@ -113,6 +152,11 @@ internal sealed class GitSandbox : IDisposable
 
     private static GitCommandResult RunGit(string workingDirectory, params string[] arguments)
     {
+        return RunGit(workingDirectory, throwOnFailure: true, arguments);
+    }
+
+    private static GitCommandResult RunGit(string workingDirectory, bool throwOnFailure, params string[] arguments)
+    {
         var startInfo = new ProcessStartInfo
         {
             FileName = "git",
@@ -133,7 +177,7 @@ internal sealed class GitSandbox : IDisposable
         process.WaitForExit();
 
         var result = new GitCommandResult(process.ExitCode, standardOutput, standardError);
-        if (result.ExitCode != 0)
+        if (throwOnFailure && result.ExitCode != 0)
         {
             var commandText = string.Join(" ", arguments);
             var errorMessage = string.IsNullOrWhiteSpace(result.StandardError)

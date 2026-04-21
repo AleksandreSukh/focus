@@ -11,4 +11,9 @@ public class FileSynchronizationHandlerEmpty : IFileSynchronizationHandler
     {
         return StartupSyncResult.Skipped;
     }
+
+    public MergeRecoveryResult TryRecoverResolvedFile(string absoluteFilePath)
+    {
+        return MergeRecoveryResult.NoAction;
+    }
 }
