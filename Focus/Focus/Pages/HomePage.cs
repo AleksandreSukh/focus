@@ -29,6 +29,7 @@ internal sealed class HomePage : PageWithExclusiveOptions
     private readonly FocusAppContext _appContext;
     private readonly HomeWorkflow _workflow;
     private Dictionary<int, FileInfo> _fileSelection = new();
+    private bool _showCommands = false;
 
     public HomePage(FocusAppContext appContext)
     {
@@ -44,14 +45,13 @@ internal sealed class HomePage : PageWithExclusiveOptions
         {
             try
             {
-                AppConsole.Current.Clear();
                 AppConsole.Current.SetTitle(_appContext.StartupSyncNotificationState.BuildTitle(ApplicationInfo.DefaultConsoleTitle));
-                ColorfulConsole.WriteLine(GetHeaderRibbonString("Welcome"));
-
                 _fileSelection = _workflow.GetFileSelection();
                 _appContext.StartupSyncNotificationState.AcknowledgeHomePageRefresh();
 
-                var input = GetCommand(_workflow.BuildHomePageText(_fileSelection));
+                RenderScreen();
+
+                var input = GetCommand("", (keyInfo, currentText) => HandlePreviewKey(keyInfo, currentText));
 
                 if (string.IsNullOrWhiteSpace(input.InputString))
                     continue;
@@ -69,6 +69,24 @@ internal sealed class HomePage : PageWithExclusiveOptions
                 ShowMessage(ExceptionDiagnostics.LogException(ex, "executing home page command"), isError: true);
             }
         }
+    }
+
+    private void RenderScreen()
+    {
+        AppConsole.Current.Clear();
+        ColorfulConsole.WriteLine(GetHeaderRibbonString("Welcome"));
+        ColorfulConsole.Write(_workflow.BuildHomePageText(_fileSelection, _showCommands));
+    }
+
+    private bool HandlePreviewKey(ConsoleKeyInfo keyInfo, string currentText)
+    {
+        if (!string.IsNullOrEmpty(currentText) || keyInfo.KeyChar != '~')
+            return false;
+
+        _showCommands = !_showCommands;
+        RenderScreen();
+        ColorfulConsole.WriteLine(string.Empty);
+        return true;
     }
 
     protected override string[] GetCommandOptions()

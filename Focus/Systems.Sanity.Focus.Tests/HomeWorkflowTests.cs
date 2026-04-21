@@ -175,7 +175,7 @@ public class HomeWorkflowTests
         var workflow = new HomeWorkflow(workspace.AppContext);
 
         using var consoleScope = new AppConsoleScope(new ScriptedConsoleSession(80));
-        var text = workflow.BuildHomePageText(workflow.GetFileSelection());
+        var text = workflow.BuildHomePageText(workflow.GetFileSelection(), showCommands: true);
 
         Assert.Contains("- alpha.", text, StringComparison.InvariantCultureIgnoreCase);
         Assert.Contains(ColorLabel("Create"), text);

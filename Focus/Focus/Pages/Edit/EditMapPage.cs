@@ -15,7 +15,7 @@ internal sealed class EditMapPage : PageWithSuggestedOptions
     private readonly FocusAppContext _appContext;
     private readonly string _filePath;
     private readonly EditWorkflow _workflow;
-    private bool _showCommands = true;
+    private bool _showCommands = false;
 
     public EditMapPage(string filePath, FocusAppContext appContext, Guid? initialNodeIdentifier = null)
     {

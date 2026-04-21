@@ -467,20 +467,31 @@ public class ConsoleAppE2ETests
             FocusScenario.WaitForOutput("Welcome"),
             FocusScenario.SendLine("alpha"),
             FocusScenario.WaitForOutput("| * Alpha root"),
+            FocusScenario.WaitForOutput("Done child"));
+
+        var transcriptAfterOpeningMap = app.GetTranscript().Length;
+
+        await FocusScenario.RunAsync(
+            context,
             FocusScenario.SendLine("hidedone 1"),
+            FocusScenario.WaitForOutputOccurrences("| * Alpha root", 2),
             FocusScenario.AssertMap("alpha.json", savedMap => Assert.True(savedMap.RootNode.Children[0].HideDoneTasks)),
             FocusScenario.SendLine("cd 1"),
-            FocusScenario.WaitForOutput("Open child"));
+            FocusScenario.WaitForOutputOccurrences("Open child", 2));
 
-        Assert.DoesNotContain("[x] Done child", app.GetTranscript(), StringComparison.Ordinal);
+        Assert.DoesNotContain("[x] Done child", app.GetTranscript()[transcriptAfterOpeningMap..], StringComparison.Ordinal);
+
+        var transcriptAfterHideDone = app.GetTranscript().Length;
 
         await FocusScenario.RunAsync(
             context,
             FocusScenario.SendLine("showdone"),
-            FocusScenario.WaitForOutput("Done child"),
+            FocusScenario.WaitForOutputOccurrences("Done child", 2),
             FocusScenario.SendLine("exit"),
             FocusScenario.WaitForOutput("Welcome"),
             FocusScenario.SendLine("exit"));
+
+        Assert.Contains("[x] Done child", app.GetTranscript()[transcriptAfterHideDone..], StringComparison.Ordinal);
 
         var exitCode = await app.WaitForExitAsync();
 

@@ -18,13 +18,13 @@ namespace Systems.Sanity.Focus.Pages.Shared
 
         protected abstract string[] GetCommandOptions();
 
-        protected ConsoleInput GetCommand(string prompt = "")
+        protected ConsoleInput GetCommand(string prompt = "", Func<ConsoleKeyInfo, string, bool>? previewKeyHandler = null)
         {
             ConsoleKeyInfo? pendingInitialKeyInfo = null;
 
             while (true)
             {
-                var input = GetInput(prompt, initialKeyInfo: pendingInitialKeyInfo);
+                var input = GetInput(prompt, initialKeyInfo: pendingInitialKeyInfo, previewKeyHandler: previewKeyHandler);
                 pendingInitialKeyInfo = null;
                 if (IsValidOption(input.FirstWord))
                     return input;

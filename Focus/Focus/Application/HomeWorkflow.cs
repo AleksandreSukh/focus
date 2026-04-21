@@ -31,7 +31,7 @@ internal sealed class HomeWorkflow
         return _appContext.MapSelectionService.GetTopSelection();
     }
 
-    public string BuildHomePageText(IReadOnlyDictionary<int, FileInfo> files)
+    public string BuildHomePageText(IReadOnlyDictionary<int, FileInfo> files, bool showCommands)
     {
         const int sampleFileNumber = 1;
         var commandColor = ConfigurationConstants.CommandColor;
@@ -52,9 +52,17 @@ internal sealed class HomeWorkflow
                 $"Type file identifier like \"[{commandColor}]{sampleFileNumber}[!]\" or \"[{commandColor}]{AccessibleKeyNumbering.GetStringFor(sampleFileNumber)}[!]\" to open file.{Environment.NewLine}");
         }
 
-        var updatedVersion = AutoUpdateManager.CheckUpdatedVersion();
         homePageMenuTextBuilder.AppendLine();
-        homePageMenuTextBuilder.Append(CommandHelpFormatter.BuildGroupedLines(GetHomeCommandGroups(filesExist, updatedVersion)));
+
+        if (showCommands)
+        {
+            var updatedVersion = AutoUpdateManager.CheckUpdatedVersion();
+            homePageMenuTextBuilder.Append(CommandHelpFormatter.BuildGroupedLines(GetHomeCommandGroups(filesExist, updatedVersion)));
+        }
+        else
+        {
+            homePageMenuTextBuilder.Append($":i Commands hidden. Press \"~\" to show.{Environment.NewLine}");
+        }
 
         return homePageMenuTextBuilder.ToString();
     }
