@@ -607,9 +607,9 @@ h3 {
 }
 
 .done-visibility-button {
-  --floating-fab-size: 2.55rem;
-  --floating-fab-icon-size: 1.35rem;
-  --floating-fab-icon-stroke: 2.1;
+  --floating-fab-size: 3.23rem;
+  --floating-fab-icon-size: 1.7rem;
+  --floating-fab-icon-stroke: 2.2;
   color: var(--task-done);
   border-color: var(--task-done-border);
   background: var(--task-done-soft);
@@ -1364,13 +1364,10 @@ h3 {
 }
 
 .floating-fab {
-  --floating-fab-size: 3.8rem;
-  --floating-fab-icon-size: 2rem;
-  --floating-fab-icon-stroke: 2.5;
   position: fixed;
   bottom: 1.5rem;
-  width: var(--floating-fab-size);
-  height: var(--floating-fab-size);
+  width: var(--floating-fab-size, 3.8rem);
+  height: var(--floating-fab-size, 3.8rem);
   border-radius: 999px;
   display: flex;
   align-items: center;
@@ -1387,10 +1384,10 @@ h3 {
 }
 
 .floating-fab svg {
-  width: var(--floating-fab-icon-size);
-  height: var(--floating-fab-icon-size);
+  width: var(--floating-fab-icon-size, 2rem);
+  height: var(--floating-fab-icon-size, 2rem);
   stroke: currentColor;
-  stroke-width: var(--floating-fab-icon-stroke);
+  stroke-width: var(--floating-fab-icon-stroke, 2.5);
   stroke-linecap: round;
   fill: none;
 }
@@ -1402,6 +1399,9 @@ h3 {
 
 .add-note-fab,
 .create-map-fab {
+  --floating-fab-size: 3.8rem;
+  --floating-fab-icon-size: 2rem;
+  --floating-fab-icon-stroke: 2.5;
   background: var(--accent-soft);
   color: var(--accent-strong);
   border: 1px solid var(--accent-border-strong);
