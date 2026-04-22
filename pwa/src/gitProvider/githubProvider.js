@@ -22,7 +22,7 @@ export class GitHubProvider {
       const response = await this.adapter.getContent(path, `loading remote file ${path}`);
       recordSyncSuccess(`Loaded ${path} from GitHub.`);
       return {
-        content: decodeContent(response.content, response.encoding),
+        content: await readTextContent(this.adapter, path, response, `loading remote file ${path}`),
         versionToken: response.sha,
       };
     } catch (error) {
@@ -53,7 +53,7 @@ export class GitHubProvider {
       const response = await this.adapter.getContent(path, `loading raw file ${path}`);
       recordSyncSuccess(`Loaded ${path} from GitHub.`);
       return {
-        base64Content: response.content.replace(/\n/g, ''),
+        base64Content: await readBase64Content(this.adapter, path, response, `loading raw file ${path}`),
         versionToken: response.sha,
       };
     } catch (error) {
@@ -84,7 +84,13 @@ export class GitHubProvider {
     try {
       const response = await this.adapter.getContent(path, `loading attachment ${path}`);
       recordSyncSuccess(`Loaded attachment ${path} from GitHub.`);
-      return decodeBlobContent(response.content, response.encoding, mediaType);
+      return await readBlobContent(
+        this.adapter,
+        path,
+        response,
+        mediaType,
+        `loading attachment ${path}`,
+      );
     } catch (error) {
       recordSyncFailure(toErrorSummary('read', path, error));
       throw error;
@@ -113,7 +119,7 @@ function decodeContent(content, encoding) {
     throw new Error(`Unsupported GitHub content encoding: ${encoding}`);
   }
 
-  const sanitized = content.replace(/\n/g, '');
+  const sanitized = sanitizeBase64Content(content);
   const binary = atob(sanitized);
   const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
   return new TextDecoder().decode(bytes);
@@ -124,10 +130,80 @@ function decodeBlobContent(content, encoding, mediaType) {
     throw new Error(`Unsupported GitHub content encoding: ${encoding}`);
   }
 
-  const sanitized = content.replace(/\n/g, '');
+  const sanitized = sanitizeBase64Content(content);
   const binary = atob(sanitized);
   const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
   return new Blob([bytes], { type: mediaType });
+}
+
+async function readTextContent(adapter, path, response, contextLabel) {
+  if (response?.encoding === 'base64') {
+    return decodeContent(response.content, response.encoding);
+  }
+
+  if (response?.encoding === 'none') {
+    return adapter.getContentText(path, contextLabel);
+  }
+
+  throw new Error(`Unsupported GitHub content encoding: ${response?.encoding}`);
+}
+
+async function readBase64Content(adapter, path, response, contextLabel) {
+  if (response?.encoding === 'base64') {
+    return sanitizeBase64Content(response.content);
+  }
+
+  if (response?.encoding === 'none') {
+    const blob = await adapter.getContentBlob(path, contextLabel);
+    return encodeBlobAsBase64(blob);
+  }
+
+  throw new Error(`Unsupported GitHub content encoding: ${response?.encoding}`);
+}
+
+async function readBlobContent(adapter, path, response, mediaType, contextLabel) {
+  if (response?.encoding === 'base64') {
+    return decodeBlobContent(response.content, response.encoding, mediaType);
+  }
+
+  if (response?.encoding === 'none') {
+    const blob = await adapter.getContentBlob(path, contextLabel);
+    return withBlobMediaType(blob, mediaType);
+  }
+
+  throw new Error(`Unsupported GitHub content encoding: ${response?.encoding}`);
+}
+
+function sanitizeBase64Content(content) {
+  return String(content ?? '').replace(/\n/g, '');
+}
+
+async function encodeBlobAsBase64(blob) {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  return encodeBytesAsBase64(bytes);
+}
+
+function encodeBytesAsBase64(bytes) {
+  const bufferApi = globalThis.Buffer;
+  if (bufferApi?.from) {
+    return bufferApi.from(bytes).toString('base64');
+  }
+
+  let binary = '';
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary);
+}
+
+async function withBlobMediaType(blob, mediaType) {
+  if (!mediaType || blob.type === mediaType) {
+    return blob;
+  }
+
+  return new Blob([await blob.arrayBuffer()], {
+    type: mediaType,
+  });
 }
 
 function encodeContent(content) {

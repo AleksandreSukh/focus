@@ -66,6 +66,34 @@ export class GitHubAdapter {
     );
   }
 
+  async getContentBlob(path, contextLabel = `loading raw ${path}`) {
+    const query = this.branch ? `?ref=${encodeURIComponent(this.branch)}` : '';
+    return this.requestBlob(
+      `/repos/${this.owner}/${this.repo}/contents/${normalizePath(path)}${query}`,
+      {
+        method: 'GET',
+        headers: {
+          Accept: 'application/vnd.github.raw',
+        },
+      },
+      { operation: 'getContent', contextLabel },
+    );
+  }
+
+  async getContentText(path, contextLabel = `loading raw ${path}`) {
+    const query = this.branch ? `?ref=${encodeURIComponent(this.branch)}` : '';
+    return this.requestText(
+      `/repos/${this.owner}/${this.repo}/contents/${normalizePath(path)}${query}`,
+      {
+        method: 'GET',
+        headers: {
+          Accept: 'application/vnd.github.raw',
+        },
+      },
+      { operation: 'getContent', contextLabel },
+    );
+  }
+
   async listDirectory(path, contextLabel = `listing ${path || 'repository root'}`) {
     const query = this.branch ? `?ref=${encodeURIComponent(this.branch)}` : '';
     const normalizedPath = normalizePath(path);
@@ -108,6 +136,21 @@ export class GitHubAdapter {
   }
 
   async requestJson(endpoint, init, context = {}) {
+    const response = await this.request(endpoint, init, context);
+    return response.json();
+  }
+
+  async requestText(endpoint, init, context = {}) {
+    const response = await this.request(endpoint, init, context);
+    return response.text();
+  }
+
+  async requestBlob(endpoint, init, context = {}) {
+    const response = await this.request(endpoint, init, context);
+    return response.blob();
+  }
+
+  async request(endpoint, init, context = {}) {
     let response;
     const operation = context.operation || '';
     const contextLabel = context.contextLabel || defaultContextLabel(operation);
@@ -120,6 +163,7 @@ export class GitHubAdapter {
           Authorization: `Bearer ${this.token}`,
           'X-GitHub-Api-Version': '2022-11-28',
           ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+          ...(init.headers ?? {}),
         },
       });
     } catch (error) {
@@ -139,7 +183,7 @@ export class GitHubAdapter {
       throw createGitHubApiError(response, responseText, context);
     }
 
-    return response.json();
+    return response;
   }
 }
 
