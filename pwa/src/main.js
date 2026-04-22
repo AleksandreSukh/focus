@@ -56,6 +56,10 @@ import {
   TASK_STATE,
 } from './maps/model.js';
 import {
+  collectBacklinkRelatedNodeEntries,
+  collectOutgoingRelatedNodeEntries,
+} from './maps/relatedNodes.js';
+import {
   HASH_ROUTE,
   buildHashRoute,
   parseHashRoute,
@@ -105,6 +109,7 @@ const state = {
   activeModal: null,
   pendingFocusRequest: null,
   openCardMenu: '',
+  expandedRelatedNodeKey: '',
   pendingRepairFocusPath: '',
 };
 
@@ -314,9 +319,16 @@ function applyRouteFromHash(options = {}) {
     }
 
     state.currentView = 'map';
-    state.selectedMapPath = route.mapPath;
     const rootNodeId = snapshot.document.rootNode?.uniqueIdentifier || '';
-    state.selectedNodeId = resolveViewportNodeId(snapshot.document, route.nodeId || rootNodeId) || rootNodeId;
+    const nextSelectedNodeId = resolveViewportNodeId(snapshot.document, route.nodeId || rootNodeId) || rootNodeId;
+    if (
+      state.selectedMapPath !== route.mapPath ||
+      state.selectedNodeId !== nextSelectedNodeId
+    ) {
+      state.expandedRelatedNodeKey = '';
+    }
+    state.selectedMapPath = route.mapPath;
+    state.selectedNodeId = nextSelectedNodeId;
     const canonicalHash = buildHashRoute('map', route.mapPath, state.selectedNodeId, rootNodeId);
     if (window.location.hash !== canonicalHash) {
       replaceHashRoute(canonicalHash);
@@ -329,6 +341,7 @@ function applyRouteFromHash(options = {}) {
     replaceHashRoute(HASH_ROUTE.maps);
   }
 
+  state.expandedRelatedNodeKey = '';
   state.currentView = route.view === 'tasks' ? 'tasks' : 'maps';
   render();
   return true;
@@ -711,10 +724,17 @@ function handleDocumentClick(event) {
       void handleDeleteAttachmentConfirm();
       return;
     case 'open-task-node':
-      openTaskNode(clickableElement.dataset.mapPath || '', clickableElement.dataset.nodeId || '');
+      openNavigableNode(clickableElement.dataset.mapPath || '', clickableElement.dataset.nodeId || '');
       return;
-    case 'open-linked-node':
-      openLinkedNode(clickableElement.dataset.targetNodeId || '');
+    case 'open-related-node':
+      openNavigableNode(clickableElement.dataset.mapPath || '', clickableElement.dataset.nodeId || '');
+      return;
+    case 'toggle-related-nodes':
+      toggleRelatedNodesDisclosure(
+        clickableElement.dataset.sourceMapPath || '',
+        clickableElement.dataset.sourceNodeId || '',
+        clickableElement.dataset.relationLabel || '',
+      );
       return;
     case 'show-done-items': {
       const mapPath = clickableElement.dataset.mapPath || '';
@@ -1031,6 +1051,7 @@ function switchRepoContext(repoSettings) {
   state.localCollapsedByMap = {};
   state.activeModal = null;
   state.pendingFocusRequest = null;
+  state.expandedRelatedNodeKey = '';
   state.pendingRepairFocusPath = '';
   pendingModalHistoryClose = null;
 }
@@ -3163,7 +3184,7 @@ function openMap(mapPath) {
   navigateToMapRoute(mapPath);
 }
 
-function openTaskNode(mapPath, nodeId) {
+function openNavigableNode(mapPath, nodeId) {
   const snapshot = state.mapsByPath[mapPath];
   if (!snapshot) {
     return;
@@ -3174,26 +3195,6 @@ function openTaskNode(mapPath, nodeId) {
     : snapshot.document.rootNode?.uniqueIdentifier || '';
   navigateToMapRoute(mapPath, {
     preferredNodeId: nextNodeId,
-  });
-}
-
-function findLinkedNodeAcrossMaps(targetNodeId) {
-  for (const snapshot of Object.values(state.mapsByPath)) {
-    const record = findNodeRecord(snapshot.document, targetNodeId);
-    if (record) {
-      return { snapshot, record };
-    }
-  }
-  return null;
-}
-
-function openLinkedNode(targetNodeId) {
-  const found = findLinkedNodeAcrossMaps(targetNodeId);
-  if (!found) {
-    return;
-  }
-  navigateToMapRoute(found.snapshot.filePath, {
-    preferredNodeId: targetNodeId,
   });
 }
 
@@ -3459,6 +3460,59 @@ function createClientNodeId() {
 
 function buildNodeFocusKey(mapPath, nodeId) {
   return `node|${mapPath}|${nodeId}`;
+}
+
+function buildRelatedNodeToggleKey(mapPath, nodeId, relationLabel = '') {
+  return [mapPath, nodeId, relationLabel]
+    .map((value) => encodeURIComponent(String(value ?? '')))
+    .join('::');
+}
+
+function buildRelatedNodeSectionId(mapPath, nodeId, relationLabel = '') {
+  return `selected-node-links-${buildRelatedNodeToggleKey(mapPath, nodeId, relationLabel).replace(/[^a-zA-Z0-9_-]+/g, '-')}`;
+}
+
+function isRelatedNodesDisclosureExpanded(mapPath, nodeId, relationLabel = '') {
+  return state.expandedRelatedNodeKey === buildRelatedNodeToggleKey(mapPath, nodeId, relationLabel);
+}
+
+function toggleRelatedNodesDisclosure(mapPath, nodeId, relationLabel = '') {
+  const nextKey = buildRelatedNodeToggleKey(mapPath, nodeId, relationLabel);
+  state.expandedRelatedNodeKey = state.expandedRelatedNodeKey === nextKey ? '' : nextKey;
+  render();
+}
+
+function buildRelatedNodeGroups({ outgoing = [], backlinks = [] }) {
+  const groupsByLabel = new Map();
+
+  [...outgoing, ...backlinks].forEach((entry) => {
+    const relationLabel = String(entry?.relationLabel || 'link');
+    const existingGroup = groupsByLabel.get(relationLabel);
+    if (existingGroup) {
+      existingGroup.entries.push(entry);
+      return;
+    }
+
+    groupsByLabel.set(relationLabel, {
+      relationLabel,
+      entries: [entry],
+    });
+  });
+
+  return Array.from(groupsByLabel.values()).sort(compareRelatedNodeGroups);
+}
+
+function compareRelatedNodeGroups(left, right) {
+  const leftLabel = String(left?.relationLabel || '');
+  const rightLabel = String(right?.relationLabel || '');
+  const leftIsBacklink = leftLabel.startsWith('backlink');
+  const rightIsBacklink = rightLabel.startsWith('backlink');
+
+  if (leftIsBacklink !== rightIsBacklink) {
+    return leftIsBacklink ? 1 : -1;
+  }
+
+  return leftLabel.localeCompare(rightLabel);
 }
 
 function sanitizeMapFileName(name) {
@@ -3899,6 +3953,7 @@ function buildMapSelectionKey(snapshot) {
     selectedNodeId: selectedNodeState?.node.uniqueIdentifier || '',
     fabSide: state.fabSide,
     canEditNode: Boolean(selectedNodeState?.canEditNode),
+    expandedRelatedNodeKey: state.expandedRelatedNodeKey,
   });
 }
 
@@ -4919,7 +4974,27 @@ function renderSelectedNodeActions(snapshot, nodeUiState) {
   const taskDisabled = nodeUiState.canChangeTaskState ? '' : 'disabled';
   const isTask = nodeUiState.node.taskState !== TASK_STATE.NONE;
   const isClipboardImage = isClipboardImageNode(nodeUiState.node);
-  const metaContent = renderBadgeMarkup(nodeUiState.badges);
+  const relatedNodeEntries = {
+    outgoing: collectOutgoingRelatedNodeEntries(nodeUiState.node, Object.values(state.mapsByPath)),
+    backlinks: collectBacklinkRelatedNodeEntries(nodeId, Object.values(state.mapsByPath)),
+  };
+  const relatedNodeGroups = buildRelatedNodeGroups(relatedNodeEntries);
+  const showRelatedNodeToggle = relatedNodeGroups.length > 0;
+  const metaContent = [
+    renderBadgeMarkup(
+      Array.isArray(nodeUiState.badges)
+        ? nodeUiState.badges.filter((badge) => badge !== 'Links')
+        : [],
+    ),
+    ...relatedNodeGroups.map((group) => renderRelatedNodeToggleBadge({
+      mapPath,
+      nodeId,
+      relationLabel: group.relationLabel,
+      expanded: isRelatedNodesDisclosureExpanded(mapPath, nodeId, group.relationLabel),
+      sectionId: buildRelatedNodeSectionId(mapPath, nodeId, group.relationLabel),
+      relatedNodeCount: group.entries.length,
+    })),
+  ].filter(Boolean).join('');
   const badgesMarkup = metaContent ? `<div class="selected-node-meta">${metaContent}</div>` : '';
   const hintMarkup = renderSelectedNodeHint(nodeUiState);
   const attachments = isClipboardImage ? [] : getNodeAttachments(nodeUiState.node);
@@ -4936,25 +5011,14 @@ function renderSelectedNodeActions(snapshot, nodeUiState) {
         >${escapeHtml(att.displayName || att.relativePath)}</button>
       `).join('')}</div>`
     : '';
-  const resolvedLinks = getNodeLinks(nodeUiState.node)
-    .map((link) => {
-      const found = findLinkedNodeAcrossMaps(link.id);
-      return found ? { id: link.id, name: found.record.node.name || link.id } : null;
-    })
-    .filter(Boolean);
-  const linksMarkup = resolvedLinks.length > 0
-    ? `<div class="attachment-list">${resolvedLinks.map((l) => `
-        <button
-          type="button"
-          class="attachment-item"
-          data-action="open-linked-node"
-          data-target-node-id="${escapeHtml(l.id)}"
-          title="${escapeHtml(l.name)}"
-        >${escapeHtml(l.name)}</button>
-      `).join('')}</div>`
+  const relatedNodesMarkup = showRelatedNodeToggle
+    ? relatedNodeGroups.map((group) => renderRelatedNodePanel(group, {
+        sectionId: buildRelatedNodeSectionId(mapPath, nodeId, group.relationLabel),
+        hidden: !isRelatedNodesDisclosureExpanded(mapPath, nodeId, group.relationLabel),
+      })).join('')
     : '';
 
-  if (!isTask && !badgesMarkup && !hintMarkup && !attachmentsMarkup && !linksMarkup) {
+  if (!isTask && !badgesMarkup && !hintMarkup && !attachmentsMarkup && !showRelatedNodeToggle) {
     return '';
   }
 
@@ -4972,9 +5036,82 @@ function renderSelectedNodeActions(snapshot, nodeUiState) {
       </div>
       ${badgesMarkup}
       ${attachmentsMarkup}
-      ${linksMarkup}
+      ${relatedNodesMarkup}
       ${hintMarkup}
     </div>
+  `;
+}
+
+function renderRelatedNodeToggleBadge({ mapPath, nodeId, relationLabel, expanded, sectionId, relatedNodeCount }) {
+  const countMarkup = relatedNodeCount > 0
+    ? `<span class="related-node-toggle-count">${escapeHtml(String(relatedNodeCount))}</span>`
+    : '';
+  const buttonLabel = relationLabel || 'link';
+  const actionLabel = expanded ? `Hide ${buttonLabel}` : `Show ${buttonLabel}`;
+  return `
+    <button
+      type="button"
+      class="pill subtle related-node-toggle"
+      data-action="toggle-related-nodes"
+      data-source-map-path="${escapeHtml(mapPath)}"
+      data-source-node-id="${escapeHtml(nodeId)}"
+      data-relation-label="${escapeHtml(buttonLabel)}"
+      aria-controls="${escapeHtml(sectionId)}"
+      aria-expanded="${expanded ? 'true' : 'false'}"
+      title="${escapeHtml(actionLabel)}"
+      aria-label="${escapeHtml(actionLabel)}"
+    >
+      <span class="related-node-relation related-node-toggle-label">${escapeHtml(buttonLabel)}</span>
+      ${countMarkup}
+      <span class="related-node-toggle-icon" aria-hidden="true"></span>
+    </button>
+  `;
+}
+
+function renderRelatedNodePanel(group, options = {}) {
+  const { sectionId = '', hidden = false } = options;
+  if (!group || !Array.isArray(group.entries) || group.entries.length === 0) {
+    return '';
+  }
+
+  return `
+    <div
+      class="related-node-panel"
+      ${hidden ? 'hidden' : ''}
+      ${sectionId ? `id="${escapeHtml(sectionId)}"` : ''}
+      role="region"
+      aria-label="${escapeHtml(group.relationLabel)} links"
+    >
+      <div class="related-node-list">
+        ${group.entries.map((entry) => renderRelatedNodeEntry(entry)).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderRelatedNodeEntry(entry) {
+  const nodeName = entry.nodeName || normalizeNodeDisplayText('');
+  const relationLabel = entry.relationLabel || 'link';
+  return `
+    <button
+      type="button"
+      class="related-node-row"
+      data-action="open-related-node"
+      data-map-path="${escapeHtml(entry.mapPath)}"
+      data-node-id="${escapeHtml(entry.nodeId)}"
+      aria-label="Open ${escapeHtml(nodeName)} in ${escapeHtml(entry.mapName)} via ${escapeHtml(relationLabel)}"
+      title="Open ${escapeHtml(nodeName)} in ${escapeHtml(entry.mapName)} via ${escapeHtml(relationLabel)}"
+    >
+      <div class="related-node-row-main">
+        <div class="compact-title-block">
+          <span class="related-node-title">
+            ${renderInlineHtml(nodeName, { theme: state.theme, wrapperClass: 'formatted-inline related-node-title-inline' })}
+          </span>
+          <span class="related-node-map">${escapeHtml(entry.mapName)}</span>
+          <span class="related-node-path">${renderInlinePath(entry.nodePathSegments, 'formatted-path related-node-path-inline')}</span>
+        </div>
+      </div>
+    </button>
   `;
 }
 
