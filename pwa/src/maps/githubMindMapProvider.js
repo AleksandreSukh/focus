@@ -76,9 +76,8 @@ export class GitHubMindMapProvider {
     }
   }
 
-  async getAttachmentBlob(mapFilePath, relativePath, mediaType) {
-    const attachmentDir = mapFilePath.replace(/\.json$/i, '_attachments');
-    const attachmentPath = `${attachmentDir}/${relativePath}`;
+  async getAttachmentBlob(_mapFilePath, nodeId, relativePath, mediaType) {
+    const attachmentPath = buildAttachmentPath(this.directoryPath, nodeId, relativePath);
     return this.gitProvider.getFileAsBlob(attachmentPath, mediaType || 'image/png');
   }
 
@@ -205,9 +204,8 @@ export class GitHubMindMapProvider {
     }
   }
 
-  async uploadAttachment({ mapFilePath, relativePath, base64Content, commitMessage }) {
-    const attachmentDir = mapFilePath.replace(/\.json$/i, '_attachments');
-    const attachmentPath = `${attachmentDir}/${relativePath}`;
+  async uploadAttachment({ mapFilePath: _mapFilePath, nodeId, relativePath, base64Content, commitMessage }) {
+    const attachmentPath = buildAttachmentPath(this.directoryPath, nodeId, relativePath);
     const result = await this.gitProvider.putBinaryFile(
       attachmentPath,
       base64Content,
@@ -217,9 +215,8 @@ export class GitHubMindMapProvider {
     return { ok: true, versionToken: result.versionToken };
   }
 
-  async deleteAttachment({ mapFilePath, relativePath, versionToken, commitMessage }) {
-    const attachmentDir = mapFilePath.replace(/\.json$/i, '_attachments');
-    const attachmentPath = `${attachmentDir}/${relativePath}`;
+  async deleteAttachment({ mapFilePath: _mapFilePath, nodeId, relativePath, versionToken, commitMessage }) {
+    const attachmentPath = buildAttachmentPath(this.directoryPath, nodeId, relativePath);
     let effectiveVersionToken = versionToken;
 
     try {
@@ -236,30 +233,6 @@ export class GitHubMindMapProvider {
 
       throw error;
     }
-    return { ok: true };
-  }
-
-  async renameAttachmentDirectory(oldMapFilePath, newMapFilePath, commitMessage) {
-    const oldDir = oldMapFilePath.replace(/\.json$/i, '_attachments');
-    const newDir = newMapFilePath.replace(/\.json$/i, '_attachments');
-
-    let entries;
-    try {
-      entries = await this.gitProvider.listDirectory(oldDir);
-    } catch (error) {
-      if (error?.code === 'NOT_FOUND') return { ok: true };
-      throw error;
-    }
-
-    const files = entries.filter((e) => e.type === 'file');
-    if (files.length === 0) return { ok: true };
-
-    for (const file of files) {
-      const raw = await this.gitProvider.getFileRaw(file.path);
-      await this.gitProvider.putBinaryFile(`${newDir}/${file.name}`, raw.base64Content, null, commitMessage);
-      await this.gitProvider.deleteFile(file.path, raw.versionToken, commitMessage);
-    }
-
     return { ok: true };
   }
 
@@ -339,6 +312,24 @@ function buildUnreadableMapMessage(fileName, reason) {
     default:
       return `Map "${fileName}" could not be parsed and cannot be loaded.`;
   }
+}
+
+function buildAttachmentPath(directoryPath, nodeId, relativePath) {
+  const parts = [];
+  if (directoryPath) {
+    parts.push(directoryPath);
+  }
+
+  parts.push('_attachments', normalizeAttachmentNodeId(nodeId), normalizeAttachmentRelativePath(relativePath));
+  return parts.join('/');
+}
+
+function normalizeAttachmentNodeId(nodeId) {
+  return String(nodeId ?? '').trim().toLowerCase();
+}
+
+function normalizeAttachmentRelativePath(relativePath) {
+  return String(relativePath ?? '').split('/').pop()?.split('\\').pop() || '';
 }
 
 function buildResolvedDocument(content) {

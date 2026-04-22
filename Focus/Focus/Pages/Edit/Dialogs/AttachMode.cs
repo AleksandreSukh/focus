@@ -19,7 +19,6 @@ internal sealed class AttachMode : PageWithSuggestedOptions
 
     private readonly MindMap _map;
     private readonly FocusAppContext _appContext;
-    private readonly string _targetMapFilePath;
     private Dictionary<int, FileInfo> _filesToChooseFrom = new();
     private string? _message;
     private bool _isError;
@@ -29,7 +28,6 @@ internal sealed class AttachMode : PageWithSuggestedOptions
     {
         _map = map;
         _appContext = appContext;
-        _targetMapFilePath = targetMapFilePath;
     }
 
     public bool DidAttachMap { get; private set; }
@@ -99,10 +97,6 @@ internal sealed class AttachMode : PageWithSuggestedOptions
         }
 
         var map = _appContext.MapRepository.OpenMap(file.FullName);
-        _appContext.MapsStorage.AttachmentStore.MoveReferencedAttachments(
-            map.RootNode,
-            file.FullName,
-            _targetMapFilePath);
         _map.LoadAtCurrentNode(map);
         _appContext.MapRepository.DeleteMap(file);
         DidAttachMap = true;

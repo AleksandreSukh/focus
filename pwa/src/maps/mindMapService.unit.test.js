@@ -351,3 +351,30 @@ describe('MindMapService cached snapshots', () => {
     assert.deepEqual(service.getCachedSnapshots(), []);
   });
 });
+
+describe('MindMapService attachment APIs', () => {
+  it('passes nodeId through to loadAttachment', async () => {
+    const calls = [];
+    const service = new MindMapService({
+      async loadAttachment(mapFilePath, nodeId, relativePath, mediaType) {
+        calls.push([mapFilePath, nodeId, relativePath, mediaType]);
+        return { ok: true, value: new Blob(['data'], { type: mediaType }) };
+      },
+    });
+
+    const result = await service.loadAttachment(
+      'FocusMaps/Alpha.json',
+      '53ba90f9-f653-4771-bc08-3c8a531b9b85',
+      'note.png',
+      'image/png',
+    );
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(calls, [[
+      'FocusMaps/Alpha.json',
+      '53ba90f9-f653-4771-bc08-3c8a531b9b85',
+      'note.png',
+      'image/png',
+    ]]);
+  });
+});

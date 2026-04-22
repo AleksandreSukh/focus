@@ -660,35 +660,38 @@ internal sealed class EditWorkflow
             if (!captureResult.IsSuccess)
                 return CommandExecutionResult.Error(captureResult.ErrorMessage ?? "Clipboard capture failed");
 
-        var currentNode = _map.GetCurrentNode();
+            var currentNode = _map.GetCurrentNode();
+            var currentNodeIdentifier = GetRequiredNodeIdentifier(currentNode);
 
-        if (captureResult.Kind == ClipboardCaptureKind.Image)
-        {
-            var timestampUtc = DateTimeOffset.UtcNow;
-            var attachment = _appContext.MapsStorage.AttachmentStore.SavePngAttachment(
+            if (captureResult.Kind == ClipboardCaptureKind.Image)
+            {
+                var timestampUtc = DateTimeOffset.UtcNow;
+                var attachment = _appContext.MapsStorage.AttachmentStore.SavePngAttachment(
+                    _filePath,
+                    currentNodeIdentifier,
+                    captureResult.ImageBytes ?? Array.Empty<byte>(),
+                    BuildClipboardImageAttachmentDisplayName(timestampUtc),
+                    timestampUtc);
+                currentNode.AddAttachment(attachment, timestampUtc);
+
+                return PersistMapChange(
+                    "Capture clipboard",
+                    message: $"Captured clipboard image into \"{currentNode.Name.GetContentPeek()}\"");
+            }
+
+            var capturedAtUtc = DateTimeOffset.UtcNow;
+            var capturedText = captureResult.Text ?? string.Empty;
+            var textAttachment = _appContext.MapsStorage.AttachmentStore.SaveTextAttachment(
                 _filePath,
-                captureResult.ImageBytes ?? Array.Empty<byte>(),
-                BuildClipboardImageAttachmentDisplayName(timestampUtc),
-                timestampUtc);
-            currentNode.AddAttachment(attachment, timestampUtc);
+                currentNodeIdentifier,
+                capturedText,
+                BuildClipboardTextAttachmentDisplayName(capturedText, capturedAtUtc),
+                capturedAtUtc);
+            currentNode.AddAttachment(textAttachment, capturedAtUtc);
 
             return PersistMapChange(
                 "Capture clipboard",
-                message: $"Captured clipboard image into \"{currentNode.Name.GetContentPeek()}\"");
-        }
-
-        var capturedAtUtc = DateTimeOffset.UtcNow;
-        var capturedText = captureResult.Text ?? string.Empty;
-        var textAttachment = _appContext.MapsStorage.AttachmentStore.SaveTextAttachment(
-            _filePath,
-            capturedText,
-            BuildClipboardTextAttachmentDisplayName(capturedText, capturedAtUtc),
-            capturedAtUtc);
-        currentNode.AddAttachment(textAttachment, capturedAtUtc);
-
-        return PersistMapChange(
-            "Capture clipboard",
-            message: $"Captured clipboard text into \"{currentNode.Name.GetContentPeek()}\"");
+                message: $"Captured clipboard text into \"{currentNode.Name.GetContentPeek()}\"");
         }
         catch (Exception ex)
         {
@@ -1067,8 +1070,10 @@ internal sealed class EditWorkflow
 
     private CommandExecutionResult OpenAttachment(NodeAttachment attachment)
     {
+        var currentNodeIdentifier = GetRequiredNodeIdentifier(_map.GetCurrentNode());
         var attachmentPath = _appContext.MapsStorage.AttachmentStore.ResolveAttachmentPath(
             _filePath,
+            currentNodeIdentifier,
             attachment.RelativePath);
         if (!File.Exists(attachmentPath))
             return CommandExecutionResult.Error($"Attachment \"{attachment.DisplayName}\" is missing");
@@ -1080,6 +1085,9 @@ internal sealed class EditWorkflow
 
     private static string BuildClipboardImageAttachmentDisplayName(DateTimeOffset timestampUtc) =>
         $"Screenshot {timestampUtc:yyyy-MM-dd HH:mm}.png";
+
+    private static Guid GetRequiredNodeIdentifier(Node node) =>
+        node.UniqueIdentifier ?? throw new InvalidOperationException("Node identifier is required for attachment operations.");
 
     private static string BuildClipboardTextAttachmentDisplayName(string clipboardText, DateTimeOffset timestampUtc) =>
         $"Clipboard text {timestampUtc:yyyy-MM-dd HH:mm} - {BuildClipboardTextPreview(clipboardText)}";

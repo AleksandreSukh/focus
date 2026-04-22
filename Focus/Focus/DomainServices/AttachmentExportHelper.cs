@@ -9,9 +9,9 @@ namespace Systems.Sanity.Focus.DomainServices;
 
 internal static class AttachmentExportHelper
 {
-    public static AttachmentExportItem Build(NodeAttachment attachment, NodeExportOptions options)
+    public static AttachmentExportItem Build(Node node, NodeAttachment attachment, NodeExportOptions options)
     {
-        var resolvedPath = TryResolveAttachmentPath(attachment, options);
+        var resolvedPath = TryResolveAttachmentPath(node, attachment, options);
         var relativePath = BuildRelativePath(attachment, resolvedPath, options);
         var displayName = PlainTextInlineFormatter.ToPlainText(attachment.DisplayName);
 
@@ -81,14 +81,17 @@ internal static class AttachmentExportHelper
         }
     }
 
-    private static string? TryResolveAttachmentPath(NodeAttachment attachment, NodeExportOptions options)
+    private static string? TryResolveAttachmentPath(Node node, NodeAttachment attachment, NodeExportOptions options)
     {
-        if (string.IsNullOrWhiteSpace(options.MapFilePath))
+        if (string.IsNullOrWhiteSpace(options.MapFilePath) || !node.UniqueIdentifier.HasValue)
             return null;
 
         try
         {
-            return new MapAttachmentStore().ResolveAttachmentPath(options.MapFilePath, attachment.RelativePath);
+            return new MapAttachmentStore().ResolveAttachmentPath(
+                options.MapFilePath,
+                node.UniqueIdentifier.Value,
+                attachment.RelativePath);
         }
         catch
         {

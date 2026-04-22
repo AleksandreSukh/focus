@@ -93,7 +93,7 @@ internal static class HtmlPrinter
         AppendLine(sb, indentationLevel, "<div class=\"node-attachments\">");
         foreach (var attachment in attachments)
         {
-            AppendAttachment(AttachmentExportHelper.Build(attachment, options), sb, indentationLevel + 1);
+            AppendAttachment(AttachmentExportHelper.Build(node, attachment, options), sb, indentationLevel + 1);
         }
 
         AppendLine(sb, indentationLevel, "</div>");

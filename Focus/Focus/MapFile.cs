@@ -13,6 +13,7 @@ namespace Systems.Sanity.Focus
     {
         public static MindMap OpenFile(string filePath, ISet<Guid>? usedIdentifiers = null)
         {
+            var attachmentStore = new MapAttachmentStore();
             var mindMapParsedFromJson =
                 JsonConvert.DeserializeObject<MindMap>(
                     File.ReadAllText(filePath),
@@ -22,6 +23,11 @@ namespace Systems.Sanity.Focus
                 mindMapParsedFromJson,
                 usedIdentifiers,
                 new DateTimeOffset(fileTimestampUtc, TimeSpan.Zero));
+            if (normalizationResult.RemappedIdentifiers.Count > 0)
+            {
+                attachmentStore.MoveAttachmentDirectories(filePath, normalizationResult.RemappedIdentifiers);
+            }
+
             if (normalizationResult.RequiresImmediateSave)
             {
                 Save(filePath, mindMapParsedFromJson, normalizeMap: false);
@@ -39,7 +45,11 @@ namespace Systems.Sanity.Focus
         {
             if (normalizeMap)
             {
-                MapNormalizer.Normalize(map);
+                var normalizationResult = MapNormalizer.Normalize(map);
+                if (normalizationResult.RemappedIdentifiers.Count > 0)
+                {
+                    new MapAttachmentStore().MoveAttachmentDirectories(filePath, normalizationResult.RemappedIdentifiers);
+                }
             }
 
             File.WriteAllText(

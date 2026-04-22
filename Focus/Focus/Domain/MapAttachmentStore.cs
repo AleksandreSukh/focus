@@ -10,25 +10,29 @@ namespace Systems.Sanity.Focus.Domain;
 
 internal sealed class MapAttachmentStore
 {
-    public string GetAttachmentDirectoryPath(string mapFilePath)
+    public string GetAttachmentRootDirectoryPath(string mapFilePath)
     {
         var mapDirectory = Path.GetDirectoryName(mapFilePath);
         if (string.IsNullOrWhiteSpace(mapDirectory))
             throw new ArgumentException("Map directory could not be determined.", nameof(mapFilePath));
 
-        return Path.Combine(
-            mapDirectory,
-            $"{Path.GetFileNameWithoutExtension(mapFilePath)}{ConfigurationConstants.AttachmentDirectorySuffix}");
+        return Path.Combine(mapDirectory, ConfigurationConstants.AttachmentDirectorySuffix);
     }
 
-    public string ResolveAttachmentPath(string mapFilePath, string relativePath)
+    public string GetAttachmentDirectoryPath(string mapFilePath, Guid nodeUniqueIdentifier) =>
+        Path.Combine(
+            GetAttachmentRootDirectoryPath(mapFilePath),
+            NormalizeNodeDirectoryName(nodeUniqueIdentifier));
+
+    public string ResolveAttachmentPath(string mapFilePath, Guid nodeUniqueIdentifier, string relativePath)
     {
         var normalizedRelativePath = NormalizeRelativePath(relativePath);
-        return Path.Combine(GetAttachmentDirectoryPath(mapFilePath), normalizedRelativePath);
+        return Path.Combine(GetAttachmentDirectoryPath(mapFilePath, nodeUniqueIdentifier), normalizedRelativePath);
     }
 
     public NodeAttachment SavePngAttachment(
         string mapFilePath,
+        Guid nodeUniqueIdentifier,
         byte[] pngBytes,
         string displayName,
         DateTimeOffset? createdAtUtc = null)
@@ -38,7 +42,7 @@ internal sealed class MapAttachmentStore
 
         var timestampUtc = (createdAtUtc ?? DateTimeOffset.UtcNow).ToUniversalTime();
         var fileName = $"{Guid.NewGuid():N}.png";
-        var attachmentDirectory = EnsureAttachmentDirectory(mapFilePath);
+        var attachmentDirectory = EnsureAttachmentDirectory(mapFilePath, nodeUniqueIdentifier);
         var targetPath = Path.Combine(attachmentDirectory, fileName);
         File.WriteAllBytes(targetPath, pngBytes);
 
@@ -54,6 +58,7 @@ internal sealed class MapAttachmentStore
 
     public NodeAttachment SaveTextAttachment(
         string mapFilePath,
+        Guid nodeUniqueIdentifier,
         string text,
         string displayName,
         DateTimeOffset? createdAtUtc = null)
@@ -62,7 +67,7 @@ internal sealed class MapAttachmentStore
 
         var timestampUtc = (createdAtUtc ?? DateTimeOffset.UtcNow).ToUniversalTime();
         var fileName = $"{Guid.NewGuid():N}.txt";
-        var attachmentDirectory = EnsureAttachmentDirectory(mapFilePath);
+        var attachmentDirectory = EnsureAttachmentDirectory(mapFilePath, nodeUniqueIdentifier);
         var targetPath = Path.Combine(attachmentDirectory, fileName);
         File.WriteAllText(targetPath, text, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
@@ -76,20 +81,24 @@ internal sealed class MapAttachmentStore
         };
     }
 
-    public void DeleteAttachmentDirectory(string mapFilePath)
+    public void MoveAttachmentDirectories(string mapFilePath, IReadOnlyDictionary<Guid, Guid> remappedIdentifiers)
     {
-        var attachmentDirectory = GetAttachmentDirectoryPath(mapFilePath);
-        if (Directory.Exists(attachmentDirectory))
-            Directory.Delete(attachmentDirectory, recursive: true);
+        foreach (var remappedIdentifier in remappedIdentifiers)
+        {
+            MoveAttachmentDirectory(mapFilePath, remappedIdentifier.Key, remappedIdentifier.Value);
+        }
     }
 
-    public void RenameAttachmentDirectory(string existingMapFilePath, string newMapFilePath)
+    private void MoveAttachmentDirectory(string mapFilePath, Guid existingNodeIdentifier, Guid newNodeIdentifier)
     {
-        var sourceDirectory = GetAttachmentDirectoryPath(existingMapFilePath);
+        if (existingNodeIdentifier == newNodeIdentifier)
+            return;
+
+        var sourceDirectory = GetAttachmentDirectoryPath(mapFilePath, existingNodeIdentifier);
         if (!Directory.Exists(sourceDirectory))
             return;
 
-        var targetDirectory = GetAttachmentDirectoryPath(newMapFilePath);
+        var targetDirectory = GetAttachmentDirectoryPath(mapFilePath, newNodeIdentifier);
         if (string.Equals(sourceDirectory, targetDirectory, StringComparison.OrdinalIgnoreCase))
             return;
 
@@ -102,7 +111,7 @@ internal sealed class MapAttachmentStore
             return;
         }
 
-        foreach (var filePath in Directory.GetFiles(sourceDirectory))
+        foreach (var filePath in Directory.EnumerateFiles(sourceDirectory))
         {
             var targetPath = Path.Combine(targetDirectory, Path.GetFileName(filePath));
             File.Move(filePath, targetPath, overwrite: true);
@@ -112,84 +121,16 @@ internal sealed class MapAttachmentStore
             Directory.Delete(sourceDirectory, recursive: false);
     }
 
-    public void MoveReferencedAttachments(Node node, string sourceMapFilePath, string targetMapFilePath)
+    private string EnsureAttachmentDirectory(string mapFilePath, Guid nodeUniqueIdentifier)
     {
-        if (string.Equals(sourceMapFilePath, targetMapFilePath, StringComparison.OrdinalIgnoreCase))
-            return;
-
-        foreach (var currentNode in Traverse(node))
-        {
-            var attachments = currentNode.Metadata?.Attachments;
-            if (attachments == null || attachments.Count == 0)
-                continue;
-
-            foreach (var attachment in attachments)
-            {
-                attachment.RelativePath = MoveAttachment(
-                    sourceMapFilePath,
-                    targetMapFilePath,
-                    attachment.RelativePath);
-            }
-
-            currentNode.TouchMetadata();
-        }
-
-        DeleteAttachmentDirectoryIfEmpty(sourceMapFilePath);
-    }
-
-    private string MoveAttachment(string sourceMapFilePath, string targetMapFilePath, string relativePath)
-    {
-        var normalizedRelativePath = NormalizeRelativePath(relativePath);
-        var sourcePath = ResolveAttachmentPath(sourceMapFilePath, normalizedRelativePath);
-        if (!File.Exists(sourcePath))
-            return normalizedRelativePath;
-
-        var targetDirectory = EnsureAttachmentDirectory(targetMapFilePath);
-        var targetFileName = normalizedRelativePath;
-        var targetPath = Path.Combine(targetDirectory, targetFileName);
-
-        if (!string.Equals(sourcePath, targetPath, StringComparison.OrdinalIgnoreCase) && File.Exists(targetPath))
-        {
-            targetFileName = $"{Guid.NewGuid():N}{Path.GetExtension(normalizedRelativePath)}";
-            targetPath = Path.Combine(targetDirectory, targetFileName);
-        }
-
-        if (!string.Equals(sourcePath, targetPath, StringComparison.OrdinalIgnoreCase))
-            File.Move(sourcePath, targetPath, overwrite: false);
-
-        return targetFileName;
-    }
-
-    private string EnsureAttachmentDirectory(string mapFilePath)
-    {
-        var attachmentDirectory = GetAttachmentDirectoryPath(mapFilePath);
+        var attachmentDirectory = GetAttachmentDirectoryPath(mapFilePath, nodeUniqueIdentifier);
         Directory.CreateDirectory(attachmentDirectory);
         return attachmentDirectory;
-    }
-
-    private void DeleteAttachmentDirectoryIfEmpty(string mapFilePath)
-    {
-        var attachmentDirectory = GetAttachmentDirectoryPath(mapFilePath);
-        if (Directory.Exists(attachmentDirectory) &&
-            !Directory.EnumerateFileSystemEntries(attachmentDirectory).Any())
-        {
-            Directory.Delete(attachmentDirectory, recursive: false);
-        }
     }
 
     private static string NormalizeRelativePath(string relativePath) =>
         Path.GetFileName(relativePath ?? string.Empty);
 
-    private static IEnumerable<Node> Traverse(Node rootNode)
-    {
-        yield return rootNode;
-
-        foreach (var childNode in rootNode.Children)
-        {
-            foreach (var nestedNode in Traverse(childNode))
-            {
-                yield return nestedNode;
-            }
-        }
-    }
+    private static string NormalizeNodeDirectoryName(Guid nodeUniqueIdentifier) =>
+        nodeUniqueIdentifier.ToString("D").ToLowerInvariant();
 }

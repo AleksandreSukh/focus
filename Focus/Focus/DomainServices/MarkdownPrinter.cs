@@ -23,7 +23,7 @@ namespace Systems.Sanity.Focus.DomainServices
                 return;
 
             sb.AppendLine();
-            AppendAttachments(rootAttachments, level: 0, sb, options, isRoot: true);
+            AppendAttachments(node, rootAttachments, level: 0, sb, options, isRoot: true);
             if (rootAttachments.Any() && visibleChildren.Any())
                 sb.AppendLine();
 
@@ -65,7 +65,7 @@ namespace Systems.Sanity.Focus.DomainServices
             sb.Append(prefix);
             sb.AppendLine(FormatNodeName(node));
 
-            AppendAttachments(NodeExportHelpers.GetAttachments(node, options), level, sb, options, isRoot: false);
+            AppendAttachments(node, NodeExportHelpers.GetAttachments(node, options), level, sb, options, isRoot: false);
 
             var visibleChildren = NodeExportHelpers.GetVisibleChildren(node, ancestorHidesDone).ToArray();
             if (!visibleChildren.Any())
@@ -78,6 +78,7 @@ namespace Systems.Sanity.Focus.DomainServices
         }
 
         private static void AppendAttachments(
+            Node node,
             IReadOnlyList<NodeAttachment> attachments,
             int level,
             StringBuilder sb,
@@ -89,7 +90,7 @@ namespace Systems.Sanity.Focus.DomainServices
 
             foreach (var attachment in attachments)
             {
-                AppendAttachment(AttachmentExportHelper.Build(attachment, options), level, sb, isRoot);
+                AppendAttachment(AttachmentExportHelper.Build(node, attachment, options), level, sb, isRoot);
             }
         }
 

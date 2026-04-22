@@ -76,7 +76,10 @@ public class EditWorkflowTests
             CreatedAtUtc = DateTimeOffset.UtcNow
         });
         var filePath = workspace.SaveMap("workflow-map", map);
-        var attachmentPath = workspace.AppContext.MapsStorage.AttachmentStore.ResolveAttachmentPath(filePath, "capture.png");
+        var attachmentPath = workspace.AppContext.MapsStorage.AttachmentStore.ResolveAttachmentPath(
+            filePath,
+            GetRequiredNodeIdentifier(map.RootNode),
+            "capture.png");
         Directory.CreateDirectory(Path.GetDirectoryName(attachmentPath)!);
         File.WriteAllText(attachmentPath, "attachment");
 
@@ -398,6 +401,9 @@ public class EditWorkflowTests
         Assert.Contains(":Nodes to be linked>", screen);
         Assert.Contains(ColorLabel("Links"), screen);
     }
+
+    private static Guid GetRequiredNodeIdentifier(Node node) =>
+        node.UniqueIdentifier ?? throw new InvalidOperationException("Node identifier is required for attachment tests.");
 
     private static string ColorLabel(string label) =>
         $"[{ConfigurationConstants.CommandColor}]{label}[!]: ";

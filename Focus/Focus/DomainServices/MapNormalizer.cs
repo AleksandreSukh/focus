@@ -76,6 +76,7 @@ internal static class MapNormalizer
             remappedIdentifiers.TryAdd(existingIdentifier.Value, remappedIdentifier);
             node.UniqueIdentifier = remappedIdentifier;
             normalizationResult.RepairedDuplicateIdentifiersCount++;
+            normalizationResult.TrackRemappedIdentifier(existingIdentifier.Value, remappedIdentifier);
         }
 
         if (node.Metadata == null)

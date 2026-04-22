@@ -40,7 +40,6 @@ namespace Systems.Sanity.Focus.Domain
 
         public void DeleteMap(FileInfo file)
         {
-            AttachmentStore.DeleteAttachmentDirectory(file.FullName);
             file.Delete();
         }
 
@@ -70,7 +69,6 @@ namespace Systems.Sanity.Focus.Domain
         public void MoveMap(string existingFilePath, string newFilePath)
         {
             File.Move(existingFilePath, newFilePath);
-            AttachmentStore.RenameAttachmentDirectory(existingFilePath, newFilePath);
         }
 
         public MindMap OpenMap(string filePath, ISet<Guid>? usedIdentifiers = null)

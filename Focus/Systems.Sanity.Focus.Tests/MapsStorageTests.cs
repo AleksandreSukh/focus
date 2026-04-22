@@ -159,12 +159,14 @@ public class MapsStorageTests
     }
 
     [Fact]
-    public void MoveMap_RenamesAttachmentDirectory()
+    public void MoveMap_PreservesNodeScopedAttachmentDirectory()
     {
         using var workspace = new TestWorkspace();
         var map = new MindMap("Root");
         var sourceFilePath = workspace.SaveMap("alpha", map);
-        var sourceAttachmentDirectory = workspace.MapsStorage.AttachmentStore.GetAttachmentDirectoryPath(sourceFilePath);
+        var sourceAttachmentDirectory = workspace.MapsStorage.AttachmentStore.GetAttachmentDirectoryPath(
+            sourceFilePath,
+            GetRequiredNodeIdentifier(map.RootNode));
         Directory.CreateDirectory(sourceAttachmentDirectory);
         File.WriteAllText(Path.Combine(sourceAttachmentDirectory, "capture.png"), "attachment");
 
@@ -172,24 +174,71 @@ public class MapsStorageTests
 
         workspace.MapsStorage.MoveMap(sourceFilePath, targetFilePath);
 
-        Assert.False(Directory.Exists(sourceAttachmentDirectory));
-        Assert.True(Directory.Exists(workspace.MapsStorage.AttachmentStore.GetAttachmentDirectoryPath(targetFilePath)));
+        Assert.True(Directory.Exists(sourceAttachmentDirectory));
+        Assert.Equal(
+            sourceAttachmentDirectory,
+            workspace.MapsStorage.AttachmentStore.GetAttachmentDirectoryPath(
+                targetFilePath,
+                GetRequiredNodeIdentifier(map.RootNode)));
     }
 
     [Fact]
-    public void DeleteMap_RemovesAttachmentDirectory()
+    public void DeleteMap_DoesNotDeleteNodeScopedAttachmentDirectory()
     {
         using var workspace = new TestWorkspace();
         var map = new MindMap("Root");
         var filePath = workspace.SaveMap("alpha", map);
-        var attachmentDirectory = workspace.MapsStorage.AttachmentStore.GetAttachmentDirectoryPath(filePath);
+        var attachmentDirectory = workspace.MapsStorage.AttachmentStore.GetAttachmentDirectoryPath(
+            filePath,
+            GetRequiredNodeIdentifier(map.RootNode));
         Directory.CreateDirectory(attachmentDirectory);
         File.WriteAllText(Path.Combine(attachmentDirectory, "capture.png"), "attachment");
 
         workspace.MapsStorage.DeleteMap(new FileInfo(filePath));
 
         Assert.False(File.Exists(filePath));
-        Assert.False(Directory.Exists(attachmentDirectory));
+        Assert.True(Directory.Exists(attachmentDirectory));
+    }
+
+    [Fact]
+    public void SaveMap_WhenDuplicateNodeIdentifierIsRepaired_MovesNodeAttachmentDirectory()
+    {
+        using var workspace = new TestWorkspace();
+        var map = new MindMap("Root");
+        var child = map.AddAtCurrentNode("Child");
+        var duplicateIdentifier = GetRequiredNodeIdentifier(map.RootNode);
+        child.UniqueIdentifier = duplicateIdentifier;
+        child.AddAttachment(new NodeAttachment
+        {
+            Id = Guid.NewGuid(),
+            RelativePath = "capture.png",
+            MediaType = "image/png",
+            DisplayName = "Capture.png",
+            CreatedAtUtc = DateTimeOffset.UtcNow
+        });
+
+        var filePath = Path.Combine(workspace.MapsStorage.UserMindMapsDirectory, "alpha.json");
+        var sourceAttachmentPath = workspace.MapsStorage.AttachmentStore.ResolveAttachmentPath(
+            filePath,
+            duplicateIdentifier,
+            "capture.png");
+        Directory.CreateDirectory(Path.GetDirectoryName(sourceAttachmentPath)!);
+        File.WriteAllText(sourceAttachmentPath, "attachment");
+
+        workspace.MapsStorage.SaveMap(filePath, map);
+
+        var reopened = workspace.MapsStorage.OpenMap(filePath);
+        var reopenedChild = reopened.GetNode("1");
+        Assert.NotNull(reopenedChild);
+        var remappedIdentifier = GetRequiredNodeIdentifier(reopenedChild!);
+        var remappedAttachmentPath = workspace.MapsStorage.AttachmentStore.ResolveAttachmentPath(
+            filePath,
+            remappedIdentifier,
+            "capture.png");
+
+        Assert.NotEqual(duplicateIdentifier, remappedIdentifier);
+        Assert.False(File.Exists(sourceAttachmentPath));
+        Assert.True(File.Exists(remappedAttachmentPath));
     }
 
     private static string BuildWholeDocumentConflict(string ours, string theirs) =>
@@ -239,4 +288,7 @@ public class MapsStorageTests
             return MergeRecoveryResult.NoAction;
         }
     }
+
+    private static Guid GetRequiredNodeIdentifier(Node node) =>
+        node.UniqueIdentifier ?? throw new InvalidOperationException("Node identifier is required for attachment tests.");
 }

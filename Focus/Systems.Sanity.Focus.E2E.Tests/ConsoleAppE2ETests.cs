@@ -968,7 +968,8 @@ public class ConsoleAppE2ETests
 
                 var attachmentPath = Path.Combine(
                     workspace.MapsDirectory,
-                    "alpha_attachments",
+                    ConfigurationConstants.AttachmentDirectorySuffix,
+                    savedMap.RootNode.UniqueIdentifier!.Value.ToString("D").ToLowerInvariant(),
                     attachment.RelativePath);
                 Assert.True(File.Exists(attachmentPath));
                 Assert.Equal(clipboardText, File.ReadAllText(attachmentPath, Encoding.UTF8));
@@ -1019,7 +1020,8 @@ public class ConsoleAppE2ETests
 
                 var attachmentPath = Path.Combine(
                     workspace.MapsDirectory,
-                    "alpha_attachments",
+                    ConfigurationConstants.AttachmentDirectorySuffix,
+                    savedMap.RootNode.UniqueIdentifier!.Value.ToString("D").ToLowerInvariant(),
                     attachment.RelativePath);
                 Assert.True(File.Exists(attachmentPath));
                 Assert.Equal(clipboardImageBytes, File.ReadAllBytes(attachmentPath));
@@ -1194,7 +1196,7 @@ public class ConsoleAppE2ETests
         Assert.Contains("Collapsed child", html);
         Assert.DoesNotContain("Grandchild", html);
         Assert.DoesNotContain("Attached note", html);
-        Assert.DoesNotContain("alpha_attachments/note.txt", html);
+        Assert.DoesNotContain($"{ConfigurationConstants.AttachmentDirectorySuffix}/", html);
     }
 
     [Fact]

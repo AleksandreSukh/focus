@@ -52,10 +52,12 @@ public class HtmlExportTests
 
         var textAttachment = workspace.AppContext.MapsStorage.AttachmentStore.SaveTextAttachment(
             filePath,
+            GetRequiredNodeIdentifier(map.RootNode),
             "First line\nSecond line",
             "Clipboard text.txt");
         var imageAttachment = workspace.AppContext.MapsStorage.AttachmentStore.SavePngAttachment(
             filePath,
+            GetRequiredNodeIdentifier(map.RootNode),
             Encoding.UTF8.GetBytes("fake-png"),
             "Capture.png");
         map.RootNode.AddAttachment(textAttachment);
@@ -71,7 +73,7 @@ public class HtmlExportTests
                 MapFilePath: filePath,
                 ExportFilePath: exportFilePath));
 
-        var expectedImagePath = $"alpha_attachments/{imageAttachment.RelativePath}";
+        var expectedImagePath = $"_attachments/{GetRequiredNodeIdentifier(map.RootNode):D}/{imageAttachment.RelativePath}".ToLowerInvariant();
 
         Assert.Contains("<blockquote class=\"attachment-quote\">First line", html);
         Assert.Contains("Second line", html);
@@ -94,6 +96,7 @@ public class HtmlExportTests
 
         var attachment = workspace.AppContext.MapsStorage.AttachmentStore.SaveTextAttachment(
             filePath,
+            GetRequiredNodeIdentifier(child),
             "Attached note",
             "Clipboard text.txt");
         child.AddAttachment(attachment);
@@ -157,9 +160,12 @@ public class HtmlExportTests
                 MapFilePath: filePath,
                 ExportFilePath: exportFilePath));
 
-        Assert.Contains("alpha_attachments/missing.txt", html);
+        Assert.Contains($"_attachments/{GetRequiredNodeIdentifier(map.RootNode):D}/missing.txt".ToLowerInvariant(), html);
         Assert.Contains(">Missing clipboard text.txt</a>", html);
         Assert.DoesNotContain("<blockquote class=\"attachment-quote\">", html);
         Assert.DoesNotContain("<img class=\"attachment-image\"", html);
     }
+
+    private static Guid GetRequiredNodeIdentifier(Node node) =>
+        node.UniqueIdentifier ?? throw new InvalidOperationException("Node identifier is required for attachment tests.");
 }

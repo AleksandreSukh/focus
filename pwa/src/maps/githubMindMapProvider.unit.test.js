@@ -384,7 +384,72 @@ describe('GitHubMindMapProvider.loadMap', () => {
   });
 });
 
+describe('GitHubMindMapProvider attachment paths', () => {
+  const nodeId = '53ba90f9-f653-4771-bc08-3c8a531b9b85';
+  const expectedPath = `FocusMaps/_attachments/${nodeId}/note.png`;
+
+  it('loads attachment blobs from the node-scoped attachment directory', async () => {
+    const provider = new GitHubMindMapProvider({
+      owner: 'octocat',
+      repo: 'focus',
+      branch: 'main',
+      token: 'test-token',
+      directoryPath: 'FocusMaps',
+    });
+
+    const calls = [];
+    provider.gitProvider = {
+      async getFileAsBlob(path, mediaType) {
+        calls.push(['getFileAsBlob', path, mediaType]);
+        return new Blob(['data'], { type: mediaType });
+      },
+    };
+
+    const blob = await provider.getAttachmentBlob('FocusMaps/Alpha.json', nodeId, 'note.png', 'image/png');
+
+    assert.equal(blob.type, 'image/png');
+    assert.deepEqual(calls, [['getFileAsBlob', expectedPath, 'image/png']]);
+  });
+
+  it('uploads attachments into the node-scoped attachment directory', async () => {
+    const provider = new GitHubMindMapProvider({
+      owner: 'octocat',
+      repo: 'focus',
+      branch: 'main',
+      token: 'test-token',
+      directoryPath: 'FocusMaps',
+    });
+
+    const calls = [];
+    provider.gitProvider = {
+      async putBinaryFile(path, base64Content, versionToken, commitMessage) {
+        calls.push(['putBinaryFile', path, base64Content, versionToken, commitMessage]);
+        return { versionToken: 'attachment-rev-1' };
+      },
+    };
+
+    const result = await provider.uploadAttachment({
+      mapFilePath: 'FocusMaps/Alpha.json',
+      nodeId,
+      relativePath: 'note.png',
+      base64Content: 'ZGF0YQ==',
+      commitMessage: 'Upload attachment',
+    });
+
+    assert.deepEqual(result, { ok: true, versionToken: 'attachment-rev-1' });
+    assert.deepEqual(calls, [[
+      'putBinaryFile',
+      expectedPath,
+      'ZGF0YQ==',
+      null,
+      'Upload attachment',
+    ]]);
+  });
+});
+
 describe('GitHubMindMapProvider.deleteAttachment', () => {
+  const nodeId = '53ba90f9-f653-4771-bc08-3c8a531b9b85';
+
   it('loads the current remote attachment sha before deleting when none was provided', async () => {
     const provider = new GitHubMindMapProvider({
       owner: 'octocat',
@@ -413,6 +478,7 @@ describe('GitHubMindMapProvider.deleteAttachment', () => {
 
     const result = await provider.deleteAttachment({
       mapFilePath: 'FocusMaps/Alpha.json',
+      nodeId,
       relativePath: 'note.png',
       versionToken: null,
       commitMessage: 'Delete attachment',
@@ -420,8 +486,8 @@ describe('GitHubMindMapProvider.deleteAttachment', () => {
 
     assert.deepEqual(result, { ok: true });
     assert.deepEqual(calls, [
-      ['getFileRaw', 'FocusMaps/Alpha_attachments/note.png'],
-      ['deleteFile', 'FocusMaps/Alpha_attachments/note.png', 'attachment-sha-123', 'Delete attachment'],
+      ['getFileRaw', `FocusMaps/_attachments/${nodeId}/note.png`],
+      ['deleteFile', `FocusMaps/_attachments/${nodeId}/note.png`, 'attachment-sha-123', 'Delete attachment'],
     ]);
   });
 
@@ -441,7 +507,7 @@ describe('GitHubMindMapProvider.deleteAttachment', () => {
           status: 404,
           statusText: 'Not Found',
           operation: 'getContent',
-          contextLabel: 'loading raw file FocusMaps/Alpha_attachments/note.txt',
+          contextLabel: `loading raw file FocusMaps/_attachments/${nodeId}/note.txt`,
           message: 'Remote file was not found (404 Not Found).',
         });
       },
@@ -452,6 +518,7 @@ describe('GitHubMindMapProvider.deleteAttachment', () => {
 
     const result = await provider.deleteAttachment({
       mapFilePath: 'FocusMaps/Alpha.json',
+      nodeId,
       relativePath: 'note.txt',
       versionToken: null,
       commitMessage: 'Delete attachment',
@@ -482,7 +549,7 @@ describe('GitHubMindMapProvider.deleteAttachment', () => {
           status: 404,
           statusText: 'Not Found',
           operation: 'deleteContent',
-          contextLabel: 'deleting remote file FocusMaps/Alpha_attachments/note.txt',
+          contextLabel: `deleting remote file FocusMaps/_attachments/${nodeId}/note.txt`,
           message: 'GitHub resource was not found (404 Not Found) while deleting remote file.',
         });
       },
@@ -490,6 +557,7 @@ describe('GitHubMindMapProvider.deleteAttachment', () => {
 
     const result = await provider.deleteAttachment({
       mapFilePath: 'FocusMaps/Alpha.json',
+      nodeId,
       relativePath: 'note.txt',
       versionToken: null,
       commitMessage: 'Delete attachment',

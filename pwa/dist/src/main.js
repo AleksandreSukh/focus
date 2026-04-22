@@ -1887,8 +1887,7 @@ function canDeleteViewedAttachment(modal) {
     modal &&
     (modal.kind === 'imageViewer' || modal.kind === 'textViewer') &&
     modal.nodeId &&
-    modal.attachmentId &&
-    modal.attachmentRelativePath,
+    modal.attachmentId,
   );
 }
 
@@ -1978,13 +1977,18 @@ async function openImageViewerForAttachment(mapPath, nodeId, attachment, returnF
   };
   render();
 
-  const result = await state.service.loadAttachment(mapPath, attachment.relativePath, attachment.mediaType);
+  const result = await state.service.loadAttachment(
+    mapPath,
+    nodeId,
+    attachment.relativePath,
+    attachment.mediaType,
+  );
   if (!result.ok) {
     if (
       state.activeModal?.kind === 'imageViewer' &&
       state.activeModal.mapPath === mapPath &&
       state.activeModal.nodeId === nodeId &&
-      state.activeModal.attachmentRelativePath === attachment.relativePath
+      state.activeModal.attachmentId === attachment.id
     ) {
       state.activeModal = {
         ...state.activeModal,
@@ -2000,7 +2004,7 @@ async function openImageViewerForAttachment(mapPath, nodeId, attachment, returnF
     state.activeModal?.kind === 'imageViewer' &&
     state.activeModal.mapPath === mapPath &&
     state.activeModal.nodeId === nodeId &&
-    state.activeModal.attachmentRelativePath === attachment.relativePath
+    state.activeModal.attachmentId === attachment.id
   ) {
     state.activeModal = {
       ...state.activeModal,
@@ -2033,13 +2037,18 @@ async function openTextViewerForAttachment(mapPath, nodeId, attachment, returnFo
   };
   render();
 
-  const result = await state.service.loadAttachment(mapPath, attachment.relativePath, attachment.mediaType);
+  const result = await state.service.loadAttachment(
+    mapPath,
+    nodeId,
+    attachment.relativePath,
+    attachment.mediaType,
+  );
   if (!result.ok) {
     if (
       state.activeModal?.kind === 'textViewer' &&
       state.activeModal.mapPath === mapPath &&
       state.activeModal.nodeId === nodeId &&
-      state.activeModal.attachmentRelativePath === attachment.relativePath
+      state.activeModal.attachmentId === attachment.id
     ) {
       state.activeModal = {
         ...state.activeModal,
@@ -2058,7 +2067,7 @@ async function openTextViewerForAttachment(mapPath, nodeId, attachment, returnFo
     state.activeModal?.kind === 'textViewer' &&
     state.activeModal.mapPath === mapPath &&
     state.activeModal.nodeId === nodeId &&
-    state.activeModal.attachmentRelativePath === attachment.relativePath
+    state.activeModal.attachmentId === attachment.id
   ) {
     state.activeModal = {
       ...state.activeModal,
@@ -2143,7 +2152,12 @@ async function handleAttachFile(file) {
   render();
 
   const commitMessage = buildAttachmentAddCommitMessage(mapName, file.name);
-  const uploaded = await state.service.uploadAttachment(snapshot.filePath, file, commitMessage);
+  const uploaded = await state.service.uploadAttachment(
+    snapshot.filePath,
+    modalContext.nodeUiState.node.uniqueIdentifier,
+    file,
+    commitMessage,
+  );
 
   if (!uploaded.ok) {
     state.activeModal = {
@@ -2213,7 +2227,12 @@ async function handleDeleteAttachmentConfirm() {
     snapshot.mapName,
     attachment.displayName || attachment.relativePath,
   );
-  const deleted = await state.service.deleteAttachment(mapPath, attachment.relativePath, commitMessage);
+  const deleted = await state.service.deleteAttachment(
+    mapPath,
+    nodeId,
+    attachment.relativePath,
+    commitMessage,
+  );
 
   if (!deleted.ok) {
     setActiveModalError(deleted.error?.message || 'Could not delete attachment. Try again.');
@@ -2272,7 +2291,12 @@ async function handleRemoveAttachment(nodeId, attachmentId, displayName) {
   render();
 
   const commitMessage = buildAttachmentRemoveCommitMessage(snapshot.mapName, displayName || attachment.displayName || attachment.relativePath);
-  const deleted = await state.service.deleteAttachment(snapshot.filePath, attachment.relativePath, commitMessage);
+  const deleted = await state.service.deleteAttachment(
+    snapshot.filePath,
+    nodeId,
+    attachment.relativePath,
+    commitMessage,
+  );
 
   if (!deleted.ok) {
     state.activeModal = {

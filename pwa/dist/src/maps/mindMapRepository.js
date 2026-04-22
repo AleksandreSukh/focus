@@ -107,9 +107,9 @@ export class MindMapRepository {
     }
   }
 
-  async loadAttachment(mapFilePath, relativePath, mediaType) {
+  async loadAttachment(mapFilePath, nodeId, relativePath, mediaType) {
     try {
-      const blob = await this.provider.getAttachmentBlob(mapFilePath, relativePath, mediaType);
+      const blob = await this.provider.getAttachmentBlob(mapFilePath, nodeId, relativePath, mediaType);
       return {
         ok: true,
         value: blob,
@@ -173,10 +173,11 @@ export class MindMapRepository {
     }
   }
 
-  async uploadAttachment(mapFilePath, relativePath, base64Content, commitMessage) {
+  async uploadAttachment(mapFilePath, nodeId, relativePath, base64Content, commitMessage) {
     try {
       const outcome = await this.provider.uploadAttachment({
         mapFilePath,
+        nodeId,
         relativePath,
         base64Content,
         commitMessage,
@@ -195,10 +196,11 @@ export class MindMapRepository {
     }
   }
 
-  async deleteAttachment(mapFilePath, relativePath, versionToken, commitMessage) {
+  async deleteAttachment(mapFilePath, nodeId, relativePath, versionToken, commitMessage) {
     try {
       await this.provider.deleteAttachment({
         mapFilePath,
+        nodeId,
         relativePath,
         versionToken,
         commitMessage,
@@ -274,12 +276,6 @@ export class MindMapRepository {
             retriable: true,
           },
         };
-      }
-
-      try {
-        await this.provider.renameAttachmentDirectory(oldFilePath, newFilePath, commitMessage);
-      } catch {
-        // Attachment folder migration is best-effort — the map rename already succeeded.
       }
 
       return {

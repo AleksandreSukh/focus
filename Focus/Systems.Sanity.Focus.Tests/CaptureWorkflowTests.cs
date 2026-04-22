@@ -27,6 +27,7 @@ public class CaptureWorkflowTests
         var attachment = reopened.RootNode.Metadata!.Attachments.Single();
         var attachmentPath = workspace.AppContext.MapsStorage.AttachmentStore.ResolveAttachmentPath(
             filePath,
+            GetRequiredNodeIdentifier(reopened.RootNode),
             attachment.RelativePath);
 
         Assert.True(result.IsSuccess);
@@ -105,7 +106,10 @@ public class CaptureWorkflowTests
             CreatedAtUtc = DateTimeOffset.UtcNow
         });
         var filePath = workspace.SaveMap("workflow-map", map);
-        var attachmentPath = workspace.AppContext.MapsStorage.AttachmentStore.ResolveAttachmentPath(filePath, "capture.png");
+        var attachmentPath = workspace.AppContext.MapsStorage.AttachmentStore.ResolveAttachmentPath(
+            filePath,
+            GetRequiredNodeIdentifier(map.RootNode),
+            "capture.png");
         Directory.CreateDirectory(Path.GetDirectoryName(attachmentPath)!);
         File.WriteAllText(attachmentPath, "attachment");
 
@@ -131,7 +135,10 @@ public class CaptureWorkflowTests
             CreatedAtUtc = DateTimeOffset.UtcNow
         });
         var filePath = workspace.SaveMap("workflow-map", map);
-        var attachmentPath = workspace.AppContext.MapsStorage.AttachmentStore.ResolveAttachmentPath(filePath, "capture.png");
+        var attachmentPath = workspace.AppContext.MapsStorage.AttachmentStore.ResolveAttachmentPath(
+            filePath,
+            GetRequiredNodeIdentifier(map.RootNode),
+            "capture.png");
         Directory.CreateDirectory(Path.GetDirectoryName(attachmentPath)!);
         File.WriteAllText(attachmentPath, "attachment");
 
@@ -183,7 +190,10 @@ public class CaptureWorkflowTests
             CreatedAtUtc = DateTimeOffset.UtcNow
         });
         var filePath = workspace.SaveMap("workflow-map", map);
-        var attachmentPath = workspace.AppContext.MapsStorage.AttachmentStore.ResolveAttachmentPath(filePath, "capture.png");
+        var attachmentPath = workspace.AppContext.MapsStorage.AttachmentStore.ResolveAttachmentPath(
+            filePath,
+            GetRequiredNodeIdentifier(map.RootNode),
+            "capture.png");
         Directory.CreateDirectory(Path.GetDirectoryName(attachmentPath)!);
         File.WriteAllText(attachmentPath, "attachment");
 
@@ -242,4 +252,7 @@ public class CaptureWorkflowTests
         Assert.Contains("1", suggestions);
         Assert.Contains(AccessibleKeyNumbering.GetStringFor(1), suggestions);
     }
+
+    private static Guid GetRequiredNodeIdentifier(Node node) =>
+        node.UniqueIdentifier ?? throw new InvalidOperationException("Node identifier is required for attachment tests.");
 }

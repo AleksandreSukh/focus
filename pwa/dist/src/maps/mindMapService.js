@@ -131,8 +131,8 @@ export class MindMapService {
     };
   }
 
-  async loadAttachment(mapFilePath, relativePath, mediaType) {
-    return this.repository.loadAttachment(mapFilePath, relativePath, mediaType);
+  async loadAttachment(mapFilePath, nodeId, relativePath, mediaType) {
+    return this.repository.loadAttachment(mapFilePath, nodeId, relativePath, mediaType);
   }
 
   async deleteMap(filePath, commitMessage) {
@@ -159,12 +159,13 @@ export class MindMapService {
     };
   }
 
-  async uploadAttachment(mapFilePath, file, commitMessage) {
+  async uploadAttachment(mapFilePath, nodeId, file, commitMessage) {
     const ext = (file.name.includes('.') ? '.' + file.name.split('.').pop() : '').toLowerCase();
     const relativePath = `${createAttachmentId()}${ext}`;
     const base64Content = await readFileAsBase64(file);
     const uploaded = await this.repository.uploadAttachment(
       mapFilePath,
+      nodeId,
       relativePath,
       base64Content,
       commitMessage,
@@ -185,8 +186,8 @@ export class MindMapService {
     };
   }
 
-  async deleteAttachment(mapFilePath, relativePath, commitMessage) {
-    return this.repository.deleteAttachment(mapFilePath, relativePath, null, commitMessage);
+  async deleteAttachment(mapFilePath, nodeId, relativePath, commitMessage) {
+    return this.repository.deleteAttachment(mapFilePath, nodeId, relativePath, null, commitMessage);
   }
 
   async renameMap(oldFilePath, newFilePath, oldRevision, commitMessage) {
