@@ -1,5 +1,6 @@
 #nullable enable
 
+using System;
 using System.Collections.Generic;
 using System.IO;
 using Systems.Sanity.Focus.Infrastructure;
@@ -84,24 +85,26 @@ internal sealed class MapSelectionService
         string fileIdentifier,
         out FileInfo? file)
     {
-        if (!CommandLanguageExtensions.IsOtherLanguage(fileIdentifier))
+        var normalizedIdentifier = fileIdentifier.ToCommandKey();
+        if (string.Equals(normalizedIdentifier, fileIdentifier, StringComparison.Ordinal))
         {
             file = null;
             return false;
         }
 
-        return TryFindFileByShortcut(selection, fileIdentifier.ToCommandLanguage(), out file);
+        return TryFindFileByShortcut(selection, normalizedIdentifier, out file);
     }
 
     private bool TryFindLocalizedFileByName(string fileIdentifier, out FileInfo? file)
     {
-        if (!CommandLanguageExtensions.IsOtherLanguage(fileIdentifier))
+        var normalizedIdentifier = fileIdentifier.ToCommandKey();
+        if (string.Equals(normalizedIdentifier, fileIdentifier, StringComparison.Ordinal))
         {
             file = null;
             return false;
         }
 
-        return TryFindFileByName(fileIdentifier.ToCommandLanguage(), out file);
+        return TryFindFileByName(normalizedIdentifier, out file);
     }
 
     private static bool TryFindFileByNumber(

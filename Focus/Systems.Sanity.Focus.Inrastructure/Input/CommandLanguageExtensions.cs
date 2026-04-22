@@ -29,6 +29,19 @@ public static class CommandLanguageExtensions
             : Translate(maybeOtherLanguage, translation.CommandDictionary);
     }
 
+    public static string ToCommandKey(this string input)
+    {
+        if (string.IsNullOrEmpty(input))
+            return input;
+
+        var normalizedInput = input.ToLowerInvariant();
+        var translation = FindMatchingTranslation(normalizedInput);
+        return (translation == null
+                ? normalizedInput
+                : Translate(normalizedInput, translation.CommandDictionary))
+            .ToLowerInvariant();
+    }
+
     public static string ToLocalLanguage(this string input)
     {
         var translation = _translations.FirstOrDefault();

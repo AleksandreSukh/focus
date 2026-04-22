@@ -27,6 +27,29 @@ public class HomePageTests
     }
 
     [Fact]
+    public void Show_UppercaseExitInput_IsAcceptedWithoutWrongInputDialog()
+    {
+        using var workspace = new TestWorkspace();
+        using var consoleScope = new AppConsoleScope(new ScriptedConsoleSession("EXIT", "exit"));
+        using var output = new StringWriter();
+        var originalOutput = Console.Out;
+
+        try
+        {
+            Console.SetOut(output);
+
+            var page = new HomePage(workspace.AppContext);
+            page.Show();
+        }
+        finally
+        {
+            Console.SetOut(originalOutput);
+        }
+
+        Assert.DoesNotContain("*** Wrong Input ***", output.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Show_WhenHomePageLoopThrows_ShowsGenericErrorAndLogsException()
     {
         using var diagnosticsScope = new ExceptionDiagnosticsScope();

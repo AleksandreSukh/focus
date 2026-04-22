@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Systems.Sanity.Focus.Application;
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.Infrastructure;
@@ -58,5 +59,34 @@ public class MapSelectionServiceTests
 
         Assert.NotNull(file);
         Assert.Equal("alpha", file!.NameWithoutExtension());
+    }
+
+    [Fact]
+    public void FindFile_ResolvesByCapsLockedLocalizedShortcutAndFileName()
+    {
+        using var workspace = new TestWorkspace();
+        using var translationScope = new TranslationTestScope(
+            TranslationTestScope.CreateTranslation("caps-home", new Dictionary<string, string>
+            {
+                ["ä"] = "a",
+                ["ł"] = "l",
+                ["þ"] = "p",
+                ["ħ"] = "h",
+                ["ĵ"] = "j"
+            }));
+        workspace.SaveMap("alpha", new MindMap("Alpha"));
+
+        var service = new MapSelectionService(workspace.MapsStorage);
+        var selection = service.GetTopSelection();
+        var localizedShortcut = AccessibleKeyNumbering.GetStringFor(1).ToLocalLanguage().ToUpperInvariant();
+        var localizedFileName = "alpha".ToLocalLanguage().ToUpperInvariant();
+
+        var fileByShortcut = service.FindFile(selection, localizedShortcut);
+        var fileByName = service.FindFile(selection, localizedFileName);
+
+        Assert.NotNull(fileByShortcut);
+        Assert.NotNull(fileByName);
+        Assert.Equal("alpha", fileByShortcut!.NameWithoutExtension());
+        Assert.Equal("alpha", fileByName!.NameWithoutExtension());
     }
 }

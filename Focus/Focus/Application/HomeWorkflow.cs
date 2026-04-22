@@ -97,7 +97,7 @@ internal sealed class HomeWorkflow
 
     public HomeWorkflowResult Execute(ConsoleInput input, IReadOnlyDictionary<int, FileInfo> fileSelection)
     {
-        return input.FirstWord.ToCommandLanguage() switch
+        return input.FirstWord.ToCommandKey() switch
         {
             HomePage.OptionExit => HomeWorkflowResult.Exit,
             HomePage.OptionNew => HandleCreateFile(input),

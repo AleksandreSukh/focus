@@ -39,7 +39,8 @@ namespace Systems.Sanity.Focus.Pages.Shared
         private bool IsValidOption(string input)
         {
             var options = GetCommandOptions().WithLocalizations().ToList();
-            return string.IsNullOrWhiteSpace(input) || options.Contains(input);
+            return string.IsNullOrWhiteSpace(input)
+                   || options.Contains(input, StringComparer.InvariantCultureIgnoreCase);
         }
 
         internal static string BuildInputErrorMessageDialogText(IEnumerable<string> options)

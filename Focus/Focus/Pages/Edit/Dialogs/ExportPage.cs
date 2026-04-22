@@ -67,7 +67,7 @@ internal class ExportPage : Page
         _message = null;
         _isError = false;
 
-        switch (input.FirstWord.ToCommandLanguage())
+        switch (input.FirstWord.ToCommandKey())
         {
             case MarkdownOption:
                 SetFormat(ExportFormat.Markdown);

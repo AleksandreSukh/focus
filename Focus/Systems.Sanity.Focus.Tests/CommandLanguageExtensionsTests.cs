@@ -29,6 +29,20 @@ public class CommandLanguageExtensionsTests
     }
 
     [Fact]
+    public void ToCommandKey_NormalizesEnglishAndLocalizedUppercaseInput()
+    {
+        using var translationScope = new TranslationTestScope(
+            TranslationTestScope.CreateTranslation("caps-test", new Dictionary<string, string>
+            {
+                ["ä"] = "a",
+                ["ö"] = "b"
+            }));
+
+        Assert.Equal("exit", "EXIT".ToCommandKey());
+        Assert.Equal("ab", "ÄÖ".ToCommandKey());
+    }
+
+    [Fact]
     public void Configure_UsesConfiguredTranslationOrder()
     {
         using var translationScope = new TranslationTestScope(

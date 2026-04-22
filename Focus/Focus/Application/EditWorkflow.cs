@@ -229,7 +229,7 @@ internal sealed class EditWorkflow
         if (string.IsNullOrWhiteSpace(input.InputString))
             return CommandExecutionResult.Error("Empty command");
 
-        var command = input.FirstWord.ToCommandLanguage();
+        var command = input.FirstWord.ToCommandKey();
         var parameters = input.Parameters;
 
         try
@@ -1041,7 +1041,7 @@ internal sealed class EditWorkflow
             return false;
         }
 
-        var normalizedParameters = parameters.Trim().ToCommandLanguage();
+        var normalizedParameters = parameters.Trim().ToCommandKey();
         if (!TryGetAttachmentIndex(normalizedParameters, out var attachmentIndex))
         {
             errorMessage = $"Unknown attachment \"{parameters}\". Use a number or shortcut like \"{BuildAttachmentAddress(1)}\".";
@@ -1156,8 +1156,7 @@ internal sealed class EditWorkflow
     private static bool InvokeLocalized(Func<string, bool> action, string parameters)
     {
         return action(parameters)
-               || CommandLanguageExtensions.IsOtherLanguage(parameters)
-               && action(parameters.ToCommandLanguage());
+               || action(parameters.ToCommandKey());
     }
 
     private CommandExecutionResult NavigateToLinkedNode(IReadOnlyList<NodeSearchResult> relatedNodes, string title)

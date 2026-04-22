@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+using System;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace Systems.Sanity.Focus.Infrastructure.Input
@@ -45,10 +46,11 @@ namespace Systems.Sanity.Focus.Infrastructure.Input
 
         private static readonly Dictionary<string, int> StringsToNumers =
             NumbersToStrings.Keys
-                .ToDictionary(k => NumbersToStrings[k], k => k);
+                .ToDictionary(k => NumbersToStrings[k], k => k, StringComparer.OrdinalIgnoreCase);
 
         public static int GetNumberFor(string input) =>
             StringsToNumers.TryGetValue(input, out int result) ? result : 0;
+
         public static string GetStringFor(int input) =>
             NumbersToStrings.TryGetValue(input, out string result) ? result : null;
     }

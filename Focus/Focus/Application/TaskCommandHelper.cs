@@ -47,7 +47,7 @@ internal static class TaskCommandHelper
             return true;
         }
 
-        switch (input.Trim().ToCommandLanguage())
+        switch (input.Trim().ToCommandKey())
         {
             case "todo":
                 filter = TaskListFilter.Todo;

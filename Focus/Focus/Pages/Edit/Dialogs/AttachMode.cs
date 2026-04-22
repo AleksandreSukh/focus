@@ -8,6 +8,7 @@ using System.Text;
 using Systems.Sanity.Focus.Application;
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.Infrastructure;
+using Systems.Sanity.Focus.Infrastructure.Input;
 using Systems.Sanity.Focus.Pages.Shared;
 using Systems.Sanity.Focus.Pages.Shared.Dialogs;
 
@@ -82,7 +83,7 @@ internal sealed class AttachMode : PageWithSuggestedOptions
         _message = null;
         _isError = false;
 
-        if (fileIdentifier.ToLowerInvariant() == OptionExit)
+        if (fileIdentifier.ToCommandKey() == OptionExit)
         {
             _shouldExit = true;
             return;

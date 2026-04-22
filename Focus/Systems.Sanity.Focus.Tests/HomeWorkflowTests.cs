@@ -4,6 +4,7 @@ using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.Infrastructure.Diagnostics;
 using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Infrastructure.Input;
+using System.Collections.Generic;
 
 namespace Systems.Sanity.Focus.Tests;
 
@@ -34,6 +35,18 @@ public class HomeWorkflowTests
         var workflow = new HomeWorkflow(workspace.AppContext);
 
         var result = workflow.Execute(new ConsoleInput("exit"), workflow.GetFileSelection());
+
+        Assert.True(result.ShouldExit);
+        Assert.False(result.IsError);
+    }
+
+    [Fact]
+    public void Execute_UppercaseExitCommand_ReturnsExitResult()
+    {
+        using var workspace = new TestWorkspace();
+        var workflow = new HomeWorkflow(workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("EXIT"), workflow.GetFileSelection());
 
         Assert.True(result.ShouldExit);
         Assert.False(result.IsError);
@@ -119,6 +132,31 @@ public class HomeWorkflowTests
     }
 
     [Fact]
+    public void Execute_CapsLockedLocalizedFileIdentifier_OpensSelectedMap()
+    {
+        var navigator = new RecordingPageNavigator();
+        using var workspace = new TestWorkspace(navigator);
+        using var translationScope = new TranslationTestScope(
+            TranslationTestScope.CreateTranslation("caps-home", new Dictionary<string, string>
+            {
+                ["ä"] = "a",
+                ["ł"] = "l",
+                ["þ"] = "p",
+                ["ħ"] = "h",
+                ["ĵ"] = "j"
+            }));
+        var filePath = workspace.SaveMap("alpha", new MindMap("Alpha"));
+        var workflow = new HomeWorkflow(workspace.AppContext);
+        var localizedShortcut = AccessibleKeyNumbering.GetStringFor(1).ToLocalLanguage().ToUpperInvariant();
+
+        var result = workflow.Execute(new ConsoleInput(localizedShortcut), workflow.GetFileSelection());
+
+        Assert.False(result.ShouldExit);
+        Assert.False(result.IsError);
+        Assert.Equal(filePath, navigator.OpenedEditMapFilePath);
+    }
+
+    [Fact]
     public void Execute_WhenOpeningMapThrows_ReturnsGenericErrorAndLogsException()
     {
         using var diagnosticsScope = new ExceptionDiagnosticsScope();
@@ -185,6 +223,29 @@ public class HomeWorkflowTests
         Assert.False(result.IsError);
         Assert.Equal(betaFilePath, navigator.OpenedEditMapFilePath);
         Assert.Equal(betaTaskId, navigator.OpenedEditMapNodeIdentifier);
+    }
+
+    [Fact]
+    public void Execute_UppercaseTasksCommandAndFilter_OpensSelectedMapAndNode()
+    {
+        var navigator = new RecordingPageNavigator();
+        using var workspace = new TestWorkspace(navigator);
+
+        var map = new MindMap("Alpha");
+        map.AddAtCurrentNode("Doing task");
+        Assert.True(map.SetTaskState("1", TaskState.Doing, out _));
+        var filePath = workspace.SaveMap("alpha", map);
+        var taskId = map.GetNode("1")!.UniqueIdentifier;
+
+        using var consoleScope = new AppConsoleScope(new ScriptedConsoleSession("1"));
+        var workflow = new HomeWorkflow(workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("TASKS DOING"), workflow.GetFileSelection());
+
+        Assert.False(result.ShouldExit);
+        Assert.False(result.IsError);
+        Assert.Equal(filePath, navigator.OpenedEditMapFilePath);
+        Assert.Equal(taskId, navigator.OpenedEditMapNodeIdentifier);
     }
 
     [Fact]

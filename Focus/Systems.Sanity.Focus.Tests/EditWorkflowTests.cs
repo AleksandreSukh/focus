@@ -24,6 +24,24 @@ public class EditWorkflowTests
     }
 
     [Fact]
+    public void Execute_UppercaseTodoCommand_UpdatesCurrentNodeTaskState()
+    {
+        using var workspace = new TestWorkspace();
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("Child");
+        var filePath = workspace.SaveMap("workflow-map", map);
+
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+        Assert.True(workflow.Execute(new ConsoleInput("CD 1")).IsSuccess);
+
+        var result = workflow.Execute(new ConsoleInput("TODO"));
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.ShouldPersist);
+        Assert.Equal("Mark task as todo in workflow-map", result.SyncCommitMessage);
+    }
+
+    [Fact]
     public void Execute_HideAndUnhideNode_RequestPersistence()
     {
         using var workspace = new TestWorkspace();
