@@ -111,8 +111,29 @@ public class MindMapTests
         Assert.True(rootResult);
         Assert.Equal(string.Empty, rootError);
         Assert.True(map.RootNode.HideDoneTasks);
+        Assert.True(map.RootNode.HideDoneTasksExplicit);
         Assert.False(ideaResult);
         Assert.Equal("Hide done tasks is not supported for idea tags", ideaError);
+    }
+
+    [Fact]
+    public void SetHideDoneTasks_ParentRefreshClearsChildOverride()
+    {
+        var map = new MindMap("Root");
+        var branch = map.AddAtCurrentNode("Branch");
+
+        Assert.True(map.SetHideDoneTasks(true, out _));
+        Assert.True(map.SetHideDoneTasks("1", false, out _));
+
+        Assert.False(branch.HideDoneTasks);
+        Assert.True(branch.HideDoneTasksExplicit);
+
+        Assert.True(map.SetHideDoneTasks(true, out _));
+
+        Assert.True(map.RootNode.HideDoneTasks);
+        Assert.True(map.RootNode.HideDoneTasksExplicit);
+        Assert.False(branch.HideDoneTasks);
+        Assert.Null(branch.HideDoneTasksExplicit);
     }
 
     [Fact]

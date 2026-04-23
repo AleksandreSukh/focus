@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Newtonsoft.Json;
 
 namespace Systems.Sanity.Focus.Domain;
 
@@ -41,6 +42,9 @@ public class Node
     public bool Collapsed { get; set; }
 
     public bool HideDoneTasks { get; set; }
+
+    [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+    public bool? HideDoneTasksExplicit { get; set; }
 
     public TaskState TaskState { get; set; }
 
@@ -142,7 +146,30 @@ public class Node
     internal void SetHideDoneTasks(bool hideDoneTasks)
     {
         HideDoneTasks = hideDoneTasks;
+        HideDoneTasksExplicit = true;
         TouchMetadata();
+    }
+
+    internal bool? GetHideDoneTasksOverride()
+    {
+        if (HideDoneTasksExplicit == true)
+            return HideDoneTasks;
+
+        return HideDoneTasks
+            ? true
+            : null;
+    }
+
+    internal bool ClearHideDoneTasksOverride()
+    {
+        var changed = HideDoneTasks || HideDoneTasksExplicit.HasValue;
+        if (!changed)
+            return false;
+
+        HideDoneTasks = false;
+        HideDoneTasksExplicit = null;
+        TouchMetadata();
+        return true;
     }
 
     internal void EnsureMetadata(

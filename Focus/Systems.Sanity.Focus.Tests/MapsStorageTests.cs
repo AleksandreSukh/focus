@@ -58,6 +58,28 @@ public class MapsStorageTests
     }
 
     [Fact]
+    public void SaveAndOpenMap_RoundTripsExplicitShowDoneOverride()
+    {
+        using var workspace = new TestWorkspace();
+        var map = new MindMap("Root");
+        map.RootNode.HideDoneTasks = true;
+        map.RootNode.HideDoneTasksExplicit = true;
+        var child = map.AddAtCurrentNode("Branch");
+        child.HideDoneTasks = false;
+        child.HideDoneTasksExplicit = true;
+
+        var filePath = workspace.SaveMap("alpha", map);
+        var reopened = workspace.MapsStorage.OpenMap(filePath);
+        var reopenedChild = reopened.GetNode("1");
+
+        Assert.True(reopened.RootNode.HideDoneTasks);
+        Assert.True(reopened.RootNode.HideDoneTasksExplicit);
+        Assert.NotNull(reopenedChild);
+        Assert.False(reopenedChild!.HideDoneTasks);
+        Assert.True(reopenedChild.HideDoneTasksExplicit);
+    }
+
+    [Fact]
     public void OpenMap_BackfillsLegacyMetadataWithoutPersistingUntilSave()
     {
         using var workspace = new TestWorkspace();

@@ -19,7 +19,7 @@ internal static class HtmlPrinter
     public static void Print(Node node, StringBuilder sb, NodeExportOptions options = null)
     {
         options ??= new NodeExportOptions();
-        var ancestorHidesDone = NodeBranchVisibility.HasHideDoneAncestor(node);
+        var ancestorHidesDone = NodeBranchVisibility.HideDoneStateForNode(node);
 
         var documentTitle = HtmlInlineFormatter.ToPlainText(NodeExportHelpers.FormatNodeName(node));
 

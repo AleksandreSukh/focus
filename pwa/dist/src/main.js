@@ -42,7 +42,7 @@ import {
   collectTaskEntries,
   findNodeRecord,
   hasDoneDescendants,
-  hasHideDoneAncestor,
+  getNodeHideDoneState,
   getTreeHideDoneState,
   getNodeBadges,
   getNodeUiState,
@@ -1499,7 +1499,7 @@ async function handleEditNodeSubmit(form) {
   const { snapshot, nodeUiState } = modalContext;
   const nodeId = nodeUiState.node.uniqueIdentifier;
   const textChanged = text !== (nodeUiState.node.name || '');
-  const hideDoneTasksChanged = hideDoneTasks !== Boolean(nodeUiState.node.hideDoneTasks);
+  const hideDoneTasksChanged = hideDoneTasks !== Boolean(nodeUiState.effectiveHideDoneTasks);
   const isRootNode = nodeUiState.parent === null;
   const oldFilePath = snapshot.filePath;
   const newFilePath = isRootNode ? computeRenamedFilePath(oldFilePath, text) : oldFilePath;
@@ -3091,7 +3091,7 @@ function openNodeModal(kind, mapPath, nodeId, returnFocusKey = '') {
     mapPath,
     nodeId: nodeUiState.node.uniqueIdentifier,
     draftText: kind === 'editNode' ? nodeUiState.node.name || '' : '',
-    hideDoneTasks: kind === 'editNode' ? Boolean(nodeUiState.node.hideDoneTasks) : false,
+    hideDoneTasks: kind === 'editNode' ? Boolean(nodeUiState.effectiveHideDoneTasks) : false,
     errorMessage: '',
     returnFocusKey: focusKey,
     fixedParentNodeId: kind === 'addChildNote' ? nodeUiState.node.uniqueIdentifier : '',
@@ -4107,7 +4107,7 @@ function getDoneVisibilityButtonState(snapshot, nodeUiState) {
   }
 
   const nodeId = nodeUiState.node.uniqueIdentifier;
-  if (nodeUiState.node.hideDoneTasks) {
+  if (nodeUiState.effectiveHideDoneTasks) {
     return {
       mapPath: snapshot.filePath,
       nodeId,
@@ -4892,8 +4892,8 @@ function renderMapView() {
 
   const documentRoot = snapshot.document.rootNode;
   const viewportRootNode = selectedNodeState.node;
-  const ancestorHidesDone = hasHideDoneAncestor(snapshot.document, viewportRootNode.uniqueIdentifier);
-  const rootVisibleChildren = getVisibleTreeChildren(viewportRootNode, ancestorHidesDone);
+  const viewportHideDoneState = getNodeHideDoneState(snapshot.document, viewportRootNode.uniqueIdentifier);
+  const rootVisibleChildren = getVisibleTreeChildren(viewportRootNode, viewportHideDoneState);
   const rootHasChildren = rootVisibleChildren.length > 0;
   const rootCollapsed = getLocalCollapsedState(snapshot.filePath, viewportRootNode);
   const isSubtreeView = viewportRootNode.uniqueIdentifier !== documentRoot.uniqueIdentifier;
@@ -4932,7 +4932,7 @@ function renderMapView() {
         </header>
 
         ${rootHasChildren && !rootCollapsed
-          ? `<ol class="reader-list reader-root-list">${rootVisibleChildren.map((child) => renderTreeNode(snapshot, child, 1, selectedNodeState, getTreeHideDoneState(viewportRootNode, ancestorHidesDone))).join('')}</ol>`
+          ? `<ol class="reader-list reader-root-list">${rootVisibleChildren.map((child) => renderTreeNode(snapshot, child, 1, selectedNodeState, getTreeHideDoneState(viewportRootNode, viewportHideDoneState))).join('')}</ol>`
           : ''}
       </article>
 

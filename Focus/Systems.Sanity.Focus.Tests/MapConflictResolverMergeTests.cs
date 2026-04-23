@@ -246,6 +246,20 @@ public class MapConflictResolverMergeTests
         Assert.False(Get(merged!, "rootNode.hideDoneTasks").Value<bool>());
     }
 
+    [Fact]
+    public void TryMergeResolve_TheirsNodeNewerAndHideDoneTasksExplicitTrue_TakesTrue()
+    {
+        var ours = BaseMap(rootUpdatedAtUtc: "2026-04-20T08:00:00Z");
+        var theirs = BaseMap(rootUpdatedAtUtc: "2026-04-20T10:00:00Z");
+        theirs["rootNode"]!["hideDoneTasks"] = false;
+        theirs["rootNode"]!["hideDoneTasksExplicit"] = true;
+
+        var resolved = MapConflictResolver.TryMergeResolve(Json(ours), Json(theirs), out var merged);
+
+        Assert.True(resolved);
+        Assert.True(Get(merged!, "rootNode.hideDoneTasksExplicit").Value<bool>());
+    }
+
     // -------------------------------------------------------------------------
     // 6. taskState (newer node wins)
     // -------------------------------------------------------------------------

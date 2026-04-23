@@ -88,6 +88,30 @@ describe('mapConflictResolver', () => {
     assert.equal(document.rootNode.taskState, 3);
   });
 
+  it('keeps newer hide-done explicit markers on node merges', () => {
+    const ours = createDocument({
+      updatedAt: '2026-04-20T08:00:00Z',
+    });
+    const theirs = createDocument({
+      updatedAt: '2026-04-20T08:05:00Z',
+      rootNode: {
+        ...ours.rootNode,
+        hideDoneTasks: false,
+        hideDoneTasksExplicit: true,
+        metadata: {
+          ...ours.rootNode.metadata,
+          updatedAtUtc: '2026-04-20T08:05:00Z',
+        },
+      },
+    });
+
+    const resolved = tryResolveMapConflict(createConflict(ours, theirs));
+
+    assert.equal(resolved.ok, true);
+    const document = JSON.parse(resolved.resolvedContent);
+    assert.equal(document.rootNode.hideDoneTasksExplicit, true);
+  });
+
   it('unions children, links, and attachments by stable identifiers', () => {
     const sharedRoot = {
       nodeType: 0,

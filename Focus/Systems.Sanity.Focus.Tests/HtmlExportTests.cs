@@ -150,6 +150,27 @@ public class HtmlExportTests
     }
 
     [Fact]
+    public void Export_HtmlUnderChildShowDoneOverride_RestoresDoneDescendants()
+    {
+        var map = new MindMap("Root");
+        map.RootNode.HideDoneTasks = true;
+        map.RootNode.HideDoneTasksExplicit = true;
+        var branch = map.AddAtCurrentNode("Branch");
+        branch.HideDoneTasks = false;
+        branch.HideDoneTasksExplicit = true;
+        var todoChild = branch.Add("Todo child");
+        var doneChild = branch.Add("Done child");
+        todoChild.TaskState = TaskState.Todo;
+        doneChild.TaskState = TaskState.Done;
+
+        var html = MapExportService.Export(branch, ExportFormat.Html);
+
+        Assert.Contains("<h1>Branch</h1>", html);
+        Assert.Contains("[ ] Todo child", html);
+        Assert.Contains("[x] Done child", html);
+    }
+
+    [Fact]
     public void Export_HtmlWithMissingAttachment_FallsBackToRelativeLink()
     {
         using var workspace = new TestWorkspace();

@@ -1,4 +1,6 @@
 using System.IO;
+using System.Reflection;
+using Systems.Sanity.Focus.Application;
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.Infrastructure.Diagnostics;
 using Systems.Sanity.Focus.Infrastructure;
@@ -79,5 +81,22 @@ public class HomePageTests
         Assert.DoesNotContain("home page input failed", renderedOutput);
         Assert.Contains("Action: executing home page command", diagnosticsScope.ReadLog());
         Assert.Contains("home page input failed", diagnosticsScope.ReadLog());
+    }
+
+    [Fact]
+    public void GetSuggestions_WithFiles_IncludesOpenShortcuts()
+    {
+        using var workspace = new TestWorkspace();
+        using var consoleScope = new AppConsoleScope(new ScriptedConsoleSession());
+        workspace.SaveMap("alpha", new MindMap("Alpha"));
+        var page = new HomePage(workspace.AppContext);
+        typeof(HomePage)
+            .GetField("_fileSelection", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(page, new HomeWorkflow(workspace.AppContext).GetFileSelection());
+
+        var suggestions = page.GetSuggestions(string.Empty, 0);
+
+        Assert.Contains("1", suggestions);
+        Assert.Contains(AccessibleKeyNumbering.GetStringFor(1), suggestions);
     }
 }

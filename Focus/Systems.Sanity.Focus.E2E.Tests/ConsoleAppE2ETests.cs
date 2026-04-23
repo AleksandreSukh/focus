@@ -502,6 +502,96 @@ public class ConsoleAppE2ETests
     }
 
     [Fact]
+    public async Task TaskWorkflows_HideDoneTasks_ParentRefreshClearsChildOverride()
+    {
+        using var workspace = new FocusE2EWorkspace();
+        workspace.WriteConfig();
+
+        var map = new MindMap("Alpha root");
+        var branch = map.AddAtCurrentNode("Branch");
+        var openChild = branch.Add("Open child");
+        var doneChild = branch.Add("Done child");
+        openChild.TaskState = TaskState.Todo;
+        doneChild.TaskState = TaskState.Done;
+        SaveMap(workspace, "alpha", map);
+
+        await using var app = new FocusAppProcessHarness(workspace);
+        await app.StartAsync();
+        var context = new FocusScenarioContext(app, workspace);
+
+        await FocusScenario.RunAsync(
+            context,
+            FocusScenario.WaitForOutput("Welcome"),
+            FocusScenario.SendLine("alpha"),
+            FocusScenario.WaitForOutput("| * Alpha root"),
+            FocusScenario.WaitForOutput("Done child"));
+
+        var transcriptAfterOpeningMap = app.GetTranscript().Length;
+
+        await FocusScenario.RunAsync(
+            context,
+            FocusScenario.SendLine("hidedone"),
+            FocusScenario.WaitForOutputOccurrences("| * Alpha root", 2),
+            FocusScenario.AssertMap("alpha.json", savedMap =>
+            {
+                Assert.True(savedMap.RootNode.HideDoneTasks);
+                Assert.True(savedMap.RootNode.HideDoneTasksExplicit);
+            }),
+            FocusScenario.SendLine("cd 1"),
+            FocusScenario.WaitForOutputOccurrences("Open child", 2));
+
+        var transcriptAfterRootHide = app.GetTranscript().Length;
+        Assert.DoesNotContain(
+            "[x] Done child",
+            app.GetTranscript()[transcriptAfterOpeningMap..transcriptAfterRootHide],
+            StringComparison.Ordinal);
+
+        await FocusScenario.RunAsync(
+            context,
+            FocusScenario.SendLine("ls"),
+            FocusScenario.WaitForOutputOccurrences("| * Alpha root", 3),
+            FocusScenario.SendLine("showdone 1"),
+            FocusScenario.WaitForOutputOccurrences("| * Alpha root", 4),
+            FocusScenario.AssertMap("alpha.json", savedMap =>
+            {
+                var savedBranch = savedMap.RootNode.Children[0];
+                Assert.False(savedBranch.HideDoneTasks);
+                Assert.True(savedBranch.HideDoneTasksExplicit);
+            }),
+            FocusScenario.SendLine("cd 1"),
+            FocusScenario.WaitForOutputOccurrences("Done child", 2));
+
+        var transcriptAfterChildShow = app.GetTranscript().Length;
+        Assert.Contains("[x] Done child", app.GetTranscript()[transcriptAfterRootHide..transcriptAfterChildShow], StringComparison.Ordinal);
+
+        await FocusScenario.RunAsync(
+            context,
+            FocusScenario.SendLine("ls"),
+            FocusScenario.WaitForOutputOccurrences("| * Alpha root", 5),
+            FocusScenario.SendLine("hidedone"),
+            FocusScenario.WaitForOutputOccurrences("| * Alpha root", 6),
+            FocusScenario.AssertMap("alpha.json", savedMap =>
+            {
+                var savedBranch = savedMap.RootNode.Children[0];
+                Assert.True(savedMap.RootNode.HideDoneTasks);
+                Assert.True(savedMap.RootNode.HideDoneTasksExplicit);
+                Assert.False(savedBranch.HideDoneTasks);
+                Assert.Null(savedBranch.HideDoneTasksExplicit);
+            }),
+            FocusScenario.SendLine("cd 1"),
+            FocusScenario.WaitForOutputOccurrences("Open child", 4),
+            FocusScenario.SendLine("exit"),
+            FocusScenario.WaitForOutput("Welcome"),
+            FocusScenario.SendLine("exit"));
+
+        Assert.DoesNotContain("[x] Done child", app.GetTranscript()[transcriptAfterChildShow..], StringComparison.Ordinal);
+
+        var exitCode = await app.WaitForExitAsync();
+
+        Assert.Equal(0, exitCode);
+    }
+
+    [Fact]
     public async Task ViewState_Tilde_TogglesCommandHelp()
     {
         using var workspace = new FocusE2EWorkspace();

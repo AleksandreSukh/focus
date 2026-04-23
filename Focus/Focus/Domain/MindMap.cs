@@ -403,8 +403,18 @@ namespace Systems.Sanity.Focus.Domain
             }
 
             node.SetHideDoneTasks(hideDoneTasks);
+            ClearDescendantHideDoneOverrides(node);
             errorMessage = string.Empty;
             return true;
+        }
+
+        private static void ClearDescendantHideDoneOverrides(Node node)
+        {
+            foreach (var child in node.Children)
+            {
+                child.ClearHideDoneTasksOverride();
+                ClearDescendantHideDoneOverrides(child);
+            }
         }
 
         private Node? FindNode(string parameter)

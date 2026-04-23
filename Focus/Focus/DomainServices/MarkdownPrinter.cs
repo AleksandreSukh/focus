@@ -12,7 +12,7 @@ namespace Systems.Sanity.Focus.DomainServices
         public static void Print(Node node, StringBuilder sb, NodeExportOptions options = null)
         {
             options ??= new NodeExportOptions();
-            var ancestorHidesDone = NodeBranchVisibility.HasHideDoneAncestor(node);
+            var ancestorHidesDone = NodeBranchVisibility.HideDoneStateForNode(node);
             var hasRootBlockBody = node.NodeType == NodeType.TextBlockItem;
 
             sb.Append("# ");

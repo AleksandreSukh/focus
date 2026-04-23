@@ -307,9 +307,14 @@ public class HomeWorkflowTests
 
         Assert.Contains("- alpha.", text, StringComparison.InvariantCultureIgnoreCase);
         Assert.Contains(ColorLabel("Create"), text);
+        Assert.Contains($"{ColorLabel("Open")}1, ja", text);
         Assert.Contains(ColorLabel("Manage"), text);
         Assert.Contains(ColorLabel("Find"), text);
         Assert.Contains(ColorLabel("System"), text);
+        Assert.DoesNotContain("Type file identifier", text, StringComparison.InvariantCulture);
+        Assert.True(
+            text.IndexOf(ColorLabel("Open"), StringComparison.InvariantCulture) <
+            text.IndexOf(ColorLabel("Manage"), StringComparison.InvariantCulture));
     }
 
     private static string ColorLabel(string label) =>

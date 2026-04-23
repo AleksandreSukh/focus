@@ -312,7 +312,7 @@ internal sealed class EditWorkflow
             0,
             sb,
             AppConsole.Current.WindowWidth - 5,
-            NodeBranchVisibility.HasHideDoneAncestor(_map.GetCurrentNode()));
+            NodeBranchVisibility.HideDoneStateForNode(_map.GetCurrentNode()));
         return sb.ToString();
     }
 

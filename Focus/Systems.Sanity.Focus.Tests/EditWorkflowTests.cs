@@ -320,6 +320,51 @@ public class EditWorkflowTests
     }
 
     [Fact]
+    public void Execute_ParentHideDoneRefreshesChildShowDoneOverride()
+    {
+        using var workspace = new TestWorkspace();
+        var map = new MindMap("Root");
+        var branch = map.AddAtCurrentNode("Branch");
+        var openChild = branch.Add("Open child");
+        var doneChild = branch.Add("Done child");
+        openChild.TaskState = TaskState.Todo;
+        doneChild.TaskState = TaskState.Done;
+        var filePath = workspace.SaveMap("workflow-map", map);
+
+        var hideRootWorkflow = new EditWorkflow(filePath, workspace.AppContext);
+        var hideRootResult = hideRootWorkflow.Execute(new ConsoleInput("hidedone"));
+        hideRootWorkflow.Save(hideRootResult.SyncCommitMessage!);
+
+        var showBranchWorkflow = new EditWorkflow(filePath, workspace.AppContext);
+        var showBranchResult = showBranchWorkflow.Execute(new ConsoleInput("showdone 1"));
+        showBranchWorkflow.Save(showBranchResult.SyncCommitMessage!);
+        var shownMap = workspace.MapsStorage.OpenMap(filePath);
+
+        var shownWorkflow = new EditWorkflow(filePath, workspace.AppContext);
+        Assert.True(shownWorkflow.Execute(new ConsoleInput("cd 1")).IsSuccess);
+        var shownScreen = shownWorkflow.BuildScreen();
+
+        var refreshWorkflow = new EditWorkflow(filePath, workspace.AppContext);
+        var refreshResult = refreshWorkflow.Execute(new ConsoleInput("hidedone"));
+        refreshWorkflow.Save(refreshResult.SyncCommitMessage!);
+        var refreshedMap = workspace.MapsStorage.OpenMap(filePath);
+
+        var refreshedWorkflow = new EditWorkflow(filePath, workspace.AppContext);
+        Assert.True(refreshedWorkflow.Execute(new ConsoleInput("cd 1")).IsSuccess);
+        var refreshedScreen = refreshedWorkflow.BuildScreen();
+
+        Assert.True(hideRootResult.IsSuccess);
+        Assert.True(showBranchResult.IsSuccess);
+        Assert.Contains("[x] Done child", shownScreen);
+        Assert.False(shownMap.GetNode("1")!.HideDoneTasks);
+        Assert.True(shownMap.GetNode("1")!.HideDoneTasksExplicit);
+        Assert.True(refreshResult.IsSuccess);
+        Assert.DoesNotContain("Done child", refreshedScreen);
+        Assert.False(refreshedMap.GetNode("1")!.HideDoneTasks);
+        Assert.Null(refreshedMap.GetNode("1")!.HideDoneTasksExplicit);
+    }
+
+    [Fact]
     public void Execute_TodoAtRoot_ReturnsValidationError()
     {
         using var workspace = new TestWorkspace();

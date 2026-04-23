@@ -172,13 +172,15 @@ export function getNodeUiState(document, nodeId) {
   }
 
   const { node, parent, pathSegments } = record;
+  const effectiveHideDoneTasks = getNodeHideDoneState(document, nodeId);
   return {
     node,
     parent,
     pathSegments,
     canEditNode: node.nodeType !== NODE_TYPE.IDEA_BAG_ITEM,
     canChangeTaskState: canChangeTaskState(node, parent),
-    badges: getNodeBadges(node),
+    badges: getNodeBadges(node, effectiveHideDoneTasks),
+    effectiveHideDoneTasks,
   };
 }
 
@@ -265,13 +267,13 @@ export function isClipboardImageNode(node) {
   return typeof node?.metadata?.source === 'string' && node.metadata.source === CLIPBOARD_IMAGE_SOURCE;
 }
 
-export function getNodeBadges(node) {
+export function getNodeBadges(node, hideDoneTasks = Boolean(getLocalHideDoneOverride(node))) {
   const badges = [];
   if (node.nodeType === NODE_TYPE.IDEA_BAG_ITEM) {
     badges.push('Idea');
   }
 
-  if (node.hideDoneTasks) {
+  if (hideDoneTasks) {
     badges.push('Hide done');
   }
 
@@ -282,8 +284,23 @@ export function getNodeBadges(node) {
   return badges;
 }
 
+function getLocalHideDoneOverride(node) {
+  if (!node || typeof node !== 'object') {
+    return null;
+  }
+
+  if (node.hideDoneTasksExplicit === true) {
+    return Boolean(node.hideDoneTasks);
+  }
+
+  return node.hideDoneTasks
+    ? true
+    : null;
+}
+
 export function getTreeHideDoneState(node, ancestorHidesDone = false) {
-  return Boolean(ancestorHidesDone || node?.hideDoneTasks);
+  const localOverride = getLocalHideDoneOverride(node);
+  return Boolean(localOverride ?? ancestorHidesDone);
 }
 
 export function shouldHideNodeInTree(node, ancestorHidesDone = false) {
@@ -297,6 +314,35 @@ export function getVisibleTreeChildren(node, ancestorHidesDone = false) {
 
   const hideDoneStateForChildren = getTreeHideDoneState(node, ancestorHidesDone);
   return node.children.filter((child) => !shouldHideNodeInTree(child, hideDoneStateForChildren));
+}
+
+export function getNodeHideDoneState(document, nodeId) {
+  const rootNode = document?.rootNode;
+  if (!rootNode || typeof rootNode !== 'object') {
+    return false;
+  }
+
+  const targetNodeId = nodeId || rootNode.uniqueIdentifier || '';
+  let resolvedState = false;
+  let found = false;
+
+  const visit = (node, ancestorHidesDone) => {
+    const hideDoneState = getTreeHideDoneState(node, ancestorHidesDone);
+    if (node.uniqueIdentifier === targetNodeId) {
+      resolvedState = hideDoneState;
+      found = true;
+      return true;
+    }
+
+    if (!Array.isArray(node.children)) {
+      return false;
+    }
+
+    return node.children.some((child) => visit(child, hideDoneState));
+  };
+
+  visit(rootNode, false);
+  return found ? resolvedState : false;
 }
 
 export function resolveVisibleNodeId(document, nodeId) {
@@ -337,21 +383,11 @@ export function resolveVisibleNodeId(document, nodeId) {
 
 export function hasHideDoneAncestor(document, nodeId) {
   const record = findNodeRecord(document, nodeId);
-  if (!record) {
+  if (!record?.parent) {
     return false;
   }
 
-  let parentNode = record.parent;
-  while (parentNode) {
-    if (parentNode.hideDoneTasks) {
-      return true;
-    }
-
-    const parentRecord = findNodeRecord(document, parentNode.uniqueIdentifier);
-    parentNode = parentRecord?.parent || null;
-  }
-
-  return false;
+  return getNodeHideDoneState(document, record.parent.uniqueIdentifier);
 }
 
 export function hasDoneDescendants(document, nodeId) {
@@ -390,6 +426,7 @@ function normalizeNode(node, context) {
   node.number = takeCanonicalProperty(node, 'number', 'Number');
   node.collapsed = takeCanonicalProperty(node, 'collapsed', 'Collapsed');
   node.hideDoneTasks = takeCanonicalProperty(node, 'hideDoneTasks', 'HideDoneTasks');
+  node.hideDoneTasksExplicit = takeCanonicalProperty(node, 'hideDoneTasksExplicit', 'HideDoneTasksExplicit');
   node.taskState = takeCanonicalProperty(node, 'taskState', 'TaskState');
   node.metadata = takeCanonicalProperty(node, 'metadata', 'Metadata');
 
@@ -401,6 +438,11 @@ function normalizeNode(node, context) {
   node.number = Number.isInteger(node.number) && node.number > 0 ? node.number : context.number;
   node.collapsed = Boolean(node.collapsed);
   node.hideDoneTasks = Boolean(node.hideDoneTasks);
+  if (node.hideDoneTasksExplicit === true) {
+    node.hideDoneTasksExplicit = true;
+  } else {
+    delete node.hideDoneTasksExplicit;
+  }
   node.taskState = isValidTaskState(node.taskState) ? node.taskState : TASK_STATE.NONE;
   normalizeMetadata(node, context.legacyTimestamp);
 
@@ -522,7 +564,9 @@ function setNodeHideDoneTasks(document, mutation, timestamp) {
   }
 
   record.node.hideDoneTasks = Boolean(mutation.hideDoneTasks);
+  record.node.hideDoneTasksExplicit = true;
   touchMetadata(record.node, timestamp);
+  clearDescendantHideDoneOverrides(record.node, timestamp);
   touchDocumentTimestamp(document, timestamp);
   return {
     ok: true,
@@ -604,6 +648,28 @@ function deleteChildNode(document, mutation, timestamp) {
       deletedAttachments,
     },
   };
+}
+
+function clearDescendantHideDoneOverrides(node, timestamp) {
+  if (!Array.isArray(node?.children)) {
+    return;
+  }
+
+  node.children.forEach((child) => clearNodeHideDoneOverride(child, timestamp));
+}
+
+function clearNodeHideDoneOverride(node, timestamp) {
+  if (!node || typeof node !== 'object') {
+    return;
+  }
+
+  if (node.hideDoneTasks || node.hideDoneTasksExplicit !== undefined) {
+    node.hideDoneTasks = false;
+    delete node.hideDoneTasksExplicit;
+    touchMetadata(node, timestamp);
+  }
+
+  clearDescendantHideDoneOverrides(node, timestamp);
 }
 
 function addAttachmentToNode(document, mutation, timestamp) {

@@ -19,6 +19,7 @@ namespace Systems.Sanity.Focus.Application;
 
 internal sealed class HomeWorkflow
 {
+    private const int SampleFileNumber = 1;
     private readonly FocusAppContext _appContext;
 
     public HomeWorkflow(FocusAppContext appContext)
@@ -33,9 +34,7 @@ internal sealed class HomeWorkflow
 
     public string BuildHomePageText(IReadOnlyDictionary<int, FileInfo> files, bool showCommands)
     {
-        const int sampleFileNumber = 1;
         var commandColor = ConfigurationConstants.CommandColor;
-        var filesExist = files.Any();
         var homePageMenuTextBuilder = new StringBuilder();
 
         foreach (var file in files)
@@ -46,18 +45,10 @@ internal sealed class HomeWorkflow
 
         homePageMenuTextBuilder.AppendLine();
 
-        if (filesExist)
-        {
-            homePageMenuTextBuilder.Append(
-                $"Type file identifier like \"[{commandColor}]{sampleFileNumber}[!]\" or \"[{commandColor}]{AccessibleKeyNumbering.GetStringFor(sampleFileNumber)}[!]\" to open file.{Environment.NewLine}");
-        }
-
-        homePageMenuTextBuilder.AppendLine();
-
         if (showCommands)
         {
             var updatedVersion = AutoUpdateManager.CheckUpdatedVersion();
-            homePageMenuTextBuilder.Append(CommandHelpFormatter.BuildGroupedLines(GetHomeCommandGroups(filesExist, updatedVersion)));
+            homePageMenuTextBuilder.Append(CommandHelpFormatter.BuildGroupedLines(GetHomeCommandGroups(files.Any(), updatedVersion)));
         }
         else
         {
@@ -85,7 +76,12 @@ internal sealed class HomeWorkflow
 
         if (filesExist)
         {
-            groups.Insert(1, new CommandHelpGroup("Manage", new[]
+            groups.Insert(1, new CommandHelpGroup("Open", new[]
+            {
+                SampleFileNumber.ToString(),
+                AccessibleKeyNumbering.GetStringFor(SampleFileNumber)
+            }));
+            groups.Insert(2, new CommandHelpGroup("Manage", new[]
             {
                 $"{HomePage.OptionRen} <file>",
                 $"{HomePage.OptionDel} <file>"

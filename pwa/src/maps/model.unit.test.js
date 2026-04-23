@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import {
   TASK_STATE,
   applyMapMutation,
+  getNodeHideDoneState,
   getVisibleTreeChildren,
   hasDoneDescendants,
   hasHideDoneAncestor,
@@ -72,7 +73,97 @@ describe('mind map model hide-done support', () => {
 
     assert.equal(result.ok, true);
     assert.equal(document.rootNode.children[0].hideDoneTasks, false);
+    assert.equal(document.rootNode.children[0].hideDoneTasksExplicit, true);
     assert.equal(document.updatedAt, '2026-04-20T09:15:00Z');
+  });
+
+  it('allows an explicit child show override under a hidden root', () => {
+    const document = normalizeMindMapDocument({
+      rootNode: {
+        name: 'Root',
+        hideDoneTasks: true,
+        hideDoneTasksExplicit: true,
+        children: [
+          {
+            name: 'Branch',
+            hideDoneTasks: false,
+            hideDoneTasksExplicit: true,
+            children: [
+              {
+                name: 'Visible child',
+                taskState: TASK_STATE.TODO,
+                children: [],
+              },
+              {
+                name: 'Done child',
+                taskState: TASK_STATE.DONE,
+                children: [],
+              },
+            ],
+          },
+        ],
+      },
+    }, {
+      fileTimestampIso: '2026-04-20T08:00:00Z',
+    });
+    const branch = document.rootNode.children[0];
+    const branchId = branch.uniqueIdentifier;
+
+    assert.equal(getNodeHideDoneState(document, branchId), false);
+    assert.deepEqual(
+      getVisibleTreeChildren(branch, getNodeHideDoneState(document, branchId)).map((child) => child.name),
+      ['Visible child', 'Done child'],
+    );
+  });
+
+  it('refreshes descendant overrides when a parent hide-done flag is set again', () => {
+    const document = normalizeMindMapDocument({
+      rootNode: {
+        name: 'Root',
+        hideDoneTasks: true,
+        hideDoneTasksExplicit: true,
+        children: [
+          {
+            name: 'Branch',
+            hideDoneTasks: false,
+            hideDoneTasksExplicit: true,
+            children: [
+              {
+                name: 'Visible child',
+                taskState: TASK_STATE.TODO,
+                children: [],
+              },
+              {
+                name: 'Done child',
+                taskState: TASK_STATE.DONE,
+                children: [],
+              },
+            ],
+          },
+        ],
+      },
+    }, {
+      fileTimestampIso: '2026-04-20T08:00:00Z',
+    });
+    const rootId = document.rootNode.uniqueIdentifier;
+    const branch = document.rootNode.children[0];
+
+    const result = applyMapMutation(document, {
+      type: 'setHideDoneTasks',
+      nodeId: rootId,
+      hideDoneTasks: true,
+      timestamp: '2026-04-20T09:30:00Z',
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(document.rootNode.hideDoneTasksExplicit, true);
+    assert.equal(branch.hideDoneTasks, false);
+    assert.equal('hideDoneTasksExplicit' in branch, false);
+    assert.equal(getNodeHideDoneState(document, branch.uniqueIdentifier), true);
+    assert.deepEqual(
+      getVisibleTreeChildren(branch, getNodeHideDoneState(document, branch.uniqueIdentifier)).map((child) => child.name),
+      ['Visible child'],
+    );
   });
 
   it('filters done descendants from tree rendering while keeping open descendants visible', () => {
