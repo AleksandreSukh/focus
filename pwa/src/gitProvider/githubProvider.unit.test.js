@@ -134,4 +134,42 @@ describe('GitHubProvider.getFileAsBlob', () => {
       ],
     ]);
   });
+
+  it('preserves the requested JPEG media type for large raw image attachments', async () => {
+    const calls = [];
+    const provider = createProvider({
+      async getContent(path, contextLabel) {
+        calls.push(['getContent', path, contextLabel]);
+        return {
+          encoding: 'none',
+          content: '',
+          sha: 'attachment-rev-3',
+        };
+      },
+      async getContentBlob(path, contextLabel) {
+        calls.push(['getContentBlob', path, contextLabel]);
+        return new Blob(['camera-photo-bytes'], { type: '' });
+      },
+    });
+
+    const blob = await provider.getFileAsBlob(
+      'FocusMaps/_attachments/node-id/camera-photo.jpg',
+      'image/jpeg',
+    );
+
+    assert.equal(blob.type, 'image/jpeg');
+    assert.equal(await blob.text(), 'camera-photo-bytes');
+    assert.deepEqual(calls, [
+      [
+        'getContent',
+        'FocusMaps/_attachments/node-id/camera-photo.jpg',
+        'loading attachment FocusMaps/_attachments/node-id/camera-photo.jpg',
+      ],
+      [
+        'getContentBlob',
+        'FocusMaps/_attachments/node-id/camera-photo.jpg',
+        'loading attachment FocusMaps/_attachments/node-id/camera-photo.jpg',
+      ],
+    ]);
+  });
 });

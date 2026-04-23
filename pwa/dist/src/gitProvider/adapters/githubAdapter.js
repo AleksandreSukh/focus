@@ -1,4 +1,5 @@
 const DEFAULT_GITHUB_API_BASE_URL = 'https://api.github.com';
+const GITHUB_RAW_CONTENT_MEDIA_TYPE = 'application/vnd.github.raw+json';
 
 export class GitHubApiError extends Error {
   constructor({
@@ -73,7 +74,7 @@ export class GitHubAdapter {
       {
         method: 'GET',
         headers: {
-          Accept: 'application/vnd.github.raw',
+          Accept: GITHUB_RAW_CONTENT_MEDIA_TYPE,
         },
       },
       { operation: 'getContent', contextLabel },
@@ -87,7 +88,7 @@ export class GitHubAdapter {
       {
         method: 'GET',
         headers: {
-          Accept: 'application/vnd.github.raw',
+          Accept: GITHUB_RAW_CONTENT_MEDIA_TYPE,
         },
       },
       { operation: 'getContent', contextLabel },

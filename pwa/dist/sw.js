@@ -1,4 +1,4 @@
-const CACHE_NAME = 'focus-pwa-shell-v12';
+const CACHE_NAME = 'focus-pwa-shell-v13';
 const APP_SHELL_ASSETS = [
   './',
   './index.html',
@@ -15,6 +15,7 @@ const APP_SHELL_ASSETS = [
   './src/auth/tokenValidation.js',
   './src/auth/TokenEntryScreen.js',
   './src/formatting/inlineFormatter.js',
+  './src/attachments/imagePreview.js',
   './src/settings/ConnectionScreen.js',
   './src/settings/repoSettings.js',
   './src/settings/SettingsScreen.js',
@@ -49,9 +50,14 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  const requestUrl = new URL(event.request.url);
+  if (requestUrl.origin !== self.location.origin) {
+    return;
+  }
+
   // version.json must never be served from cache so the update checker
   // always sees the latest value from the server.
-  if (new URL(event.request.url).pathname.endsWith('/version.json')) {
+  if (requestUrl.pathname.endsWith('/version.json')) {
     event.respondWith(fetch(event.request));
     return;
   }

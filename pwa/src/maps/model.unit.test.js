@@ -198,3 +198,84 @@ describe('mind map model hide-done support', () => {
     assert.equal(hasDoneDescendants(document, branchId), true);
   });
 });
+
+describe('mind map model delete-node attachment cleanup metadata', () => {
+  it('returns deleted subtree attachments and keeps parent selection after node removal', () => {
+    const document = normalizeMindMapDocument({
+      rootNode: {
+        name: 'Root',
+        children: [
+          {
+            name: 'Branch',
+            metadata: {
+              attachments: [
+                {
+                  id: '11111111-1111-4111-8111-111111111111',
+                  relativePath: 'branch.png',
+                  mediaType: 'image/png',
+                  displayName: 'Branch image',
+                  createdAtUtc: '2026-04-20T08:00:00Z',
+                },
+              ],
+            },
+            children: [
+              {
+                name: 'Leaf',
+                metadata: {
+                  attachments: [
+                    {
+                      id: '22222222-2222-4222-8222-222222222222',
+                      relativePath: 'leaf.png',
+                      mediaType: 'image/png',
+                      displayName: 'Leaf image',
+                      createdAtUtc: '2026-04-20T08:00:00Z',
+                    },
+                  ],
+                },
+                children: [],
+              },
+            ],
+          },
+          {
+            name: 'Sibling',
+            children: [],
+          },
+        ],
+      },
+    }, {
+      fileTimestampIso: '2026-04-20T08:00:00Z',
+    });
+    const branch = document.rootNode.children[0];
+    const leaf = branch.children[0];
+    const sibling = document.rootNode.children[1];
+
+    const result = applyMapMutation(document, {
+      type: 'deleteNode',
+      nodeId: branch.uniqueIdentifier,
+      timestamp: '2026-04-20T09:15:00Z',
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.value.selectedNodeId, document.rootNode.uniqueIdentifier);
+    assert.deepEqual(
+      result.value.deletedAttachments.map((attachment) => ({
+        nodeId: attachment.nodeId,
+        relativePath: attachment.relativePath,
+      })),
+      [
+        {
+          nodeId: branch.uniqueIdentifier,
+          relativePath: 'branch.png',
+        },
+        {
+          nodeId: leaf.uniqueIdentifier,
+          relativePath: 'leaf.png',
+        },
+      ],
+    );
+    assert.deepEqual(
+      document.rootNode.children.map((child) => child.uniqueIdentifier),
+      [sibling.uniqueIdentifier],
+    );
+  });
+});

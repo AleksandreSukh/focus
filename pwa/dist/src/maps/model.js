@@ -586,6 +586,7 @@ function deleteChildNode(document, mutation, timestamp) {
     return validationError('Node was not found in parent children.');
   }
 
+  const deletedAttachments = collectSubtreeAttachmentRefs(record.node);
   parent.children.splice(index, 1);
   renumberChildren(parent);
   touchMetadata(parent, timestamp);
@@ -596,6 +597,7 @@ function deleteChildNode(document, mutation, timestamp) {
     value: {
       affectedNodeId: parent.uniqueIdentifier,
       selectedNodeId: parent.uniqueIdentifier,
+      deletedAttachments,
     },
   };
 }
@@ -730,6 +732,50 @@ function traverseNode(node, parent, pathSegments, depth, visitor) {
   node.children.forEach((child) => {
     traverseNode(child, node, nextPath, depth + 1, visitor);
   });
+}
+
+function collectSubtreeAttachmentRefs(node) {
+  const deletedAttachments = [];
+
+  const visit = (currentNode) => {
+    if (!currentNode || typeof currentNode !== 'object') {
+      return;
+    }
+
+    const nodeId = typeof currentNode.uniqueIdentifier === 'string'
+      ? currentNode.uniqueIdentifier
+      : '';
+    const attachments = Array.isArray(currentNode.metadata?.attachments)
+      ? currentNode.metadata.attachments
+      : [];
+
+    attachments.forEach((attachment) => {
+      const relativePath = typeof attachment?.relativePath === 'string'
+        ? attachment.relativePath
+        : '';
+      if (!nodeId || !relativePath) {
+        return;
+      }
+
+      deletedAttachments.push({
+        nodeId,
+        attachmentId: typeof attachment?.id === 'string' ? attachment.id : '',
+        relativePath,
+        displayName: typeof attachment?.displayName === 'string' && attachment.displayName
+          ? attachment.displayName
+          : relativePath,
+      });
+    });
+
+    if (!Array.isArray(currentNode.children)) {
+      return;
+    }
+
+    currentNode.children.forEach(visit);
+  };
+
+  visit(node);
+  return deletedAttachments;
 }
 
 function subtreeHasDoneNode(node) {

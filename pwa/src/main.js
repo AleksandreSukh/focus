@@ -25,6 +25,7 @@ import {
 } from './settings/repoSettings.js';
 import { renderConnectionScreen } from './settings/ConnectionScreen.js';
 import { renderSettingsScreen } from './settings/SettingsScreen.js';
+import { loadImagePreview } from './attachments/imagePreview.js';
 import { GitHubMindMapProvider } from './maps/githubMindMapProvider.js';
 import {
   loadCachedMapSnapshots,
@@ -1314,12 +1315,7 @@ async function processPendingOperations() {
     render();
 
     const result = currentOperation.type === 'renameMap'
-      ? await state.service.renameMap(
-        currentOperation.filePath,
-        currentOperation.newFilePath,
-        currentOperation.oldRevision,
-        currentOperation.commitMessage,
-      )
+      ? await state.service.renameMap(currentOperation)
       : await state.service.applyMutation(
         currentOperation.filePath,
         currentOperation,
@@ -2022,6 +2018,18 @@ async function openImageViewerForAttachment(mapPath, nodeId, attachment, returnF
   }
 
   if (
+    !(
+      state.activeModal?.kind === 'imageViewer' &&
+      state.activeModal.mapPath === mapPath &&
+      state.activeModal.nodeId === nodeId &&
+      state.activeModal.attachmentId === attachment.id
+    )
+  ) {
+    return;
+  }
+
+  const preview = await loadImagePreview(result.value);
+  if (
     state.activeModal?.kind === 'imageViewer' &&
     state.activeModal.mapPath === mapPath &&
     state.activeModal.nodeId === nodeId &&
@@ -2030,10 +2038,18 @@ async function openImageViewerForAttachment(mapPath, nodeId, attachment, returnF
     state.activeModal = {
       ...state.activeModal,
       loading: false,
-      imageUrl: URL.createObjectURL(result.value),
+      imageUrl: preview.imageUrl,
+      errorMessage: preview.errorMessage,
     };
     render();
-    bindImageViewerDrag();
+    if (preview.ok) {
+      bindImageViewerDrag();
+    }
+    return;
+  }
+
+  if (preview.imageUrl) {
+    URL.revokeObjectURL(preview.imageUrl);
   }
 }
 

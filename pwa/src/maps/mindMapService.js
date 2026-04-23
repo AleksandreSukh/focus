@@ -190,27 +190,65 @@ export class MindMapService {
     return this.repository.deleteAttachment(mapFilePath, nodeId, relativePath, null, commitMessage);
   }
 
-  async renameMap(oldFilePath, newFilePath, oldRevision, commitMessage) {
-    const snapshot = this.snapshotsByPath.get(newFilePath)
-      ?? this.snapshotsByPath.get(oldFilePath);
+  async renameMap(operationOrOldFilePath, newFilePathArg, oldRevisionArg, commitMessageArg) {
+    const operation = normalizeRenameOperation(
+      operationOrOldFilePath,
+      newFilePathArg,
+      oldRevisionArg,
+      commitMessageArg,
+    );
+    const snapshot = this.snapshotsByPath.get(operation.newFilePath)
+      ?? this.snapshotsByPath.get(operation.filePath);
 
     if (!snapshot) {
       return {
         ok: false,
         error: {
           code: 'NOT_FOUND',
-          message: `Map "${oldFilePath}" is not loaded.`,
+          message: `Map "${operation.filePath}" is not loaded.`,
           retriable: false,
         },
       };
     }
 
+    let nextDocument = snapshot.document;
+    let mutation = null;
+    if (operation.nodeId && typeof operation.text === 'string') {
+      nextDocument = cloneMapDocument(snapshot.document);
+      const applied = applyMapMutation(nextDocument, {
+        type: 'editNodeText',
+        nodeId: operation.nodeId,
+        text: operation.text,
+        timestamp: operation.timestamp,
+      });
+      if (!applied.ok) {
+        return {
+          ok: false,
+          error: {
+            ...applied.error,
+            meta: {
+              filePath: operation.filePath,
+              mutation: {
+                type: 'editNodeText',
+                nodeId: operation.nodeId,
+                text: operation.text,
+                timestamp: operation.timestamp,
+              },
+              commitMessage: operation.commitMessage,
+            },
+          },
+        };
+      }
+
+      mutation = applied.value;
+    }
+
     const renamed = await this.repository.renameMap(
-      oldFilePath,
-      newFilePath,
-      snapshot.document,
-      oldRevision,
-      commitMessage,
+      operation.filePath,
+      operation.newFilePath,
+      nextDocument,
+      operation.oldRevision,
+      operation.commitMessage,
     );
 
     if (!renamed.ok) {
@@ -219,19 +257,20 @@ export class MindMapService {
 
     const newSnapshot = {
       ...snapshot,
-      filePath: newFilePath,
-      fileName: newFilePath.split('/').pop() || newFilePath,
-      mapName: (newFilePath.split('/').pop() || newFilePath).replace(/\.json$/i, ''),
+      filePath: operation.newFilePath,
+      fileName: operation.newFilePath.split('/').pop() || operation.newFilePath,
+      mapName: (operation.newFilePath.split('/').pop() || operation.newFilePath).replace(/\.json$/i, ''),
+      document: nextDocument,
       revision: renamed.revision,
       loadedAt: Date.now(),
     };
 
-    this.snapshotsByPath.delete(oldFilePath);
-    this.snapshotsByPath.set(newFilePath, newSnapshot);
+    this.snapshotsByPath.delete(operation.filePath);
+    this.snapshotsByPath.set(operation.newFilePath, newSnapshot);
 
     return {
       ok: true,
-      value: { snapshot: newSnapshot },
+      value: { snapshot: newSnapshot, mutation },
     };
   }
 
@@ -282,11 +321,13 @@ export class MindMapService {
       };
     }
 
-    const firstSave = await this.repository.saveMap(
+    const firstSave = await persistMutationAttempt(
+      this.repository,
       filePath,
       attemptedDocument,
       latest.value.revision,
       commitMessage,
+      applied.value,
     );
     if (firstSave.ok) {
       const snapshot = {
@@ -330,11 +371,13 @@ export class MindMapService {
       };
     }
 
-    const retrySave = await this.repository.saveMap(
+    const retrySave = await persistMutationAttempt(
+      this.repository,
       filePath,
       retriedDocument,
       refreshed.value.revision,
       commitMessage,
+      retriedApply.value,
     );
     if (!retrySave.ok) {
       return {
@@ -368,6 +411,71 @@ export class MindMapService {
       },
     };
   }
+}
+
+async function persistMutationAttempt(repository, filePath, document, revision, commitMessage, mutationResult) {
+  const deletedAttachments = getDeletedAttachments(mutationResult);
+  for (const attachment of deletedAttachments) {
+    const deleted = await repository.deleteAttachment(
+      filePath,
+      attachment.nodeId,
+      attachment.relativePath,
+      null,
+      commitMessage,
+    );
+    if (!deleted.ok) {
+      return deleted;
+    }
+  }
+
+  return repository.saveMap(filePath, document, revision, commitMessage);
+}
+
+function getDeletedAttachments(mutationResult) {
+  const deletedAttachments = Array.isArray(mutationResult?.deletedAttachments)
+    ? mutationResult.deletedAttachments
+    : [];
+  const seen = new Set();
+
+  return deletedAttachments.filter((attachment) => {
+    const nodeId = typeof attachment?.nodeId === 'string' ? attachment.nodeId : '';
+    const relativePath = typeof attachment?.relativePath === 'string' ? attachment.relativePath : '';
+    if (!nodeId || !relativePath) {
+      return false;
+    }
+
+    const key = `${nodeId}\u0000${relativePath}`;
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
+function normalizeRenameOperation(operationOrOldFilePath, newFilePath, oldRevision, commitMessage) {
+  if (operationOrOldFilePath && typeof operationOrOldFilePath === 'object') {
+    return {
+      filePath: String(operationOrOldFilePath.filePath ?? ''),
+      newFilePath: String(operationOrOldFilePath.newFilePath ?? ''),
+      oldRevision: String(operationOrOldFilePath.oldRevision ?? ''),
+      commitMessage: String(operationOrOldFilePath.commitMessage ?? ''),
+      nodeId: String(operationOrOldFilePath.nodeId ?? ''),
+      text: typeof operationOrOldFilePath.text === 'string' ? operationOrOldFilePath.text : '',
+      timestamp: typeof operationOrOldFilePath.timestamp === 'string' ? operationOrOldFilePath.timestamp : '',
+    };
+  }
+
+  return {
+    filePath: String(operationOrOldFilePath ?? ''),
+    newFilePath: String(newFilePath ?? ''),
+    oldRevision: String(oldRevision ?? ''),
+    commitMessage: String(commitMessage ?? ''),
+    nodeId: '',
+    text: '',
+    timestamp: '',
+  };
 }
 
 function createAttachmentId() {
