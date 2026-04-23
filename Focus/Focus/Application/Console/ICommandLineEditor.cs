@@ -22,5 +22,9 @@ public interface ICommandLineEditor
         Func<ConsoleKeyInfo, string, bool>? previewKeyHandler = null,
         ConsoleKeyInfo? initialKeyInfo = null);
 
+    string ReadMultiline(
+        string prompt,
+        string defaultInput = "");
+
     IReadOnlyList<string> GetHistory();
 }

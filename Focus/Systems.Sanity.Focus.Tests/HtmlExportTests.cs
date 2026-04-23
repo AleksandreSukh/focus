@@ -118,6 +118,19 @@ public class HtmlExportTests
     }
 
     [Fact]
+    public void Export_HtmlWithTextBlock_PreservesQuotedBlockBody()
+    {
+        var map = new MindMap("Root");
+        map.AddBlockAtCurrentNode("Block title\n\nBlock body");
+
+        var html = MapExportService.Export(map.RootNode, ExportFormat.Html);
+
+        Assert.Contains("<div class=\"node-text\">Block title</div>", html);
+        Assert.Contains("<blockquote class=\"node-block-quote\">Block title", html);
+        Assert.Contains("Block body", html);
+    }
+
+    [Fact]
     public void Export_HtmlUnderHideDoneAncestor_SkipsDoneDescendants()
     {
         var map = new MindMap("Root");

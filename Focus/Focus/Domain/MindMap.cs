@@ -4,7 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json;
-using Systems.Sanity.Focus.Pages.Shared.DialogHelpers;
+using Systems.Sanity.Focus.DomainServices;
 
 namespace Systems.Sanity.Focus.Domain
 {
@@ -56,6 +56,16 @@ namespace Systems.Sanity.Focus.Domain
             string? device = null)
         {
             var node = _currentNode.Add(input, NodeType.IdeaBagItem, source, device);
+            TouchMapTimestamp();
+            return node;
+        }
+
+        public Node AddBlockAtCurrentNode(
+            string input,
+            string source = NodeMetadataSources.Manual,
+            string? device = null)
+        {
+            var node = _currentNode.Add(input, NodeType.TextBlockItem, source, device);
             TouchMapTimestamp();
             return node;
         }
@@ -171,12 +181,13 @@ namespace Systems.Sanity.Focus.Domain
         public Dictionary<int, string> GetChildren()
         {
             _currentNode.RenumberChildNodes();
-            return _currentNode.Children.ToDictionary(node => node.Number, node => node.Name);
+            return GetSelectableChildren(_currentNode.Children)
+                .ToDictionary(node => node.Number, node => NodeDisplayHelper.GetSingleLinePreview(node.Name));
         }
 
         public Node GetCurrentNode() => _currentNode;
 
-        public string GetCurrentNodeContentPeek() => _currentNode.Name.GetContentPeek();
+        public string GetCurrentNodeContentPeek() => NodeDisplayHelper.GetContentPeek(_currentNode.Name);
 
         public Guid? GetCurrentNodeIdentifier() => _currentNode.UniqueIdentifier;
 
@@ -187,7 +198,9 @@ namespace Systems.Sanity.Focus.Domain
         public string GetNodeContentPeekByIdentifier(string identifier)
         {
             var node = FindNode(identifier);
-            return node?.Name.GetContentPeek() ?? string.Empty;
+            return node == null
+                ? string.Empty
+                : NodeDisplayHelper.GetContentPeek(node.Name);
         }
 
         public bool GoToRoot()
@@ -396,7 +409,7 @@ namespace Systems.Sanity.Focus.Domain
 
         private Node? FindNode(string parameter)
         {
-            var currentNodes = _currentNode.Children;
+            var currentNodes = GetSelectableChildren(_currentNode.Children);
 
             if (int.TryParse(parameter, out var nodeNumber))
             {
@@ -412,8 +425,12 @@ namespace Systems.Sanity.Focus.Domain
             }
 
             return currentNodes.FirstOrDefault(node =>
-                node.Name.StartsWith(parameter, StringComparison.InvariantCultureIgnoreCase));
+                NodeDisplayHelper.GetSingleLinePreview(node.Name)
+                    .StartsWith(parameter, StringComparison.InvariantCultureIgnoreCase));
         }
+
+        private static IEnumerable<Node> GetSelectableChildren(IEnumerable<Node> children) =>
+            children.Where(node => node.NodeType != NodeType.IdeaBagItem);
 
         private static Node? FindNodeById(Node currentNode, Guid nodeIdentifier)
         {

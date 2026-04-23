@@ -61,7 +61,8 @@ public class Node
         string source = NodeMetadataSources.Manual,
         string? device = null)
     {
-        var number = Children.Count(node => node.NodeType == nodeType) + 1;
+        var numberingGroup = GetNumberingGroup(nodeType);
+        var number = Children.Count(node => GetNumberingGroup(node.NodeType) == numberingGroup) + 1;
         var childNode = new Node(input, nodeType, number);
         childNode.Metadata = NodeMetadata.Create(source, device ?? Environment.MachineName);
         AddNode(childNode);
@@ -100,11 +101,8 @@ public class Node
 
     public void RenumberChildNodes()
     {
-        var childNodes = Children.OrderBy(childNode => childNode.Number).ToArray();
-        for (var index = 0; index < childNodes.Length; index++)
-        {
-            childNodes[index].Number = index + 1;
-        }
+        RenumberChildNodes(GetNumberingGroup(NodeType.TextItem));
+        RenumberChildNodes(GetNumberingGroup(NodeType.IdeaBagItem));
     }
 
     public bool RemoveDeadLinks(ISet<Guid> liveNodeIds)
@@ -192,6 +190,24 @@ public class Node
             .Where(character => !char.IsControl(character) || character == '\r' || character == '\n' || character == '\t')
             .ToArray());
     }
+
+    private void RenumberChildNodes(NodeType numberingGroup)
+    {
+        var childNodes = Children
+            .Where(childNode => GetNumberingGroup(childNode.NodeType) == numberingGroup)
+            .OrderBy(childNode => childNode.Number)
+            .ToArray();
+
+        for (var index = 0; index < childNodes.Length; index++)
+        {
+            childNodes[index].Number = index + 1;
+        }
+    }
+
+    private static NodeType GetNumberingGroup(NodeType nodeType) =>
+        nodeType == NodeType.IdeaBagItem
+            ? NodeType.IdeaBagItem
+            : NodeType.TextItem;
 }
 
 public static class NodeMetadataSources
@@ -205,7 +221,8 @@ public static class NodeMetadataSources
 public enum NodeType
 {
     TextItem,
-    IdeaBagItem
+    IdeaBagItem,
+    TextBlockItem
 }
 
 public record Link(

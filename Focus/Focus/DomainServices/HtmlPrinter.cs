@@ -34,6 +34,7 @@ internal static class HtmlPrinter
         AppendLine(sb, 1, "<body>");
         AppendLine(sb, 2, "<article class=\"mindmap-export\">");
         AppendLine(sb, 3, $"<h1>{HtmlInlineFormatter.ToHtml(NodeExportHelpers.FormatNodeName(node))}</h1>");
+        AppendBlockBody(node, sb, indentationLevel: 3);
         AppendAttachments(node, sb, options, indentationLevel: 3);
 
         var visibleChildren = NodeExportHelpers.GetVisibleChildren(node, ancestorHidesDone).ToArray();
@@ -65,6 +66,7 @@ internal static class HtmlPrinter
         AppendLine(sb, indentationLevel, "<li>");
         AppendLine(sb, indentationLevel + 1, "<div class=\"node-content\">");
         AppendLine(sb, indentationLevel + 2, $"<div class=\"node-text\">{HtmlInlineFormatter.ToHtml(NodeExportHelpers.FormatNodeName(node))}</div>");
+        AppendBlockBody(node, sb, indentationLevel + 2);
         AppendAttachments(node, sb, options, indentationLevel + 2);
 
         var visibleChildren = NodeExportHelpers.GetVisibleChildren(node, ancestorHidesDone).ToArray();
@@ -97,6 +99,17 @@ internal static class HtmlPrinter
         }
 
         AppendLine(sb, indentationLevel, "</div>");
+    }
+
+    private static void AppendBlockBody(Node node, StringBuilder sb, int indentationLevel)
+    {
+        if (node.NodeType != NodeType.TextBlockItem)
+            return;
+
+        AppendLine(
+            sb,
+            indentationLevel,
+            $"<blockquote class=\"node-block-quote\">{WebUtility.HtmlEncode(node.Name ?? string.Empty)}</blockquote>");
     }
 
     private static void AppendAttachment(AttachmentExportItem attachment, StringBuilder sb, int indentationLevel)
@@ -149,6 +162,12 @@ internal static class HtmlPrinter
         AppendLine(sb, 3, "li { margin: 0.4rem 0; }");
         AppendLine(sb, 3, ".node-content { max-width: 100%; }");
         AppendLine(sb, 3, ".node-text { min-width: 0; }");
+        AppendLine(
+            sb,
+            3,
+            useBlackBackground
+                ? ".node-block-quote { margin: 0.55rem 0 0; padding: 0.7rem 0.95rem; border-left: 3px solid #475569; background: rgba(148, 163, 184, 0.12); border-radius: 0.6rem; white-space: pre-wrap; }"
+                : ".node-block-quote { margin: 0.55rem 0 0; padding: 0.7rem 0.95rem; border-left: 3px solid #cbd5e1; background: #f8fafc; border-radius: 0.6rem; white-space: pre-wrap; }");
         AppendLine(sb, 3, ".node-attachments { margin-top: 0.55rem; }");
         AppendLine(
             sb,

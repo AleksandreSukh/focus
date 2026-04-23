@@ -82,6 +82,19 @@ public class MarkdownExportTests
     }
 
     [Fact]
+    public void Export_MarkdownWithTextBlock_PreservesQuotedBlockBody()
+    {
+        var map = new MindMap("Root");
+        map.AddBlockAtCurrentNode("Block title\n\nBlock body");
+
+        var markdown = MapExportService.Export(map.RootNode, ExportFormat.Markdown);
+
+        Assert.Contains("1. Block title", markdown);
+        Assert.Contains("    > Block title", markdown);
+        Assert.Contains("    > Block body", markdown);
+    }
+
+    [Fact]
     public void Export_MarkdownUnderHideDoneAncestor_SkipsDoneDescendants()
     {
         var map = new MindMap("Root");

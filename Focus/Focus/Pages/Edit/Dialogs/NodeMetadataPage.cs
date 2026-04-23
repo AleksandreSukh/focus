@@ -4,6 +4,7 @@ using System;
 using System.Text;
 using Systems.Sanity.Focus.Application;
 using Systems.Sanity.Focus.Domain;
+using Systems.Sanity.Focus.DomainServices;
 using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Pages.Shared;
 using Systems.Sanity.Focus.Pages.Shared.Dialogs;
@@ -36,7 +37,7 @@ internal sealed class NodeMetadataPage : Page
         builder.AppendLine();
         builder.AppendLineCentered($"*** {_title} ***");
         builder.AppendLine();
-        builder.AppendLine($"Node: {_node.Name}");
+        builder.AppendLine($"Node: {NodeDisplayHelper.GetSingleLinePreview(_node.Name)}");
 
         if (metadata == null)
         {

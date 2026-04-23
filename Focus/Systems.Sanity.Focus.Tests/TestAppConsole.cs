@@ -154,6 +154,14 @@ internal sealed class ScriptedCommandLineEditor : ICommandLineEditor
             : string.Empty;
     }
 
+    public string ReadMultiline(string prompt, string defaultInput = "")
+    {
+        return MultilineInputCollector.Read(
+            linePrompt => Read(linePrompt),
+            prompt,
+            defaultInput);
+    }
+
     public IReadOnlyList<string> GetHistory() => Array.Empty<string>();
 }
 
@@ -192,6 +200,15 @@ internal sealed class PreviewKeyCommandLineEditor : ICommandLineEditor
     {
         PreviewKeyHandled = previewKeyHandler?.Invoke(_previewKeyInfo, _currentText) == true;
         return _input;
+    }
+
+    public string ReadMultiline(string prompt, string defaultInput = "")
+    {
+        PreviewKeyHandled = false;
+        return MultilineInputCollector.Read(
+            linePrompt => Read(linePrompt),
+            prompt,
+            defaultInput);
     }
 
     public IReadOnlyList<string> GetHistory() => Array.Empty<string>();
@@ -297,6 +314,14 @@ internal sealed class InitialKeyAwareCommandLineEditor : ICommandLineEditor
             : typedSuffix;
     }
 
+    public string ReadMultiline(string prompt, string defaultInput = "")
+    {
+        return MultilineInputCollector.Read(
+            linePrompt => Read(linePrompt),
+            prompt,
+            defaultInput);
+    }
+
     public IReadOnlyList<string> GetHistory() => Array.Empty<string>();
 }
 
@@ -335,6 +360,14 @@ internal sealed class ThrowingCommandLineEditor : ICommandLineEditor
             throw exception;
 
         return next as string ?? string.Empty;
+    }
+
+    public string ReadMultiline(string prompt, string defaultInput = "")
+    {
+        return MultilineInputCollector.Read(
+            linePrompt => Read(linePrompt),
+            prompt,
+            defaultInput);
     }
 
     public IReadOnlyList<string> GetHistory() => Array.Empty<string>();

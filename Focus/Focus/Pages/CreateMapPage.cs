@@ -16,7 +16,7 @@ internal sealed class CreateMapPage : Page
     public CreateMapPage(FocusAppContext appContext, string fileName, MindMap mindMap, string? sourceMapFilePath = null)
     {
         _appContext = appContext;
-        _fileName = fileName.Trim().Trim('\0');
+        _fileName = MapFileHelper.SanitizeFileName(fileName.Trim().Trim('\0'));
         _mindMap = mindMap;
     }
 

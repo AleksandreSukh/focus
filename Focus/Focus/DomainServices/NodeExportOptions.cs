@@ -26,10 +26,11 @@ internal static class NodeExportHelpers
 
     public static string NormalizeNodeName(string nodeName)
     {
-        if (string.IsNullOrWhiteSpace(nodeName))
+        var preview = NodeDisplayHelper.GetSingleLinePreview(nodeName);
+        if (string.IsNullOrWhiteSpace(preview))
             return UntitledNodeName;
 
-        return nodeName.ReplaceLineEndings(" ").Trim();
+        return preview;
     }
 
     public static string FormatNodeName(Node node) =>

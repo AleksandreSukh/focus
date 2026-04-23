@@ -33,6 +33,14 @@ internal sealed class ReadLineCommandLineEditor : ICommandLineEditor
             initialKeyInfo);
     }
 
+    public string ReadMultiline(string prompt, string defaultInput = "")
+    {
+        return MultilineInputCollector.Read(
+            linePrompt => ReadLine.Read(linePrompt),
+            prompt,
+            defaultInput);
+    }
+
     public void WriteInterleavedMessage(string text)
     {
         ReadLine.WriteInterleavedMessage(text);

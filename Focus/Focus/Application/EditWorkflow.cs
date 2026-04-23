@@ -22,6 +22,7 @@ namespace Systems.Sanity.Focus.Application;
 internal sealed class EditWorkflow
 {
     private const string AddOption = "add";
+    private const string AddBlockOption = "addblock";
     private const string AddIdeaOption = "idea";
     private const string ClearIdeasOption = "clearideas";
     private const string SliceOption = "slice";
@@ -116,7 +117,7 @@ internal sealed class EditWorkflow
         if (_appContext.LinkIndex.HasQueuedLinkSources)
         {
             screenBuilder.Append(
-                $":Nodes to be linked> {string.Join("; ", _appContext.LinkIndex.QueuedLinkSources.Select(node => node.Name))}{Environment.NewLine}");
+                $":Nodes to be linked> {string.Join("; ", _appContext.LinkIndex.QueuedLinkSources.Select(node => NodeDisplayHelper.GetSingleLinePreview(node.Name)))}{Environment.NewLine}");
         }
 
         screenBuilder.Append(BuildCurrentAttachmentSummary());
@@ -155,6 +156,7 @@ internal sealed class EditWorkflow
         helpGroups.Add(new CommandHelpGroup("Edit", new[]
         {
             AddOption,
+            AddBlockOption,
             AddIdeaOption,
             $"{EditOption} [child]",
             $"{DelOption} [child]",
@@ -239,6 +241,7 @@ internal sealed class EditWorkflow
                 ExitOption => CommandExecutionResult.ExitCommand,
                 EditOption => ProcessEdit(parameters),
                 AddOption => ProcessAdd(),
+                AddBlockOption => ProcessAddBlock(),
                 AddIdeaOption => ProcessAddIdea(parameters),
                 ClearIdeasOption => ProcessClearIdeas(parameters),
                 SliceOption => ProcessSlice(parameters),
@@ -328,6 +331,7 @@ internal sealed class EditWorkflow
         return new[]
             {
                 AddOption,
+                AddBlockOption,
                 AddIdeaOption,
                 ClearIdeasOption,
                 SliceOption,
@@ -374,6 +378,15 @@ internal sealed class EditWorkflow
         addNoteDialog.Show();
         return addNoteDialog.DidAddNodes
             ? PersistMapChange("Add note")
+            : CommandExecutionResult.Success();
+    }
+
+    private CommandExecutionResult ProcessAddBlock()
+    {
+        var addBlockDialog = new AddBlockDialog(_map);
+        addBlockDialog.Show();
+        return addBlockDialog.DidAddBlock
+            ? PersistMapChange("Add block")
             : CommandExecutionResult.Success();
     }
 
@@ -543,9 +556,21 @@ internal sealed class EditWorkflow
 
     private CommandExecutionResult ProcessEdit(string parameters)
     {
-        var editDialog = new EditDialog(_map, parameters);
-        editDialog.Show();
-        if (!editDialog.DidEdit)
+        var didEdit = false;
+        if (_map.GetCurrentNode().NodeType == NodeType.TextBlockItem)
+        {
+            var editBlockDialog = new EditBlockDialog(_map);
+            editBlockDialog.Show();
+            didEdit = editBlockDialog.DidEdit;
+        }
+        else
+        {
+            var editDialog = new EditDialog(_map, parameters);
+            editDialog.Show();
+            didEdit = editDialog.DidEdit;
+        }
+
+        if (!didEdit)
             return CommandExecutionResult.Success();
 
         if (_map.IsAtRootNode())
@@ -676,7 +701,7 @@ internal sealed class EditWorkflow
 
                 return PersistMapChange(
                     "Capture clipboard",
-                    message: $"Captured clipboard image into \"{currentNode.Name.GetContentPeek()}\"");
+                    message: $"Captured clipboard image into \"{NodeDisplayHelper.GetContentPeek(currentNode.Name)}\"");
             }
 
             var capturedAtUtc = DateTimeOffset.UtcNow;
@@ -691,7 +716,7 @@ internal sealed class EditWorkflow
 
             return PersistMapChange(
                 "Capture clipboard",
-                message: $"Captured clipboard text into \"{currentNode.Name.GetContentPeek()}\"");
+                message: $"Captured clipboard text into \"{NodeDisplayHelper.GetContentPeek(currentNode.Name)}\"");
         }
         catch (Exception ex)
         {
@@ -799,7 +824,7 @@ internal sealed class EditWorkflow
             return CommandExecutionResult.Error("Cancelled!");
 
         if (!new Confirmation(
-                $"Link \"{nodeToLinkFrom.Name}\" to \"{targetNodePeek}\" as \"{selectedRelationType.Value.ToDisplayString()}\"?")
+                $"Link \"{NodeDisplayHelper.GetSingleLinePreview(nodeToLinkFrom.Name)}\" to \"{targetNodePeek}\" as \"{selectedRelationType.Value.ToDisplayString()}\"?")
             .Confirmed())
         {
             return CommandExecutionResult.Error("Cancelled!");
@@ -885,7 +910,7 @@ internal sealed class EditWorkflow
             return CommandExecutionResult.Error(errorMessage!);
 
         var resolvedNode = node!;
-        new NodeMetadataPage(resolvedNode, $"Metadata for {resolvedNode.Name.GetContentPeek()}").Show();
+        new NodeMetadataPage(resolvedNode, $"Metadata for {NodeDisplayHelper.GetContentPeek(resolvedNode.Name)}").Show();
         return CommandExecutionResult.Success();
     }
 

@@ -67,13 +67,13 @@ internal sealed class LinkNavigationService
         mapFilePath ??= string.Empty;
 
         var mapName = string.IsNullOrWhiteSpace(mapFilePath)
-            ? linkedNode.Name
+            ? NodeDisplayHelper.GetSingleLinePreview(linkedNode.Name)
             : Path.GetFileNameWithoutExtension(mapFilePath);
         var nodePathSegments = NodeDisplayHelper.BuildNodePathSegments(linkedNode);
 
         return new NodeSearchResult(
             nodeIdentifier,
-            linkedNode.Name,
+            NodeDisplayHelper.GetSingleLinePreview(linkedNode.Name),
             string.Join(" > ", nodePathSegments),
             mapFilePath,
             mapName,

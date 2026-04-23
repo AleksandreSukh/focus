@@ -43,6 +43,23 @@ public class MindMapTests
     }
 
     [Fact]
+    public void GetChildren_UsesSharedSelectorsForTextAndBlockNodes_AndSkipsIdeaTags()
+    {
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("Task");
+        map.AddIdeaAtCurrentNode("Idea");
+        map.AddBlockAtCurrentNode("Block title\nBlock body");
+
+        var children = map.GetChildren();
+
+        Assert.Equal(2, children.Count);
+        Assert.Equal("Task", children[1]);
+        Assert.Equal("Block title", children[2]);
+        Assert.False(map.HasNode("Idea"));
+        Assert.True(map.HasNode("2"));
+    }
+
+    [Fact]
     public void DetachCurrentNodeAsNewMap_ReturnsDetachedMapAndMovesCurrentNodeBackToParent()
     {
         var map = new MindMap("Root");

@@ -24,6 +24,7 @@ public class MapFileHelper
         if (string.IsNullOrWhiteSpace(fileName))
             return fallbackFileName;
 
+        fileName = NodeDisplayHelper.GetSingleLinePreview(fileName);
         fileName = PlainTextInlineFormatter.ToPlainText(fileName);
         if (string.IsNullOrWhiteSpace(fileName))
             return fallbackFileName;

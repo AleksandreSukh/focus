@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Systems.Sanity.Focus.Domain;
 
 namespace Systems.Sanity.Focus.DomainServices;
@@ -6,7 +7,7 @@ namespace Systems.Sanity.Focus.DomainServices;
 internal static class NodeDisplayHelper
 {
     public static string BuildDisplayName(Node node) =>
-        PrefixTaskMarker(node.Name, node.TaskState);
+        PrefixTaskMarker(GetSingleLinePreview(node.Name), node.TaskState);
 
     public static string BuildNodePath(Node node) =>
         string.Join(" > ", BuildNodePathSegments(node));
@@ -17,9 +18,10 @@ internal static class NodeDisplayHelper
         var currentNode = node;
         while (currentNode != null)
         {
-            if (!string.IsNullOrWhiteSpace(currentNode.Name))
+            var displaySegment = GetSingleLinePreview(currentNode.Name);
+            if (!string.IsNullOrWhiteSpace(displaySegment))
             {
-                pathSegments.Push(currentNode.Name);
+                pathSegments.Push(displaySegment);
             }
 
             currentNode = currentNode.GetParent();
@@ -43,4 +45,29 @@ internal static class NodeDisplayHelper
 
     public static string PrefixTaskMarker(string text, TaskState taskState) =>
         taskState.WithDisplayMarker(text);
+
+    public static string GetSingleLinePreview(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return string.Empty;
+
+        var lines = NormalizeLineEndings(text).Split('\n');
+        var firstNonEmptyLine = lines.FirstOrDefault(line => !string.IsNullOrWhiteSpace(line));
+        return firstNonEmptyLine?.Trim() ?? string.Empty;
+    }
+
+    public static string GetContentPeek(string? text, int maxLength = 32)
+    {
+        var preview = GetSingleLinePreview(text);
+        if (preview.Length <= maxLength)
+            return preview;
+
+        return $"{preview[..maxLength]}...";
+    }
+
+    public static string[] GetMultilineLines(string? text) =>
+        NormalizeLineEndings(text).Split('\n');
+
+    private static string NormalizeLineEndings(string? text) =>
+        (text ?? string.Empty).ReplaceLineEndings("\n");
 }

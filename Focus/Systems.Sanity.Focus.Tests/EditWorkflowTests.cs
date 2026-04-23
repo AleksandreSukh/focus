@@ -63,6 +63,88 @@ public class EditWorkflowTests
     }
 
     [Fact]
+    public void Execute_AddBlock_CreatesMultilineTextBlockNode()
+    {
+        using var workspace = new TestWorkspace();
+        var filePath = workspace.SaveMap("workflow-map", new MindMap("Root"));
+        using var consoleScope = new AppConsoleScope(new ScriptedConsoleSession("First line", "", "Second line", "", ""));
+
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+        var result = workflow.Execute(new ConsoleInput("addblock"));
+        workflow.Save(result.SyncCommitMessage!);
+        var reopened = workspace.MapsStorage.OpenMap(filePath);
+        var blockNode = Assert.Single(reopened.RootNode.Children);
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.ShouldPersist);
+        Assert.Equal("Add block in workflow-map", result.SyncCommitMessage);
+        Assert.Equal(NodeType.TextBlockItem, blockNode.NodeType);
+        Assert.Equal("First line\n\nSecond line", blockNode.Name.ReplaceLineEndings("\n"));
+    }
+
+    [Fact]
+    public void Execute_AddBlock_WithImmediateDoubleEnter_DoesNotCreateNode()
+    {
+        using var workspace = new TestWorkspace();
+        var filePath = workspace.SaveMap("workflow-map", new MindMap("Root"));
+        using var consoleScope = new AppConsoleScope(new ScriptedConsoleSession("", ""));
+
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+        var result = workflow.Execute(new ConsoleInput("addblock"));
+        var reopened = workspace.MapsStorage.OpenMap(filePath);
+
+        Assert.True(result.IsSuccess);
+        Assert.False(result.ShouldPersist);
+        Assert.Empty(reopened.RootNode.Children);
+    }
+
+    [Fact]
+    public void Execute_Edit_OnTextBlockNode_UpdatesMultilineContent()
+    {
+        using var workspace = new TestWorkspace();
+        var map = new MindMap("Root");
+        map.AddBlockAtCurrentNode("Old line");
+        var filePath = workspace.SaveMap("workflow-map", map);
+        using var consoleScope = new AppConsoleScope(new ScriptedConsoleSession("Updated line 1", "", "Updated line 2", "", ""));
+
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+        Assert.True(workflow.Execute(new ConsoleInput("cd 1")).IsSuccess);
+
+        var result = workflow.Execute(new ConsoleInput("edit"));
+        workflow.Save(result.SyncCommitMessage!);
+        var reopened = workspace.MapsStorage.OpenMap(filePath);
+        var blockNode = Assert.Single(reopened.RootNode.Children);
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.ShouldPersist);
+        Assert.Equal("Edit node in workflow-map", result.SyncCommitMessage);
+        Assert.Equal(NodeType.TextBlockItem, blockNode.NodeType);
+        Assert.Equal("Updated line 1\n\nUpdated line 2", blockNode.Name.ReplaceLineEndings("\n"));
+    }
+
+    [Fact]
+    public void Execute_Edit_OnRootTextBlock_RenamesFileUsingFirstLinePreview()
+    {
+        using var workspace = new TestWorkspace();
+        var map = new MindMap(new Node("Old title\nOld body", NodeType.TextBlockItem, 1));
+        var filePath = workspace.SaveMap("old-title", map);
+        using var consoleScope = new AppConsoleScope(new ScriptedConsoleSession("New title", "", "New body", "", ""));
+
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+        var result = workflow.Execute(new ConsoleInput("edit"));
+        workflow.Save(result.SyncCommitMessage!);
+
+        var renamedFilePath = Path.Combine(workspace.MapsStorage.UserMindMapsDirectory, "New title.json");
+        var renamedMap = workspace.MapsStorage.OpenMap(renamedFilePath);
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.ShouldPersist);
+        Assert.False(File.Exists(filePath));
+        Assert.True(File.Exists(renamedFilePath));
+        Assert.Equal("New title\n\nNew body", renamedMap.RootNode.Name.ReplaceLineEndings("\n"));
+    }
+
+    [Fact]
     public void Execute_LinkFrom_QueuesLinkSource()
     {
         using var workspace = new TestWorkspace();
@@ -338,8 +420,25 @@ public class EditWorkflowTests
         Assert.DoesNotContain("...", goToLine);
         Assert.Contains(ColorLabel("To Do"), screen);
         Assert.Contains(ColorLabel("Navigate"), screen);
+        Assert.Contains("addblock", screen);
         Assert.Contains("hidedone [child]", screen);
         Assert.Contains("showdone [child]", screen);
+    }
+
+    [Fact]
+    public void BuildScreen_RendersTextBlocksAsQuotedBlocks()
+    {
+        using var workspace = new TestWorkspace();
+        var map = new MindMap("Root");
+        map.AddBlockAtCurrentNode("Block title\n\nBlock body");
+        var filePath = workspace.SaveMap("workflow-map", map);
+
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+        var screen = workflow.BuildScreen();
+
+        Assert.Contains("[block] Block title", screen);
+        Assert.Contains("> Block title", screen);
+        Assert.Contains("> Block body", screen);
     }
 
     [Fact]

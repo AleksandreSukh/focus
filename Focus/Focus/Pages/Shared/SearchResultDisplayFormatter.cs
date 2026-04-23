@@ -71,12 +71,13 @@ internal static class SearchResultDisplayFormatter
 
         for (var index = 0; index < nodePathSegments.Count; index++)
         {
+            var nodePathSegment = NodeDisplayHelper.GetSingleLinePreview(nodePathSegments[index]);
             var isAncestorSegment = index < nodePathSegments.Count - 1;
             var baseColor = options.ColorizeAncestorPath && isAncestorSegment
                 ? ConsoleColor.Yellow
                 : (ConsoleColor?)null;
 
-            AppendHighlightedText(builder, nodePathSegments[index], baseColor, highlightTerms);
+            AppendHighlightedText(builder, nodePathSegment, baseColor, highlightTerms);
 
             if (!isAncestorSegment)
                 continue;
@@ -90,8 +91,11 @@ internal static class SearchResultDisplayFormatter
 
     private static IReadOnlyList<string> GetFallbackNodePathSegments(NodeSearchResult result) =>
         string.IsNullOrWhiteSpace(result.NodePath)
-            ? new[] { result.NodeName }
-            : result.NodePath.Split(" > ", StringSplitOptions.None);
+            ? new[] { NodeDisplayHelper.GetSingleLinePreview(result.NodeName) }
+            : result.NodePath
+                .Split(" > ", StringSplitOptions.None)
+                .Select(NodeDisplayHelper.GetSingleLinePreview)
+                .ToArray();
 
     private static string[] NormalizeHighlightTerms(IReadOnlyList<string> highlightTerms) =>
         highlightTerms

@@ -40,7 +40,7 @@ internal static class MindMapSearchService
 
         return new NodeSearchResult(
             node.UniqueIdentifier.Value,
-            node.Name,
+            NodeDisplayHelper.GetSingleLinePreview(node.Name),
             nodePath,
             mapFilePath,
             mapName,

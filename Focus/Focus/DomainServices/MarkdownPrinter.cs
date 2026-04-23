@@ -13,18 +13,23 @@ namespace Systems.Sanity.Focus.DomainServices
         {
             options ??= new NodeExportOptions();
             var ancestorHidesDone = NodeBranchVisibility.HasHideDoneAncestor(node);
+            var hasRootBlockBody = node.NodeType == NodeType.TextBlockItem;
 
             sb.Append("# ");
             sb.AppendLine(FormatNodeName(node));
 
             var rootAttachments = NodeExportHelpers.GetAttachments(node, options);
             var visibleChildren = NodeExportHelpers.GetVisibleChildren(node, ancestorHidesDone).ToArray();
-            if (!rootAttachments.Any() && !visibleChildren.Any())
+            if (!hasRootBlockBody && !rootAttachments.Any() && !visibleChildren.Any())
                 return;
 
             sb.AppendLine();
+            AppendBlockBody(node, level: 0, sb, isRoot: true);
+            if (hasRootBlockBody && (rootAttachments.Any() || visibleChildren.Any()))
+                sb.AppendLine();
+
             AppendAttachments(node, rootAttachments, level: 0, sb, options, isRoot: true);
-            if (rootAttachments.Any() && visibleChildren.Any())
+            if ((hasRootBlockBody || rootAttachments.Any()) && visibleChildren.Any())
                 sb.AppendLine();
 
             if (!visibleChildren.Any())
@@ -65,6 +70,7 @@ namespace Systems.Sanity.Focus.DomainServices
             sb.Append(prefix);
             sb.AppendLine(FormatNodeName(node));
 
+            AppendBlockBody(node, level, sb, isRoot: false);
             AppendAttachments(node, NodeExportHelpers.GetAttachments(node, options), level, sb, options, isRoot: false);
 
             var visibleChildren = NodeExportHelpers.GetVisibleChildren(node, ancestorHidesDone).ToArray();
@@ -112,6 +118,14 @@ namespace Systems.Sanity.Focus.DomainServices
                     AppendIndentedLine(BuildMarkdownLink(attachment), level, sb, isRoot);
                     break;
             }
+        }
+
+        private static void AppendBlockBody(Node node, int level, StringBuilder sb, bool isRoot)
+        {
+            if (node.NodeType != NodeType.TextBlockItem)
+                return;
+
+            AppendQuotedText(node.Name, level, sb, isRoot);
         }
 
         private static void AppendQuotedText(string text, int level, StringBuilder sb, bool isRoot)

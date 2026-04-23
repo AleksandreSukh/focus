@@ -55,7 +55,7 @@ internal static class TaskQueryService
 
         return new NodeSearchResult(
             node.UniqueIdentifier!.Value,
-            node.Name,
+            NodeDisplayHelper.GetSingleLinePreview(node.Name),
             string.Join(" > ", nodePathSegments),
             mapFilePath,
             mapName,

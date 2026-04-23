@@ -154,6 +154,14 @@ internal sealed class TestHostConsoleSession : IConsoleAppSession
             }
         }
 
+        public string ReadMultiline(string prompt, string defaultInput = "")
+        {
+            return MultilineInputCollector.Read(
+                linePrompt => Read(linePrompt),
+                prompt,
+                defaultInput);
+        }
+
         public IReadOnlyList<string> GetHistory() => _history;
 
         private static ConsoleKeyInfo ToConsoleKeyInfo(TestHostResponseMessage response)

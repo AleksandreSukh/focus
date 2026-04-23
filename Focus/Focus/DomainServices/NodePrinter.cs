@@ -34,9 +34,13 @@ internal static class NodePrinter
 
         var numberString = isTopLevel
             ? $"-> [{ConfigurationConstants.CommandColor}]{AccessibleKeyNumbering.GetStringFor(node.Number)}[!]/[{ConfigurationConstants.CommandColor}]{node.Number}[!]. "
-            : isEvenLevel ? "* " : "• ";
+            : isEvenLevel ? "* " : "\u2022 ";
+        var detailIndent = indent + new string(' ', numberString.Length);
 
         var content = new StringBuilder(numberString);
+        if (node.NodeType == NodeType.TextBlockItem)
+            content.Append("[block] ");
+
         content.Append(NodeDisplayHelper.BuildDisplayName(node));
 
         if (node.IsCollapsed() && level > 0)
@@ -45,12 +49,13 @@ internal static class NodePrinter
         }
 
         var linkPeekLength = level == 0 ? 120 : 12;
-        PrintLinks(node, linkIndex, indent + new string(' ', numberString.Length), sb, maxWidth, linkPeekLength);
-        PrintBacklinks(node, linkIndex, indent + new string(' ', numberString.Length), sb, maxWidth);
-        PrintIdeaTags(node, indent + new string(' ', numberString.Length), sb, maxWidth);
+        PrintLinks(node, linkIndex, detailIndent, sb, maxWidth, linkPeekLength);
+        PrintBacklinks(node, linkIndex, detailIndent, sb, maxWidth);
+        PrintIdeaTags(node, detailIndent, sb, maxWidth);
 
         var nodeToPrint = content.ToString();
         PrintWithIndentation(nodeToPrint, indent, sb, maxWidth);
+        PrintBlockBody(node, detailIndent, sb, maxWidth);
 
         if (isEndOfBranch)
             sb.AppendLine(ConfigurationConstants.NodePrinting.LeftBorderAtTheEndOfBranch);
@@ -70,9 +75,7 @@ internal static class NodePrinter
     private static void PrintLinks(Node node, ILinkIndex? linkIndex, string indent, StringBuilder sb, int maxWidth, int peekLength = 12)
     {
         static string GetShortPeek(string nodeName, int peekContentLength) =>
-            nodeName.Length <= peekContentLength
-                ? nodeName
-                : nodeName.Substring(0, peekContentLength) + "...";
+            NodeDisplayHelper.GetContentPeek(nodeName, peekContentLength);
 
         if (!node.Links.Any())
             return;
@@ -119,6 +122,17 @@ internal static class NodePrinter
         PrintWithIndentation(backlinksStringBuilder.ToString(), indent, sb, maxWidth);
     }
 
+    private static void PrintBlockBody(Node node, string indent, StringBuilder sb, int maxWidth)
+    {
+        if (node.NodeType != NodeType.TextBlockItem)
+            return;
+
+        foreach (var line in NodeDisplayHelper.GetMultilineLines(node.Name))
+        {
+            PrintWithIndentation($"> {line}", indent, sb, maxWidth);
+        }
+    }
+
     private static void PrintIdeaTags(Node node, string indent, StringBuilder sb, int maxWidth)
     {
         var ideaTags = node.Children.Where(c => c.NodeType == NodeType.IdeaBagItem).ToArray();
@@ -130,7 +144,7 @@ internal static class NodePrinter
         ideaTagsStringBuilder.Append("{");
         foreach (var ideaTag in ideaTags)
         {
-            ideaTagsStringBuilder.Append($" *({ideaTag.Name})* ");
+            ideaTagsStringBuilder.Append($" *({NodeDisplayHelper.GetSingleLinePreview(ideaTag.Name)})* ");
         }
 
         ideaTagsStringBuilder.Append("}");
