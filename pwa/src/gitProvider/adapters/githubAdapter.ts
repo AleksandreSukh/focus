@@ -1,4 +1,5 @@
 const DEFAULT_GITHUB_API_BASE_URL = 'https://api.github.com';
+const GITHUB_RAW_CONTENT_MEDIA_TYPE = 'application/vnd.github.raw+json';
 
 export type GitHubAdapterConfig = {
   owner: string;
@@ -51,6 +52,20 @@ export class GitHubAdapter {
       `/repos/${this.owner}/${this.repo}/contents/${normalizePath(path)}${query}`,
       {
         method: 'GET',
+        cache: 'no-store',
+      },
+    );
+  }
+
+  async getBlob(blobSha: string): Promise<Blob> {
+    return this.requestBlob(
+      `/repos/${this.owner}/${this.repo}/git/blobs/${encodeURIComponent(blobSha)}`,
+      {
+        method: 'GET',
+        cache: 'no-store',
+        headers: {
+          Accept: GITHUB_RAW_CONTENT_MEDIA_TYPE,
+        },
       },
     );
   }
@@ -98,6 +113,22 @@ export class GitHubAdapter {
     endpoint: string,
     init: RequestInit,
   ): Promise<T> {
+    const response = await this.request(endpoint, init);
+    return (await response.json()) as T;
+  }
+
+  private async requestBlob(
+    endpoint: string,
+    init: RequestInit,
+  ): Promise<Blob> {
+    const response = await this.request(endpoint, init);
+    return response.blob();
+  }
+
+  private async request(
+    endpoint: string,
+    init: RequestInit,
+  ): Promise<Response> {
     const response = await this.fetchImpl(`${this.apiBaseUrl}${endpoint}`, {
       ...init,
       headers: {
@@ -115,7 +146,7 @@ export class GitHubAdapter {
       );
     }
 
-    return (await response.json()) as T;
+    return response;
   }
 }
 

@@ -12,8 +12,45 @@ function createAdapter(fetchImpl) {
   });
 }
 
-describe('GitHubAdapter raw content requests', () => {
-  it('requests large raw blobs with GitHub raw+json media type', async () => {
+describe('GitHubAdapter content requests', () => {
+  it('requests file metadata with no-store cache semantics', async () => {
+    const calls = [];
+    const adapter = createAdapter(async (input, init) => {
+      calls.push([String(input), init]);
+      return {
+        ok: true,
+        async json() {
+          return {
+            sha: 'blob-sha-1',
+            content: '',
+            encoding: 'none',
+          };
+        },
+      };
+    });
+
+    const response = await adapter.getContent(
+      'FocusMaps/_attachments/node-id/camera-photo.jpg',
+      'loading attachment metadata',
+    );
+
+    assert.deepEqual(response, {
+      sha: 'blob-sha-1',
+      content: '',
+      encoding: 'none',
+    });
+    assert.equal(calls.length, 1);
+    assert.equal(
+      calls[0][0],
+      'https://api.github.com/repos/octocat/focus/contents/FocusMaps/_attachments/node-id/camera-photo.jpg?ref=main',
+    );
+    assert.equal(calls[0][1].cache, 'no-store');
+    assert.equal(calls[0][1].headers.Accept, 'application/vnd.github+json');
+    assert.equal(calls[0][1].headers.Authorization, 'Bearer test-token');
+    assert.equal(calls[0][1].headers['X-GitHub-Api-Version'], '2022-11-28');
+  });
+
+  it('requests large raw blobs by blob sha with no-store cache semantics', async () => {
     const calls = [];
     const adapter = createAdapter(async (input, init) => {
       calls.push([String(input), init]);
@@ -25,8 +62,8 @@ describe('GitHubAdapter raw content requests', () => {
       };
     });
 
-    const blob = await adapter.getContentBlob(
-      'FocusMaps/_attachments/node-id/camera-photo.jpg',
+    const blob = await adapter.getBlob(
+      'camera-photo-sha',
       'loading raw camera photo',
     );
 
@@ -34,36 +71,9 @@ describe('GitHubAdapter raw content requests', () => {
     assert.equal(calls.length, 1);
     assert.equal(
       calls[0][0],
-      'https://api.github.com/repos/octocat/focus/contents/FocusMaps/_attachments/node-id/camera-photo.jpg?ref=main',
+      'https://api.github.com/repos/octocat/focus/git/blobs/camera-photo-sha',
     );
-    assert.equal(calls[0][1].headers.Accept, 'application/vnd.github.raw+json');
-    assert.equal(calls[0][1].headers.Authorization, 'Bearer test-token');
-    assert.equal(calls[0][1].headers['X-GitHub-Api-Version'], '2022-11-28');
-  });
-
-  it('requests large raw text with GitHub raw+json media type', async () => {
-    const calls = [];
-    const adapter = createAdapter(async (input, init) => {
-      calls.push([String(input), init]);
-      return {
-        ok: true,
-        async text() {
-          return 'attachment-text';
-        },
-      };
-    });
-
-    const text = await adapter.getContentText(
-      'FocusMaps/_attachments/node-id/note.txt',
-      'loading raw note',
-    );
-
-    assert.equal(text, 'attachment-text');
-    assert.equal(calls.length, 1);
-    assert.equal(
-      calls[0][0],
-      'https://api.github.com/repos/octocat/focus/contents/FocusMaps/_attachments/node-id/note.txt?ref=main',
-    );
+    assert.equal(calls[0][1].cache, 'no-store');
     assert.equal(calls[0][1].headers.Accept, 'application/vnd.github.raw+json');
   });
 });

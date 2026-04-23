@@ -18,7 +18,7 @@ export class GitHubProvider implements GitProvider {
       const response = await this.adapter.getContent(path);
       recordSyncSuccess();
       return {
-        content: decodeContent(response.content, response.encoding),
+        content: await readTextContent(this.adapter, response),
         versionToken: response.sha,
       };
     } catch (error) {
@@ -71,6 +71,31 @@ function toWriteResult(response: GitHubCommitResponse): GitProviderWriteResult {
     versionToken: response.content?.sha ?? '',
     commitSha: response.commit?.sha,
   };
+}
+
+async function readTextContent(adapter: GitHubAdapter, response: {
+  content: string;
+  encoding: string;
+  sha: string;
+}): Promise<string> {
+  if (response.encoding === 'base64') {
+    return decodeContent(response.content, response.encoding);
+  }
+
+  if (response.encoding === 'none') {
+    const blob = await readBlobBySha(adapter, response);
+    return blob.text();
+  }
+
+  throw new Error(`Unsupported GitHub content encoding: ${response.encoding}`);
+}
+
+async function readBlobBySha(adapter: GitHubAdapter, response: { sha: string }): Promise<Blob> {
+  if (!response.sha) {
+    throw new Error('GitHub content response omitted the blob SHA for a large file.');
+  }
+
+  return adapter.getBlob(response.sha);
 }
 
 function decodeContent(content: string, encoding: string): string {

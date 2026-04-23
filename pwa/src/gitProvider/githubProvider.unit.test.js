@@ -14,6 +14,9 @@ function createProvider(adapterOverrides = {}) {
     async getContent() {
       throw new Error('getContent was not mocked for this test.');
     },
+    async getBlob() {
+      throw new Error('getBlob was not mocked for this test.');
+    },
     async getContentBlob() {
       throw new Error('getContentBlob was not mocked for this test.');
     },
@@ -27,7 +30,7 @@ function createProvider(adapterOverrides = {}) {
 }
 
 describe('GitHubProvider.getFile', () => {
-  it('falls back to raw text when GitHub reports encoding none', async () => {
+  it('falls back to blob-by-sha loading when GitHub reports encoding none', async () => {
     const calls = [];
     const provider = createProvider({
       async getContent(path, contextLabel) {
@@ -38,9 +41,9 @@ describe('GitHubProvider.getFile', () => {
           sha: 'rev-1',
         };
       },
-      async getContentText(path, contextLabel) {
-        calls.push(['getContentText', path, contextLabel]);
-        return '{"ok":true}';
+      async getBlob(blobSha, contextLabel) {
+        calls.push(['getBlob', blobSha, contextLabel]);
+        return new Blob(['{"ok":true}'], { type: 'application/json' });
       },
     });
 
@@ -52,13 +55,13 @@ describe('GitHubProvider.getFile', () => {
     });
     assert.deepEqual(calls, [
       ['getContent', 'FocusMaps/map.json', 'loading remote file FocusMaps/map.json'],
-      ['getContentText', 'FocusMaps/map.json', 'loading remote file FocusMaps/map.json'],
+      ['getBlob', 'rev-1', 'loading remote file FocusMaps/map.json'],
     ]);
   });
 });
 
 describe('GitHubProvider.getFileRaw', () => {
-  it('falls back to raw blob loading and re-encodes content as base64 when GitHub reports encoding none', async () => {
+  it('falls back to blob-by-sha loading and re-encodes content as base64 when GitHub reports encoding none', async () => {
     const calls = [];
     const provider = createProvider({
       async getContent(path, contextLabel) {
@@ -69,8 +72,8 @@ describe('GitHubProvider.getFileRaw', () => {
           sha: 'attachment-rev-1',
         };
       },
-      async getContentBlob(path, contextLabel) {
-        calls.push(['getContentBlob', path, contextLabel]);
+      async getBlob(blobSha, contextLabel) {
+        calls.push(['getBlob', blobSha, contextLabel]);
         return new Blob(['data'], { type: 'application/octet-stream' });
       },
     });
@@ -88,8 +91,8 @@ describe('GitHubProvider.getFileRaw', () => {
         'loading raw file FocusMaps/_attachments/node-id/note.png',
       ],
       [
-        'getContentBlob',
-        'FocusMaps/_attachments/node-id/note.png',
+        'getBlob',
+        'attachment-rev-1',
         'loading raw file FocusMaps/_attachments/node-id/note.png',
       ],
     ]);
@@ -97,7 +100,7 @@ describe('GitHubProvider.getFileRaw', () => {
 });
 
 describe('GitHubProvider.getFileAsBlob', () => {
-  it('falls back to raw blob loading and preserves the requested media type when GitHub reports encoding none', async () => {
+  it('falls back to blob-by-sha loading and preserves the requested media type when GitHub reports encoding none', async () => {
     const calls = [];
     const provider = createProvider({
       async getContent(path, contextLabel) {
@@ -108,8 +111,8 @@ describe('GitHubProvider.getFileAsBlob', () => {
           sha: 'attachment-rev-2',
         };
       },
-      async getContentBlob(path, contextLabel) {
-        calls.push(['getContentBlob', path, contextLabel]);
+      async getBlob(blobSha, contextLabel) {
+        calls.push(['getBlob', blobSha, contextLabel]);
         return new Blob(['image-bytes'], { type: '' });
       },
     });
@@ -128,14 +131,14 @@ describe('GitHubProvider.getFileAsBlob', () => {
         'loading attachment FocusMaps/_attachments/node-id/image.png',
       ],
       [
-        'getContentBlob',
-        'FocusMaps/_attachments/node-id/image.png',
+        'getBlob',
+        'attachment-rev-2',
         'loading attachment FocusMaps/_attachments/node-id/image.png',
       ],
     ]);
   });
 
-  it('preserves the requested JPEG media type for large raw image attachments', async () => {
+  it('preserves the requested JPEG media type for large raw image attachments fetched by blob sha', async () => {
     const calls = [];
     const provider = createProvider({
       async getContent(path, contextLabel) {
@@ -146,8 +149,8 @@ describe('GitHubProvider.getFileAsBlob', () => {
           sha: 'attachment-rev-3',
         };
       },
-      async getContentBlob(path, contextLabel) {
-        calls.push(['getContentBlob', path, contextLabel]);
+      async getBlob(blobSha, contextLabel) {
+        calls.push(['getBlob', blobSha, contextLabel]);
         return new Blob(['camera-photo-bytes'], { type: '' });
       },
     });
@@ -166,8 +169,8 @@ describe('GitHubProvider.getFileAsBlob', () => {
         'loading attachment FocusMaps/_attachments/node-id/camera-photo.jpg',
       ],
       [
-        'getContentBlob',
-        'FocusMaps/_attachments/node-id/camera-photo.jpg',
+        'getBlob',
+        'attachment-rev-3',
         'loading attachment FocusMaps/_attachments/node-id/camera-photo.jpg',
       ],
     ]);

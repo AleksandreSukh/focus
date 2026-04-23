@@ -62,8 +62,23 @@ export class GitHubAdapter {
       `/repos/${this.owner}/${this.repo}/contents/${normalizePath(path)}${query}`,
       {
         method: 'GET',
+        cache: 'no-store',
       },
       { operation: 'getContent', contextLabel },
+    );
+  }
+
+  async getBlob(blobSha, contextLabel = `loading blob ${blobSha}`) {
+    return this.requestBlob(
+      `/repos/${this.owner}/${this.repo}/git/blobs/${encodeURIComponent(String(blobSha ?? ''))}`,
+      {
+        method: 'GET',
+        cache: 'no-store',
+        headers: {
+          Accept: GITHUB_RAW_CONTENT_MEDIA_TYPE,
+        },
+      },
+      { operation: 'getBlob', contextLabel },
     );
   }
 
@@ -73,6 +88,7 @@ export class GitHubAdapter {
       `/repos/${this.owner}/${this.repo}/contents/${normalizePath(path)}${query}`,
       {
         method: 'GET',
+        cache: 'no-store',
         headers: {
           Accept: GITHUB_RAW_CONTENT_MEDIA_TYPE,
         },
@@ -87,6 +103,7 @@ export class GitHubAdapter {
       `/repos/${this.owner}/${this.repo}/contents/${normalizePath(path)}${query}`,
       {
         method: 'GET',
+        cache: 'no-store',
         headers: {
           Accept: GITHUB_RAW_CONTENT_MEDIA_TYPE,
         },
@@ -274,6 +291,8 @@ function defaultContextLabel(operation) {
       return 'validating branch access';
     case 'getContent':
       return 'loading the remote file';
+    case 'getBlob':
+      return 'loading the remote blob';
     case 'listDirectory':
       return 'listing the configured maps directory';
     case 'putContent':
@@ -300,6 +319,8 @@ function buildNotFoundMessage(operation, contextLabel) {
       return `Configured branch was not found (404 Not Found)${contextSuffix}. Check the branch name.`;
     case 'getContent':
       return `Remote file was not found (404 Not Found)${contextSuffix}. Check the configured path and file name.`;
+    case 'getBlob':
+      return `Remote blob was not found (404 Not Found)${contextSuffix}. Refresh and try again.`;
     case 'listDirectory':
       return `Configured maps directory was not found (404 Not Found)${contextSuffix}. Check the FocusMaps path in settings.`;
     case 'putContent':

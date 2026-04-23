@@ -142,7 +142,8 @@ async function readTextContent(adapter, path, response, contextLabel) {
   }
 
   if (response?.encoding === 'none') {
-    return adapter.getContentText(path, contextLabel);
+    const blob = await readBlobBySha(adapter, response, contextLabel);
+    return blob.text();
   }
 
   throw new Error(`Unsupported GitHub content encoding: ${response?.encoding}`);
@@ -154,7 +155,7 @@ async function readBase64Content(adapter, path, response, contextLabel) {
   }
 
   if (response?.encoding === 'none') {
-    const blob = await adapter.getContentBlob(path, contextLabel);
+    const blob = await readBlobBySha(adapter, response, contextLabel);
     return encodeBlobAsBase64(blob);
   }
 
@@ -167,11 +168,20 @@ async function readBlobContent(adapter, path, response, mediaType, contextLabel)
   }
 
   if (response?.encoding === 'none') {
-    const blob = await adapter.getContentBlob(path, contextLabel);
+    const blob = await readBlobBySha(adapter, response, contextLabel);
     return withBlobMediaType(blob, mediaType);
   }
 
   throw new Error(`Unsupported GitHub content encoding: ${response?.encoding}`);
+}
+
+async function readBlobBySha(adapter, response, contextLabel) {
+  const blobSha = typeof response?.sha === 'string' ? response.sha : '';
+  if (!blobSha) {
+    throw new Error('GitHub content response omitted the blob SHA for a large file.');
+  }
+
+  return adapter.getBlob(blobSha, contextLabel);
 }
 
 function sanitizeBase64Content(content) {
