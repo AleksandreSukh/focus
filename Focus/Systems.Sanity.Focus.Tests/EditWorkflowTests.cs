@@ -110,6 +110,41 @@ public class EditWorkflowTests
     }
 
     [Fact]
+    public void Execute_AttachmentsCommand_OpensLegacyAttachmentAfterMigration()
+    {
+        var fileOpener = new RecordingFileOpener();
+        using var workspace = new TestWorkspace(fileOpener: fileOpener);
+        var map = new MindMap("Root");
+        map.RootNode.AddAttachment(new NodeAttachment
+        {
+            Id = Guid.NewGuid(),
+            RelativePath = "capture.png",
+            MediaType = "image/png",
+            DisplayName = "Capture.png",
+            CreatedAtUtc = DateTimeOffset.UtcNow
+        });
+        var filePath = workspace.SaveMap("workflow-map", map);
+        var legacyAttachmentPath = workspace.AppContext.MapsStorage.AttachmentStore.ResolveLegacyAttachmentPath(
+            filePath,
+            "capture.png");
+        Directory.CreateDirectory(Path.GetDirectoryName(legacyAttachmentPath)!);
+        File.WriteAllText(legacyAttachmentPath, "attachment");
+
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+        var result = workflow.Execute(new ConsoleInput("attachments 1"));
+        var migratedAttachmentPath = workspace.AppContext.MapsStorage.AttachmentStore.ResolveAttachmentPath(
+            filePath,
+            GetRequiredNodeIdentifier(map.RootNode),
+            "capture.png");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("Opened attachment \"Capture.png\"", result.Message);
+        Assert.Equal(migratedAttachmentPath, fileOpener.OpenedFilePath);
+        Assert.True(File.Exists(migratedAttachmentPath));
+        Assert.False(File.Exists(legacyAttachmentPath));
+    }
+
+    [Fact]
     public void Execute_TodoAndNotask_OnCurrentNodeUpdatesSavedMap()
     {
         using var workspace = new TestWorkspace();

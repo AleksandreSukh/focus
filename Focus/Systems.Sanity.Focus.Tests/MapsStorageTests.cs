@@ -183,6 +183,90 @@ public class MapsStorageTests
     }
 
     [Fact]
+    public void OpenMap_MigratesLegacyAttachmentDirectoryToNodeScopedLayout()
+    {
+        using var workspace = new TestWorkspace();
+        var map = new MindMap("Root");
+        map.RootNode.AddAttachment(new NodeAttachment
+        {
+            Id = Guid.NewGuid(),
+            RelativePath = "capture.png",
+            MediaType = "image/png",
+            DisplayName = "Capture.png",
+            CreatedAtUtc = DateTimeOffset.UtcNow
+        });
+
+        var filePath = workspace.SaveMap("alpha", map);
+        var legacyAttachmentPath = workspace.MapsStorage.AttachmentStore.ResolveLegacyAttachmentPath(
+            filePath,
+            "capture.png");
+        Directory.CreateDirectory(Path.GetDirectoryName(legacyAttachmentPath)!);
+        File.WriteAllText(legacyAttachmentPath, "attachment");
+
+        var reopened = workspace.MapsStorage.OpenMap(filePath);
+        var migratedAttachmentPath = workspace.MapsStorage.AttachmentStore.ResolveAttachmentPath(
+            filePath,
+            GetRequiredNodeIdentifier(reopened.RootNode),
+            "capture.png");
+
+        Assert.True(File.Exists(migratedAttachmentPath));
+        Assert.False(File.Exists(legacyAttachmentPath));
+        Assert.False(Directory.Exists(workspace.MapsStorage.AttachmentStore.GetLegacyAttachmentDirectoryPath(filePath)));
+    }
+
+    [Fact]
+    public void SaveMap_MigratesLegacyAttachmentDirectoryToNodeScopedLayout()
+    {
+        using var workspace = new TestWorkspace();
+        var map = new MindMap("Root");
+        map.RootNode.AddAttachment(new NodeAttachment
+        {
+            Id = Guid.NewGuid(),
+            RelativePath = "capture.png",
+            MediaType = "image/png",
+            DisplayName = "Capture.png",
+            CreatedAtUtc = DateTimeOffset.UtcNow
+        });
+
+        var filePath = workspace.SaveMap("alpha", map);
+        var legacyAttachmentPath = workspace.MapsStorage.AttachmentStore.ResolveLegacyAttachmentPath(
+            filePath,
+            "capture.png");
+        Directory.CreateDirectory(Path.GetDirectoryName(legacyAttachmentPath)!);
+        File.WriteAllText(legacyAttachmentPath, "attachment");
+
+        workspace.MapsStorage.SaveMap(filePath, map);
+
+        var migratedAttachmentPath = workspace.MapsStorage.AttachmentStore.ResolveAttachmentPath(
+            filePath,
+            GetRequiredNodeIdentifier(map.RootNode),
+            "capture.png");
+        Assert.True(File.Exists(migratedAttachmentPath));
+        Assert.False(File.Exists(legacyAttachmentPath));
+        Assert.False(Directory.Exists(workspace.MapsStorage.AttachmentStore.GetLegacyAttachmentDirectoryPath(filePath)));
+    }
+
+    [Fact]
+    public void MoveMap_RenamesLegacyAttachmentDirectoryWhenPresent()
+    {
+        using var workspace = new TestWorkspace();
+        var sourceFilePath = workspace.SaveMap("alpha", new MindMap("Root"));
+        var legacyAttachmentDirectory = workspace.MapsStorage.AttachmentStore.GetLegacyAttachmentDirectoryPath(sourceFilePath);
+        Directory.CreateDirectory(legacyAttachmentDirectory);
+        File.WriteAllText(Path.Combine(legacyAttachmentDirectory, "capture.png"), "attachment");
+
+        var targetFilePath = Path.Combine(workspace.MapsStorage.UserMindMapsDirectory, "beta.json");
+
+        workspace.MapsStorage.MoveMap(sourceFilePath, targetFilePath);
+
+        Assert.False(Directory.Exists(legacyAttachmentDirectory));
+        Assert.True(Directory.Exists(workspace.MapsStorage.AttachmentStore.GetLegacyAttachmentDirectoryPath(targetFilePath)));
+        Assert.True(File.Exists(Path.Combine(
+            workspace.MapsStorage.AttachmentStore.GetLegacyAttachmentDirectoryPath(targetFilePath),
+            "capture.png")));
+    }
+
+    [Fact]
     public void DeleteMap_DoesNotDeleteNodeScopedAttachmentDirectory()
     {
         using var workspace = new TestWorkspace();
@@ -198,6 +282,21 @@ public class MapsStorageTests
 
         Assert.False(File.Exists(filePath));
         Assert.True(Directory.Exists(attachmentDirectory));
+    }
+
+    [Fact]
+    public void DeleteMap_DeletesLegacyAttachmentDirectoryWhenPresent()
+    {
+        using var workspace = new TestWorkspace();
+        var filePath = workspace.SaveMap("alpha", new MindMap("Root"));
+        var legacyAttachmentDirectory = workspace.MapsStorage.AttachmentStore.GetLegacyAttachmentDirectoryPath(filePath);
+        Directory.CreateDirectory(legacyAttachmentDirectory);
+        File.WriteAllText(Path.Combine(legacyAttachmentDirectory, "capture.png"), "attachment");
+
+        workspace.MapsStorage.DeleteMap(new FileInfo(filePath));
+
+        Assert.False(File.Exists(filePath));
+        Assert.False(Directory.Exists(legacyAttachmentDirectory));
     }
 
     [Fact]

@@ -19,6 +19,17 @@ internal sealed class MapAttachmentStore
         return Path.Combine(mapDirectory, ConfigurationConstants.AttachmentDirectorySuffix);
     }
 
+    public string GetLegacyAttachmentDirectoryPath(string mapFilePath)
+    {
+        var mapDirectory = Path.GetDirectoryName(mapFilePath);
+        if (string.IsNullOrWhiteSpace(mapDirectory))
+            throw new ArgumentException("Map directory could not be determined.", nameof(mapFilePath));
+
+        return Path.Combine(
+            mapDirectory,
+            $"{Path.GetFileNameWithoutExtension(mapFilePath)}{ConfigurationConstants.AttachmentDirectorySuffix}");
+    }
+
     public string GetAttachmentDirectoryPath(string mapFilePath, Guid nodeUniqueIdentifier) =>
         Path.Combine(
             GetAttachmentRootDirectoryPath(mapFilePath),
@@ -28,6 +39,12 @@ internal sealed class MapAttachmentStore
     {
         var normalizedRelativePath = NormalizeRelativePath(relativePath);
         return Path.Combine(GetAttachmentDirectoryPath(mapFilePath, nodeUniqueIdentifier), normalizedRelativePath);
+    }
+
+    public string ResolveLegacyAttachmentPath(string mapFilePath, string relativePath)
+    {
+        var normalizedRelativePath = NormalizeRelativePath(relativePath);
+        return Path.Combine(GetLegacyAttachmentDirectoryPath(mapFilePath), normalizedRelativePath);
     }
 
     public NodeAttachment SavePngAttachment(
@@ -89,6 +106,57 @@ internal sealed class MapAttachmentStore
         }
     }
 
+    public bool MigrateLegacyAttachments(string mapFilePath, MindMap map)
+    {
+        ArgumentNullException.ThrowIfNull(map);
+
+        var legacyDirectoryPath = GetLegacyAttachmentDirectoryPath(mapFilePath);
+        if (!Directory.Exists(legacyDirectoryPath))
+            return false;
+
+        var didChange = false;
+        var legacyReferences = EnumerateLegacyAttachmentReferences(mapFilePath, map.RootNode)
+            .GroupBy(reference => reference.FileName, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var legacyReferenceGroup in legacyReferences)
+        {
+            var sourcePath = ResolveLegacyAttachmentPath(mapFilePath, legacyReferenceGroup.Key);
+            if (!File.Exists(sourcePath))
+                continue;
+
+            var keepLegacySource = false;
+            foreach (var legacyReference in legacyReferenceGroup)
+            {
+                if (File.Exists(legacyReference.TargetPath))
+                {
+                    keepLegacySource = true;
+                    continue;
+                }
+
+                Directory.CreateDirectory(
+                    Path.GetDirectoryName(legacyReference.TargetPath)
+                    ?? throw new InvalidOperationException("Attachment directory could not be determined."));
+                File.Copy(sourcePath, legacyReference.TargetPath, overwrite: false);
+                didChange = true;
+            }
+
+            if (keepLegacySource || legacyReferenceGroup.Any(reference => !File.Exists(reference.TargetPath)))
+                continue;
+
+            File.Delete(sourcePath);
+            didChange = true;
+        }
+
+        if (Directory.Exists(legacyDirectoryPath) &&
+            !Directory.EnumerateFileSystemEntries(legacyDirectoryPath).Any())
+        {
+            Directory.Delete(legacyDirectoryPath, recursive: false);
+            didChange = true;
+        }
+
+        return didChange;
+    }
+
     private void MoveAttachmentDirectory(string mapFilePath, Guid existingNodeIdentifier, Guid newNodeIdentifier)
     {
         if (existingNodeIdentifier == newNodeIdentifier)
@@ -128,9 +196,38 @@ internal sealed class MapAttachmentStore
         return attachmentDirectory;
     }
 
+    private IEnumerable<LegacyAttachmentReference> EnumerateLegacyAttachmentReferences(string mapFilePath, Node node)
+    {
+        if (node.Metadata?.Attachments != null && node.UniqueIdentifier.HasValue)
+        {
+            foreach (var attachment in node.Metadata.Attachments)
+            {
+                var normalizedRelativePath = NormalizeRelativePath(attachment.RelativePath);
+                if (string.IsNullOrWhiteSpace(normalizedRelativePath))
+                    continue;
+
+                yield return new LegacyAttachmentReference(
+                    normalizedRelativePath,
+                    ResolveAttachmentPath(mapFilePath, node.UniqueIdentifier.Value, normalizedRelativePath));
+            }
+        }
+
+        foreach (var childNode in node.Children)
+        {
+            foreach (var attachmentReference in EnumerateLegacyAttachmentReferences(mapFilePath, childNode))
+            {
+                yield return attachmentReference;
+            }
+        }
+    }
+
     private static string NormalizeRelativePath(string relativePath) =>
         Path.GetFileName(relativePath ?? string.Empty);
 
     private static string NormalizeNodeDirectoryName(Guid nodeUniqueIdentifier) =>
         nodeUniqueIdentifier.ToString("D").ToLowerInvariant();
+
+    private sealed record LegacyAttachmentReference(
+        string FileName,
+        string TargetPath);
 }

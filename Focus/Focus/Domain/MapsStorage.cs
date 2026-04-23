@@ -40,7 +40,11 @@ namespace Systems.Sanity.Focus.Domain
 
         public void DeleteMap(FileInfo file)
         {
+            var legacyAttachmentDirectory = AttachmentStore.GetLegacyAttachmentDirectoryPath(file.FullName);
             file.Delete();
+
+            if (Directory.Exists(legacyAttachmentDirectory))
+                Directory.Delete(legacyAttachmentDirectory, recursive: true);
         }
 
         public FileInfo[] GetAll()
@@ -68,7 +72,15 @@ namespace Systems.Sanity.Focus.Domain
 
         public void MoveMap(string existingFilePath, string newFilePath)
         {
+            var existingLegacyAttachmentDirectory = AttachmentStore.GetLegacyAttachmentDirectoryPath(existingFilePath);
+            var newLegacyAttachmentDirectory = AttachmentStore.GetLegacyAttachmentDirectoryPath(newFilePath);
             File.Move(existingFilePath, newFilePath);
+
+            if (Directory.Exists(existingLegacyAttachmentDirectory) &&
+                !Directory.Exists(newLegacyAttachmentDirectory))
+            {
+                Directory.Move(existingLegacyAttachmentDirectory, newLegacyAttachmentDirectory);
+            }
         }
 
         public MindMap OpenMap(string filePath, ISet<Guid>? usedIdentifiers = null)

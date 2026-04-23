@@ -28,6 +28,8 @@ namespace Systems.Sanity.Focus
                 attachmentStore.MoveAttachmentDirectories(filePath, normalizationResult.RemappedIdentifiers);
             }
 
+            attachmentStore.MigrateLegacyAttachments(filePath, mindMapParsedFromJson);
+
             if (normalizationResult.RequiresImmediateSave)
             {
                 Save(filePath, mindMapParsedFromJson, normalizeMap: false);
@@ -43,14 +45,17 @@ namespace Systems.Sanity.Focus
 
         private static void Save(string filePath, MindMap map, bool normalizeMap)
         {
+            var attachmentStore = new MapAttachmentStore();
             if (normalizeMap)
             {
                 var normalizationResult = MapNormalizer.Normalize(map);
                 if (normalizationResult.RemappedIdentifiers.Count > 0)
                 {
-                    new MapAttachmentStore().MoveAttachmentDirectories(filePath, normalizationResult.RemappedIdentifiers);
+                    attachmentStore.MoveAttachmentDirectories(filePath, normalizationResult.RemappedIdentifiers);
                 }
             }
+
+            attachmentStore.MigrateLegacyAttachments(filePath, map);
 
             File.WriteAllText(
                 filePath,
