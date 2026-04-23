@@ -99,7 +99,7 @@ internal sealed class AttachMode : PageWithSuggestedOptions
 
         var map = _appContext.MapRepository.OpenMap(file.FullName);
         _map.LoadAtCurrentNode(map);
-        _appContext.MapRepository.DeleteMap(file);
+        _appContext.MapRepository.DeleteMap(file, MapDeletionMode.PreserveAttachments);
         DidAttachMap = true;
         _shouldExit = true;
     }

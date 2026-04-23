@@ -38,13 +38,26 @@ namespace Systems.Sanity.Focus.Domain
 
         internal MapAttachmentStore AttachmentStore { get; }
 
-        public void DeleteMap(FileInfo file)
+        public void DeleteMap(FileInfo file, MapDeletionMode deletionMode = MapDeletionMode.DeleteAttachments)
         {
-            var legacyAttachmentDirectory = AttachmentStore.GetLegacyAttachmentDirectoryPath(file.FullName);
-            file.Delete();
+            if (deletionMode == MapDeletionMode.PreserveAttachments)
+            {
+                file.Delete();
+                return;
+            }
 
-            if (Directory.Exists(legacyAttachmentDirectory))
-                Directory.Delete(legacyAttachmentDirectory, recursive: true);
+            MindMap map;
+            try
+            {
+                map = OpenMap(file.FullName);
+            }
+            catch (Exception ex)
+            {
+                throw MapDeletionBlockedException.UnreadableMap(file.Name, ex);
+            }
+
+            AttachmentStore.DeleteAttachmentsForMap(file.FullName, map);
+            file.Delete();
         }
 
         public FileInfo[] GetAll()

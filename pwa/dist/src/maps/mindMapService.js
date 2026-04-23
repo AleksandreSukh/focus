@@ -3,6 +3,7 @@ import {
   buildMapSummary,
   compareMapSummariesByRecentUpdate,
   cloneMapDocument,
+  collectDocumentAttachmentRefs,
   collectTaskEntries,
   createMapDocument,
 } from './model.js';
@@ -136,21 +137,39 @@ export class MindMapService {
   }
 
   async deleteMap(filePath, commitMessage) {
-    const snapshot = this.snapshotsByPath.get(filePath);
-    if (!snapshot) {
+    const latest = await this.loadMap(filePath, false);
+    if (!latest.ok) {
+      return latest;
+    }
+
+    const firstDelete = await persistMapDeleteAttempt(
+      this.repository,
+      latest.value,
+      commitMessage,
+    );
+    if (firstDelete.ok) {
+      this.snapshotsByPath.delete(filePath);
       return {
-        ok: false,
-        error: {
-          code: 'NOT_FOUND',
-          message: `Map "${filePath}" is not loaded.`,
-          retriable: false,
-        },
+        ok: true,
       };
     }
 
-    const deleted = await this.repository.deleteMap(filePath, snapshot.revision, commitMessage);
-    if (!deleted.ok) {
-      return deleted;
+    if (firstDelete.error.code !== 'STALE_STATE') {
+      return firstDelete;
+    }
+
+    const refreshed = await this.loadMap(filePath, true);
+    if (!refreshed.ok) {
+      return refreshed;
+    }
+
+    const retryDelete = await persistMapDeleteAttempt(
+      this.repository,
+      refreshed.value,
+      commitMessage,
+    );
+    if (!retryDelete.ok) {
+      return retryDelete;
     }
 
     this.snapshotsByPath.delete(filePath);
@@ -414,7 +433,7 @@ export class MindMapService {
 }
 
 async function persistMutationAttempt(repository, filePath, document, revision, commitMessage, mutationResult) {
-  const deletedAttachments = getDeletedAttachments(mutationResult);
+  const deletedAttachments = normalizeAttachmentRefs(mutationResult?.deletedAttachments);
   for (const attachment of deletedAttachments) {
     const deleted = await repository.deleteAttachment(
       filePath,
@@ -431,13 +450,31 @@ async function persistMutationAttempt(repository, filePath, document, revision, 
   return repository.saveMap(filePath, document, revision, commitMessage);
 }
 
-function getDeletedAttachments(mutationResult) {
-  const deletedAttachments = Array.isArray(mutationResult?.deletedAttachments)
-    ? mutationResult.deletedAttachments
+async function persistMapDeleteAttempt(repository, snapshot, commitMessage) {
+  const attachmentRefs = normalizeAttachmentRefs(collectDocumentAttachmentRefs(snapshot.document));
+  for (const attachment of attachmentRefs) {
+    const deleted = await repository.deleteAttachment(
+      snapshot.filePath,
+      attachment.nodeId,
+      attachment.relativePath,
+      null,
+      commitMessage,
+    );
+    if (!deleted.ok) {
+      return deleted;
+    }
+  }
+
+  return repository.deleteMap(snapshot.filePath, snapshot.revision, commitMessage);
+}
+
+function normalizeAttachmentRefs(attachmentRefs) {
+  const refs = Array.isArray(attachmentRefs)
+    ? attachmentRefs
     : [];
   const seen = new Set();
 
-  return deletedAttachments.filter((attachment) => {
+  return refs.filter((attachment) => {
     const nodeId = typeof attachment?.nodeId === 'string' ? attachment.nodeId : '';
     const relativePath = typeof attachment?.relativePath === 'string' ? attachment.relativePath : '';
     if (!nodeId || !relativePath) {

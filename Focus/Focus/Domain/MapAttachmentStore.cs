@@ -157,6 +157,33 @@ internal sealed class MapAttachmentStore
         return didChange;
     }
 
+    public void DeleteAttachmentsForMap(string mapFilePath, MindMap map)
+    {
+        ArgumentNullException.ThrowIfNull(map);
+
+        foreach (var nodeIdentifier in EnumerateNodeIdentifiers(map.RootNode).Distinct())
+        {
+            var attachmentDirectory = GetAttachmentDirectoryPath(mapFilePath, nodeIdentifier);
+            if (Directory.Exists(attachmentDirectory))
+            {
+                Directory.Delete(attachmentDirectory, recursive: true);
+            }
+        }
+
+        var legacyAttachmentDirectory = GetLegacyAttachmentDirectoryPath(mapFilePath);
+        if (Directory.Exists(legacyAttachmentDirectory))
+        {
+            Directory.Delete(legacyAttachmentDirectory, recursive: true);
+        }
+
+        var attachmentRootDirectory = GetAttachmentRootDirectoryPath(mapFilePath);
+        if (Directory.Exists(attachmentRootDirectory) &&
+            !Directory.EnumerateFileSystemEntries(attachmentRootDirectory).Any())
+        {
+            Directory.Delete(attachmentRootDirectory, recursive: false);
+        }
+    }
+
     private void MoveAttachmentDirectory(string mapFilePath, Guid existingNodeIdentifier, Guid newNodeIdentifier)
     {
         if (existingNodeIdentifier == newNodeIdentifier)
@@ -217,6 +244,22 @@ internal sealed class MapAttachmentStore
             foreach (var attachmentReference in EnumerateLegacyAttachmentReferences(mapFilePath, childNode))
             {
                 yield return attachmentReference;
+            }
+        }
+    }
+
+    private IEnumerable<Guid> EnumerateNodeIdentifiers(Node node)
+    {
+        if (node.UniqueIdentifier.HasValue)
+        {
+            yield return node.UniqueIdentifier.Value;
+        }
+
+        foreach (var childNode in node.Children)
+        {
+            foreach (var childIdentifier in EnumerateNodeIdentifiers(childNode))
+            {
+                yield return childIdentifier;
             }
         }
     }

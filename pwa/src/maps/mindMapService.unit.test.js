@@ -115,6 +115,71 @@ function createDeleteNodeSnapshot({
   };
 }
 
+function createDeleteMapSnapshot({
+  revision = 'rev-1',
+  updatedAt = '2026-04-20T08:00:00Z',
+} = {}) {
+  const snapshot = createSnapshot({
+    fileName: 'delete-map.json',
+    mapName: 'Delete Map',
+    updatedAt,
+  });
+  const rootId = snapshot.document.rootNode.uniqueIdentifier;
+  const branchId = '8f3b5c52-99fd-4897-bdd0-c4b67d7fb0f1';
+  const leafId = 'fc6cc976-2f0b-4dd1-a7ab-0cbd7f5df95d';
+  const siblingId = '155450bd-6f71-460c-bde4-7e77d67761b0';
+
+  snapshot.document.rootNode.metadata.attachments = [
+    createAttachment({
+      id: '33333333-3333-4333-8333-333333333333',
+      relativePath: 'root.png',
+      displayName: 'Root image',
+    }),
+  ];
+  snapshot.document.rootNode.children = [
+    createNode({
+      id: branchId,
+      name: 'Branch',
+      number: 1,
+      attachments: [
+        createAttachment({
+          id: '44444444-4444-4444-8444-444444444444',
+          relativePath: 'branch.png',
+          displayName: 'Branch image',
+        }),
+      ],
+      children: [
+        createNode({
+          id: leafId,
+          name: 'Leaf',
+          number: 1,
+          attachments: [
+            createAttachment({
+              id: '55555555-5555-4555-8555-555555555555',
+              relativePath: 'leaf.png',
+              displayName: 'Leaf image',
+            }),
+          ],
+        }),
+      ],
+    }),
+    createNode({
+      id: siblingId,
+      name: 'Sibling',
+      number: 2,
+    }),
+  ];
+  snapshot.revision = revision;
+
+  return {
+    snapshot,
+    rootId,
+    branchId,
+    leafId,
+    siblingId,
+  };
+}
+
 function createRepository(overrides = {}) {
   return {
     async listFiles() {
@@ -155,6 +220,17 @@ function createRepository(overrides = {}) {
             error: {
               code: 'NOT_IMPLEMENTED',
               message: `No mock deleteAttachment result for "${relativePath}".`,
+            },
+          };
+    },
+    async deleteMap(filePath, expectedRevision, commitMessage) {
+      return overrides.deleteMap
+        ? overrides.deleteMap(filePath, expectedRevision, commitMessage)
+        : {
+            ok: false,
+            error: {
+              code: 'NOT_IMPLEMENTED',
+              message: `No mock deleteMap result for "${filePath}".`,
             },
           };
     },
@@ -578,6 +654,196 @@ describe('MindMapService.renameMap', () => {
     assert.equal(loaded.ok, true);
     assert.equal(loaded.value.document.rootNode.name, 'Renamed');
     assert.equal(loadCalls, 0);
+  });
+});
+
+describe('MindMapService.deleteMap', () => {
+  it('deletes root and descendant attachments before deleting the map file', async () => {
+    const { snapshot, rootId, branchId, leafId } = createDeleteMapSnapshot();
+    const calls = [];
+    const service = new MindMapService(createRepository({
+      deleteAttachment: async (mapFilePath, nodeId, relativePath, versionToken, commitMessage) => {
+        calls.push({
+          type: 'deleteAttachment',
+          mapFilePath,
+          nodeId,
+          relativePath,
+          versionToken,
+          commitMessage,
+        });
+        return { ok: true };
+      },
+      deleteMap: async (filePath, expectedRevision, commitMessage) => {
+        calls.push({
+          type: 'deleteMap',
+          filePath,
+          expectedRevision,
+          commitMessage,
+        });
+        return { ok: true };
+      },
+    }));
+    service.hydrateSnapshots([snapshot]);
+
+    const result = await service.deleteMap(snapshot.filePath, 'map:delete Delete Map');
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(calls, [
+      {
+        type: 'deleteAttachment',
+        mapFilePath: snapshot.filePath,
+        nodeId: rootId,
+        relativePath: 'root.png',
+        versionToken: null,
+        commitMessage: 'map:delete Delete Map',
+      },
+      {
+        type: 'deleteAttachment',
+        mapFilePath: snapshot.filePath,
+        nodeId: branchId,
+        relativePath: 'branch.png',
+        versionToken: null,
+        commitMessage: 'map:delete Delete Map',
+      },
+      {
+        type: 'deleteAttachment',
+        mapFilePath: snapshot.filePath,
+        nodeId: leafId,
+        relativePath: 'leaf.png',
+        versionToken: null,
+        commitMessage: 'map:delete Delete Map',
+      },
+      {
+        type: 'deleteMap',
+        filePath: snapshot.filePath,
+        expectedRevision: 'rev-1',
+        commitMessage: 'map:delete Delete Map',
+      },
+    ]);
+    assert.equal(service.getCachedSnapshot(snapshot.filePath), null);
+  });
+
+  it('keeps the map cached and aborts deletion when attachment cleanup fails', async () => {
+    const { snapshot } = createDeleteMapSnapshot();
+    let deleteMapCalls = 0;
+    const service = new MindMapService(createRepository({
+      deleteAttachment: async (_mapFilePath, nodeId) => {
+        if (nodeId === snapshot.document.rootNode.uniqueIdentifier) {
+          return {
+            ok: false,
+            error: {
+              code: 'PERSISTENCE_ERROR',
+              message: 'Could not delete root attachment.',
+              retriable: true,
+            },
+          };
+        }
+
+        return { ok: true };
+      },
+      deleteMap: async () => {
+        deleteMapCalls += 1;
+        return { ok: true };
+      },
+    }));
+    service.hydrateSnapshots([snapshot]);
+
+    const result = await service.deleteMap(snapshot.filePath, 'map:delete Delete Map');
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error.message, 'Could not delete root attachment.');
+    assert.equal(deleteMapCalls, 0);
+    assert.notEqual(service.getCachedSnapshot(snapshot.filePath), null);
+  });
+
+  it('retries attachment cleanup and map deletion after a stale-state conflict', async () => {
+    const initial = createDeleteMapSnapshot({
+      revision: 'rev-1',
+      updatedAt: '2026-04-20T08:00:00Z',
+    });
+    const refreshed = createDeleteMapSnapshot({
+      revision: 'rev-2',
+      updatedAt: '2026-04-20T08:05:00Z',
+    });
+    const attachmentDeletes = [];
+    const mapDeletes = [];
+    let loadCount = 0;
+    let deleteMapCount = 0;
+    const service = new MindMapService(createRepository({
+      loadMap: async () => {
+        loadCount += 1;
+        return {
+          ok: true,
+          value: refreshed.snapshot,
+        };
+      },
+      deleteAttachment: async (mapFilePath, nodeId, relativePath, versionToken, commitMessage) => {
+        attachmentDeletes.push({
+          mapFilePath,
+          nodeId,
+          relativePath,
+          versionToken,
+          commitMessage,
+        });
+        return { ok: true };
+      },
+      deleteMap: async (filePath, expectedRevision, commitMessage) => {
+        deleteMapCount += 1;
+        mapDeletes.push({
+          filePath,
+          expectedRevision,
+          commitMessage,
+        });
+        return deleteMapCount === 1
+          ? {
+              ok: false,
+              error: {
+                code: 'STALE_STATE',
+                message: 'Map changed remotely.',
+                retriable: true,
+              },
+            }
+          : {
+              ok: true,
+            };
+      },
+    }));
+    service.hydrateSnapshots([initial.snapshot]);
+
+    const result = await service.deleteMap(initial.snapshot.filePath, 'map:delete Delete Map');
+
+    assert.equal(result.ok, true);
+    assert.equal(loadCount, 1);
+    assert.equal(deleteMapCount, 2);
+    assert.deepEqual(
+      attachmentDeletes.map((attachment) => attachment.relativePath),
+      [
+        'root.png',
+        'branch.png',
+        'leaf.png',
+        'root.png',
+        'branch.png',
+        'leaf.png',
+      ],
+    );
+    assert.equal(attachmentDeletes[0].nodeId, initial.rootId);
+    assert.equal(attachmentDeletes[1].nodeId, initial.branchId);
+    assert.equal(attachmentDeletes[2].nodeId, initial.leafId);
+    assert.equal(attachmentDeletes[4].nodeId, refreshed.branchId);
+    assert.equal(attachmentDeletes[5].nodeId, refreshed.leafId);
+    assert.deepEqual(mapDeletes, [
+      {
+        filePath: initial.snapshot.filePath,
+        expectedRevision: 'rev-1',
+        commitMessage: 'map:delete Delete Map',
+      },
+      {
+        filePath: refreshed.snapshot.filePath,
+        expectedRevision: 'rev-2',
+        commitMessage: 'map:delete Delete Map',
+      },
+    ]);
+    assert.equal(service.getCachedSnapshot(initial.snapshot.filePath), null);
   });
 });
 

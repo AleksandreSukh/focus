@@ -1856,12 +1856,14 @@ async function handleDeleteMapConfirm() {
   }
 
   const commitMessage = buildMapDeleteCommitMessage(snapshot.mapName);
+  state.service.hydrateSnapshots(getSnapshots());
   const result = await state.service.deleteMap(filePath, commitMessage);
   if (!result.ok) {
     setActiveModalError(result.error.message || 'Failed to delete map. Try again.');
     return;
   }
 
+  state.pendingOperations = state.pendingOperations.filter((operation) => !operationTouchesFilePath(operation, filePath));
   setSnapshots(getSnapshots().filter((item) => item.filePath !== filePath));
   state.service.hydrateSnapshots(getSnapshots());
   persistRepoScopedState();
@@ -5511,7 +5513,7 @@ function renderDeleteMapModal() {
           ? `<p class="form-error" role="alert">${escapeHtml(state.activeModal.errorMessage)}</p>`
           : ''}
 
-        <p class="security-note">This will permanently delete the map file from GitHub. This cannot be undone.</p>
+        <p class="security-note">This will permanently delete the map file from GitHub and all attachments owned by nodes in this map. This cannot be undone.</p>
         <div class="form-actions">
           <button type="button" class="secondary-button" data-action="close-modal" data-modal-autofocus="true">Cancel</button>
           <button

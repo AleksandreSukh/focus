@@ -198,6 +198,53 @@ public class HomeWorkflowTests
     }
 
     [Fact]
+    public void Execute_DeleteCommand_DeletesMapAndNodeScopedAttachmentsAfterConfirmation()
+    {
+        using var workspace = new TestWorkspace();
+        var map = new MindMap("Alpha");
+        var filePath = workspace.SaveMap("alpha", map);
+        var attachmentDirectory = workspace.MapsStorage.AttachmentStore.GetAttachmentDirectoryPath(
+            filePath,
+            map.RootNode.UniqueIdentifier ?? throw new InvalidOperationException("Root node identifier is required."));
+        Directory.CreateDirectory(attachmentDirectory);
+        File.WriteAllText(Path.Combine(attachmentDirectory, "capture.png"), "attachment");
+        using var consoleScope = new AppConsoleScope(new ScriptedConsoleSession("yes"));
+        var workflow = new HomeWorkflow(workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("del 1"), workflow.GetFileSelection());
+
+        Assert.False(result.ShouldExit);
+        Assert.False(result.IsError);
+        Assert.False(File.Exists(filePath));
+        Assert.False(Directory.Exists(attachmentDirectory));
+    }
+
+    [Fact]
+    public void Execute_DeleteCommand_WhenMapIsUnreadable_ReturnsSpecificMessageWithoutLogging()
+    {
+        using var diagnosticsScope = new ExceptionDiagnosticsScope();
+        using var workspace = new TestWorkspace();
+        var filePath = Path.Combine(workspace.MapsStorage.UserMindMapsDirectory, "broken.json");
+        File.WriteAllText(filePath, "{ \"rootNode\": ");
+        var attachmentDirectory = workspace.MapsStorage.AttachmentStore.GetAttachmentDirectoryPath(filePath, Guid.NewGuid());
+        Directory.CreateDirectory(attachmentDirectory);
+        File.WriteAllText(Path.Combine(attachmentDirectory, "capture.png"), "attachment");
+        using var consoleScope = new AppConsoleScope(new ScriptedConsoleSession("yes"));
+        var workflow = new HomeWorkflow(workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("del 1"), workflow.GetFileSelection());
+
+        Assert.False(result.ShouldExit);
+        Assert.True(result.IsError);
+        Assert.Equal(
+            "Map \"broken.json\" cannot be deleted because it is unreadable and its attachment folders cannot be determined safely.",
+            result.Message);
+        Assert.True(File.Exists(filePath));
+        Assert.True(Directory.Exists(attachmentDirectory));
+        Assert.DoesNotContain("Action: deleting map", diagnosticsScope.ReadLog(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Execute_Tasks_OpensSelectedMapAndNode()
     {
         var navigator = new RecordingPageNavigator();

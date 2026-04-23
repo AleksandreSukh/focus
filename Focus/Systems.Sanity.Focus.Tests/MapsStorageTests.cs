@@ -1,6 +1,7 @@
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.Infrastructure.FileSynchronization;
 using Newtonsoft.Json.Linq;
+using Systems.Sanity.Focus.Application;
 
 namespace Systems.Sanity.Focus.Tests;
 
@@ -267,7 +268,27 @@ public class MapsStorageTests
     }
 
     [Fact]
-    public void DeleteMap_DoesNotDeleteNodeScopedAttachmentDirectory()
+    public void DeleteMap_DeletesNodeScopedAttachmentDirectoriesAndPrunesEmptyRoot()
+    {
+        using var workspace = new TestWorkspace();
+        var map = new MindMap("Root");
+        var filePath = workspace.SaveMap("alpha", map);
+        var attachmentDirectory = workspace.MapsStorage.AttachmentStore.GetAttachmentDirectoryPath(
+            filePath,
+            GetRequiredNodeIdentifier(map.RootNode));
+        var attachmentRootDirectory = workspace.MapsStorage.AttachmentStore.GetAttachmentRootDirectoryPath(filePath);
+        Directory.CreateDirectory(attachmentDirectory);
+        File.WriteAllText(Path.Combine(attachmentDirectory, "capture.png"), "attachment");
+
+        workspace.MapsStorage.DeleteMap(new FileInfo(filePath));
+
+        Assert.False(File.Exists(filePath));
+        Assert.False(Directory.Exists(attachmentDirectory));
+        Assert.False(Directory.Exists(attachmentRootDirectory));
+    }
+
+    [Fact]
+    public void DeleteMap_PreserveAttachmentsMode_DoesNotDeleteNodeScopedAttachmentDirectory()
     {
         using var workspace = new TestWorkspace();
         var map = new MindMap("Root");
@@ -278,7 +299,7 @@ public class MapsStorageTests
         Directory.CreateDirectory(attachmentDirectory);
         File.WriteAllText(Path.Combine(attachmentDirectory, "capture.png"), "attachment");
 
-        workspace.MapsStorage.DeleteMap(new FileInfo(filePath));
+        workspace.MapsStorage.DeleteMap(new FileInfo(filePath), MapDeletionMode.PreserveAttachments);
 
         Assert.False(File.Exists(filePath));
         Assert.True(Directory.Exists(attachmentDirectory));
@@ -297,6 +318,56 @@ public class MapsStorageTests
 
         Assert.False(File.Exists(filePath));
         Assert.False(Directory.Exists(legacyAttachmentDirectory));
+    }
+
+    [Fact]
+    public void DeleteMap_DeletesOnlyCurrentMapsNodeScopedAttachmentDirectories()
+    {
+        using var workspace = new TestWorkspace();
+        var alphaMap = new MindMap("Alpha");
+        var alphaFilePath = workspace.SaveMap("alpha", alphaMap);
+        var alphaAttachmentDirectory = workspace.MapsStorage.AttachmentStore.GetAttachmentDirectoryPath(
+            alphaFilePath,
+            GetRequiredNodeIdentifier(alphaMap.RootNode));
+        Directory.CreateDirectory(alphaAttachmentDirectory);
+        File.WriteAllText(Path.Combine(alphaAttachmentDirectory, "alpha.png"), "attachment");
+
+        var betaMap = new MindMap("Beta");
+        var betaFilePath = workspace.SaveMap("beta", betaMap);
+        var betaAttachmentDirectory = workspace.MapsStorage.AttachmentStore.GetAttachmentDirectoryPath(
+            betaFilePath,
+            GetRequiredNodeIdentifier(betaMap.RootNode));
+        Directory.CreateDirectory(betaAttachmentDirectory);
+        File.WriteAllText(Path.Combine(betaAttachmentDirectory, "beta.png"), "attachment");
+
+        workspace.MapsStorage.DeleteMap(new FileInfo(alphaFilePath));
+
+        Assert.False(File.Exists(alphaFilePath));
+        Assert.False(Directory.Exists(alphaAttachmentDirectory));
+        Assert.True(File.Exists(betaFilePath));
+        Assert.True(Directory.Exists(betaAttachmentDirectory));
+    }
+
+    [Fact]
+    public void DeleteMap_WhenMapIsUnreadable_ThrowsAndLeavesMapAndAttachmentsUntouched()
+    {
+        using var workspace = new TestWorkspace();
+        var filePath = Path.Combine(workspace.MapsStorage.UserMindMapsDirectory, "broken.json");
+        File.WriteAllText(filePath, "{ \"rootNode\": ");
+
+        var nodeIdentifier = Guid.NewGuid();
+        var attachmentDirectory = workspace.MapsStorage.AttachmentStore.GetAttachmentDirectoryPath(filePath, nodeIdentifier);
+        Directory.CreateDirectory(attachmentDirectory);
+        File.WriteAllText(Path.Combine(attachmentDirectory, "capture.png"), "attachment");
+
+        var exception = Assert.Throws<MapDeletionBlockedException>(
+            () => workspace.MapsStorage.DeleteMap(new FileInfo(filePath)));
+
+        Assert.Equal(
+            "Map \"broken.json\" cannot be deleted because it is unreadable and its attachment folders cannot be determined safely.",
+            exception.Message);
+        Assert.True(File.Exists(filePath));
+        Assert.True(Directory.Exists(attachmentDirectory));
     }
 
     [Fact]

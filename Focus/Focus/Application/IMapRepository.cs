@@ -21,7 +21,7 @@ public interface IMapRepository
 
     void SaveMap(string filePath, MindMap map);
 
-    void DeleteMap(FileInfo file);
+    void DeleteMap(FileInfo file, MapDeletionMode deletionMode = MapDeletionMode.DeleteAttachments);
 
     void MoveMap(string existingFilePath, string newFilePath);
 }

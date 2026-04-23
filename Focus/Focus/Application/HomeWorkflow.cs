@@ -165,13 +165,17 @@ internal sealed class HomeWorkflow
 
         try
         {
-            if (new Confirmation($"Are you sure you want to delete: \"{file.Name}\"?").Confirmed())
+            if (new Confirmation($"Are you sure you want to delete: \"{file.Name}\" and all of its attachments?").Confirmed())
             {
-                _appContext.MapRepository.DeleteMap(file);
+                _appContext.MapRepository.DeleteMap(file, MapDeletionMode.DeleteAttachments);
                 _appContext.RefreshLinkIndex();
             }
 
             return HomeWorkflowResult.Continue;
+        }
+        catch (MapDeletionBlockedException ex)
+        {
+            return HomeWorkflowResult.Error(ex.Message);
         }
         catch (Exception ex)
         {

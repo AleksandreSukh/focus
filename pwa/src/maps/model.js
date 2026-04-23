@@ -363,6 +363,10 @@ export function hasDoneDescendants(document, nodeId) {
   return record.node.children.some((child) => subtreeHasDoneNode(child));
 }
 
+export function collectDocumentAttachmentRefs(document) {
+  return collectNodeAttachmentRefs(document?.rootNode);
+}
+
 // Canonical UTC timestamp format shared with the console app: yyyy-MM-ddTHH:mm:ssZ
 // No milliseconds, Z suffix — matches Newtonsoft.Json DateTimeOffset UTC serialization.
 export function nowIso() {
@@ -735,7 +739,11 @@ function traverseNode(node, parent, pathSegments, depth, visitor) {
 }
 
 function collectSubtreeAttachmentRefs(node) {
-  const deletedAttachments = [];
+  return collectNodeAttachmentRefs(node);
+}
+
+function collectNodeAttachmentRefs(node) {
+  const attachmentRefs = [];
 
   const visit = (currentNode) => {
     if (!currentNode || typeof currentNode !== 'object') {
@@ -757,7 +765,7 @@ function collectSubtreeAttachmentRefs(node) {
         return;
       }
 
-      deletedAttachments.push({
+      attachmentRefs.push({
         nodeId,
         attachmentId: typeof attachment?.id === 'string' ? attachment.id : '',
         relativePath,
@@ -775,7 +783,7 @@ function collectSubtreeAttachmentRefs(node) {
   };
 
   visit(node);
-  return deletedAttachments;
+  return attachmentRefs;
 }
 
 function subtreeHasDoneNode(node) {
