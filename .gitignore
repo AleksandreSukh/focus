@@ -355,3 +355,16 @@ MigrationBackup/
 .dotnet/
 .chrome-profile/
 .claude
+
+# Android
+android/.gradle/
+android/.android/
+android/.android-build/
+android/**/build/
+android/local.properties
+android/.idea/
+android/.kotlin/
+android/.userhome/
+android/captures/
+*.apk
+*.aab
