@@ -6,7 +6,8 @@ namespace Systems.Sanity.Focus.DomainServices;
 internal enum ExportFormat
 {
     Markdown,
-    Html
+    Html,
+    PlainText
 }
 
 internal static class ExportFormatExtensions
@@ -16,6 +17,7 @@ internal static class ExportFormatExtensions
         {
             ExportFormat.Markdown => "Markdown",
             ExportFormat.Html => "HTML",
+            ExportFormat.PlainText => "Plain text",
             _ => format.ToString()
         };
 
@@ -24,6 +26,7 @@ internal static class ExportFormatExtensions
         {
             ExportFormat.Markdown => ConfigurationConstants.MarkdownFileNameExtension,
             ExportFormat.Html => ConfigurationConstants.HtmlFileNameExtension,
+            ExportFormat.PlainText => throw new InvalidOperationException("Plain text export is clipboard-only."),
             _ => throw new ArgumentOutOfRangeException(nameof(format), format, null)
         };
 
@@ -32,6 +35,7 @@ internal static class ExportFormatExtensions
         {
             ExportFormat.Markdown => "markdown",
             ExportFormat.Html => "HTML",
+            ExportFormat.PlainText => "plain text",
             _ => format.ToString()
         };
 }

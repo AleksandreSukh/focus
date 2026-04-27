@@ -83,6 +83,28 @@ public class ExportPageTests
     }
 
     [Fact]
+    public void CopyTextOption_IsVisibleSuggestedAndSelectsClipboardDestination()
+    {
+        using var consoleScope = new AppConsoleScope(new ScriptedConsoleSession());
+        var page = new ExportPage("alpha");
+
+        var suggestions = page.GetSuggestions(string.Empty, 0);
+        var screen = BuildScreen(page);
+
+        Assert.Contains("copytext", suggestions);
+        Assert.Contains("copytext", screen);
+
+        SendInput(page, "collapsed");
+        SendInput(page, "copytext");
+
+        Assert.NotNull(page.SelectedExport);
+        Assert.Equal(ExportDestination.ClipboardText, page.SelectedExport!.Destination);
+        Assert.Equal(ExportFormat.PlainText, page.SelectedExport.Format);
+        Assert.True(page.SelectedExport.SkipCollapsedDescendants);
+        Assert.False(page.SelectedExport.IncludeAttachments);
+    }
+
+    [Fact]
     public void Show_SaveFromHtmlWithBlackBackground_PreservesFlagInRequest()
     {
         using var consoleScope = new AppConsoleScope(new ScriptedConsoleSession("html", "blackbg", "save"));

@@ -624,6 +624,9 @@ internal sealed class EditWorkflow
 
     private CommandExecutionResult ProcessExport(ExportRequest exportRequest)
     {
+        if (exportRequest.Destination == ExportDestination.ClipboardText)
+            return ProcessCopyTextExport(exportRequest);
+
         var exportDirectory = Path.GetDirectoryName(_filePath);
         if (string.IsNullOrWhiteSpace(exportDirectory))
             return CommandExecutionResult.Error("Couldn't determine export folder");
@@ -668,6 +671,20 @@ internal sealed class EditWorkflow
         {
             return CommandExecutionResult.Error(ExceptionDiagnostics.LogException(ex, "exporting map"));
         }
+    }
+
+    private CommandExecutionResult ProcessCopyTextExport(ExportRequest exportRequest)
+    {
+        var exportedContent = MapExportService.Export(
+            _map.GetCurrentNode(),
+            ExportFormat.PlainText,
+            new NodeExportOptions(SkipCollapsedDescendants: exportRequest.SkipCollapsedDescendants));
+        var copyResult = _appContext.ClipboardTextWriter.CopyText(exportedContent);
+        if (!copyResult.IsSuccess)
+            return CommandExecutionResult.Error(copyResult.ErrorMessage ?? "Couldn't copy text to clipboard.");
+
+        var collapsedSuffix = exportRequest.SkipCollapsedDescendants ? " (collapsed descendants skipped)" : string.Empty;
+        return CommandExecutionResult.Success($"Copied plain text export to clipboard{collapsedSuffix}");
     }
 
     private CommandExecutionResult ProcessGoTo(string parameters)

@@ -5,12 +5,18 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text;
 
 namespace Systems.Sanity.Focus.Application;
 
 internal interface IClipboardCaptureService
 {
     ClipboardCaptureResult Capture();
+}
+
+internal interface IClipboardTextWriter
+{
+    ClipboardTextWriteResult CopyText(string text);
 }
 
 internal enum ClipboardCaptureKind
@@ -37,6 +43,15 @@ internal sealed record ClipboardCaptureResult(
         new(null, null, null, errorMessage);
 }
 
+internal sealed record ClipboardTextWriteResult(string? ErrorMessage)
+{
+    public bool IsSuccess => string.IsNullOrWhiteSpace(ErrorMessage);
+
+    public static ClipboardTextWriteResult Success() => new(ErrorMessage: null);
+
+    public static ClipboardTextWriteResult Error(string errorMessage) => new(errorMessage);
+}
+
 internal static class ClipboardCaptureServiceFactory
 {
     public static IClipboardCaptureService CreateDefault(IClipboardCommandRunner? commandRunner = null)
@@ -56,11 +71,35 @@ internal static class ClipboardCaptureServiceFactory
     }
 }
 
+internal static class ClipboardTextWriterFactory
+{
+    public static IClipboardTextWriter CreateDefault(IClipboardCommandRunner? commandRunner = null)
+    {
+        commandRunner ??= new ProcessClipboardCommandRunner();
+
+        if (OperatingSystem.IsWindows())
+            return new WindowsClipboardTextWriter(commandRunner);
+
+        if (OperatingSystem.IsMacOS())
+            return new MacClipboardTextWriter(commandRunner);
+
+        if (OperatingSystem.IsLinux())
+            return new LinuxClipboardTextWriter(commandRunner);
+
+        return new UnsupportedClipboardTextWriter();
+    }
+}
+
 internal interface IClipboardCommandRunner
 {
     ClipboardCommandResult Run(string fileName, IReadOnlyList<string> arguments);
 
     ClipboardCommandResult RunToFile(string fileName, IReadOnlyList<string> arguments, string outputFilePath);
+
+    ClipboardCommandResult RunWithStandardInput(
+        string fileName,
+        IReadOnlyList<string> arguments,
+        string standardInput);
 }
 
 internal sealed record ClipboardCommandResult(
@@ -80,19 +119,35 @@ internal sealed class ProcessClipboardCommandRunner : IClipboardCommandRunner
     public ClipboardCommandResult RunToFile(string fileName, IReadOnlyList<string> arguments, string outputFilePath) =>
         RunInternal(fileName, arguments, captureOutput: false);
 
-    private static ClipboardCommandResult RunInternal(string fileName, IReadOnlyList<string> arguments, bool captureOutput)
+    public ClipboardCommandResult RunWithStandardInput(
+        string fileName,
+        IReadOnlyList<string> arguments,
+        string standardInput) =>
+        RunInternal(fileName, arguments, captureOutput: false, standardInput: standardInput);
+
+    private static ClipboardCommandResult RunInternal(
+        string fileName,
+        IReadOnlyList<string> arguments,
+        bool captureOutput,
+        string? standardInput = null)
     {
         try
         {
             using var process = new Process();
+            var redirectStandardInput = standardInput != null;
             process.StartInfo = new ProcessStartInfo
             {
                 FileName = fileName,
                 UseShellExecute = false,
+                RedirectStandardInput = redirectStandardInput,
                 RedirectStandardOutput = captureOutput,
                 RedirectStandardError = true,
                 CreateNoWindow = true
             };
+            if (redirectStandardInput)
+            {
+                process.StartInfo.StandardInputEncoding = Encoding.UTF8;
+            }
 
             foreach (var argument in arguments)
             {
@@ -100,6 +155,12 @@ internal sealed class ProcessClipboardCommandRunner : IClipboardCommandRunner
             }
 
             process.Start();
+            if (redirectStandardInput)
+            {
+                process.StandardInput.Write(standardInput);
+                process.StandardInput.Close();
+            }
+
             var standardOutput = captureOutput
                 ? process.StandardOutput.ReadToEnd()
                 : string.Empty;
@@ -119,6 +180,107 @@ internal sealed class UnsupportedClipboardCaptureService : IClipboardCaptureServ
 {
     public ClipboardCaptureResult Capture() =>
         ClipboardCaptureResult.Error("Clipboard capture is not supported on this operating system.");
+}
+
+internal sealed class UnsupportedClipboardTextWriter : IClipboardTextWriter
+{
+    public ClipboardTextWriteResult CopyText(string text) =>
+        ClipboardTextWriteResult.Error("Clipboard text export is not supported on this operating system.");
+}
+
+internal sealed class WindowsClipboardTextWriter : IClipboardTextWriter
+{
+    private readonly IClipboardCommandRunner _commandRunner;
+
+    public WindowsClipboardTextWriter(IClipboardCommandRunner commandRunner)
+    {
+        _commandRunner = commandRunner;
+    }
+
+    public ClipboardTextWriteResult CopyText(string text)
+    {
+        var commandResult = _commandRunner.RunWithStandardInput(
+            "powershell",
+            new[]
+            {
+                "-NoProfile",
+                "-STA",
+                "-Command",
+                "[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); $text = [Console]::In.ReadToEnd(); Set-Clipboard -Value $text"
+            },
+            text ?? string.Empty);
+
+        if (commandResult.StartException != null)
+            return ClipboardTextWriteResult.Error("Clipboard text export on Windows requires PowerShell.");
+
+        return commandResult.Succeeded
+            ? ClipboardTextWriteResult.Success()
+            : ClipboardTextWriteResult.Error(ClipboardTextWriteHelpers.BuildCommandError(commandResult));
+    }
+}
+
+internal sealed class MacClipboardTextWriter : IClipboardTextWriter
+{
+    private readonly IClipboardCommandRunner _commandRunner;
+
+    public MacClipboardTextWriter(IClipboardCommandRunner commandRunner)
+    {
+        _commandRunner = commandRunner;
+    }
+
+    public ClipboardTextWriteResult CopyText(string text)
+    {
+        var commandResult = _commandRunner.RunWithStandardInput(
+            "pbcopy",
+            Array.Empty<string>(),
+            text ?? string.Empty);
+
+        if (commandResult.StartException != null)
+            return ClipboardTextWriteResult.Error("Clipboard text export on macOS requires \"pbcopy\".");
+
+        return commandResult.Succeeded
+            ? ClipboardTextWriteResult.Success()
+            : ClipboardTextWriteResult.Error(ClipboardTextWriteHelpers.BuildCommandError(commandResult));
+    }
+}
+
+internal sealed class LinuxClipboardTextWriter : IClipboardTextWriter
+{
+    private readonly IClipboardCommandRunner _commandRunner;
+
+    public LinuxClipboardTextWriter(IClipboardCommandRunner commandRunner)
+    {
+        _commandRunner = commandRunner;
+    }
+
+    public ClipboardTextWriteResult CopyText(string text)
+    {
+        var normalizedText = text ?? string.Empty;
+        var wlResult = _commandRunner.RunWithStandardInput(
+            "wl-copy",
+            Array.Empty<string>(),
+            normalizedText);
+        if (wlResult.Succeeded)
+            return ClipboardTextWriteResult.Success();
+
+        var xclipResult = _commandRunner.RunWithStandardInput(
+            "xclip",
+            new[] { "-selection", "clipboard" },
+            normalizedText);
+        if (xclipResult.Succeeded)
+            return ClipboardTextWriteResult.Success();
+
+        if (wlResult.StartException != null && xclipResult.StartException != null)
+            return ClipboardTextWriteResult.Error("Clipboard text export on Linux requires \"wl-copy\" or \"xclip\".");
+
+        if (xclipResult.StartException == null && !xclipResult.Succeeded)
+            return ClipboardTextWriteResult.Error(ClipboardTextWriteHelpers.BuildCommandError(xclipResult));
+
+        if (wlResult.StartException == null && !wlResult.Succeeded)
+            return ClipboardTextWriteResult.Error(ClipboardTextWriteHelpers.BuildCommandError(wlResult));
+
+        return ClipboardTextWriteResult.Error("Couldn't copy text to clipboard.");
+    }
 }
 
 internal sealed class WindowsClipboardCaptureService : IClipboardCaptureService
@@ -419,5 +581,16 @@ internal static class ClipboardCaptureHelpers
             return $"Couldn't capture {actionLabel}: {result.StandardError.Trim()}";
 
         return $"Couldn't capture {actionLabel}.";
+    }
+}
+
+internal static class ClipboardTextWriteHelpers
+{
+    public static string BuildCommandError(ClipboardCommandResult result)
+    {
+        if (!string.IsNullOrWhiteSpace(result.StandardError))
+            return $"Couldn't copy text to clipboard: {result.StandardError.Trim()}";
+
+        return "Couldn't copy text to clipboard.";
     }
 }

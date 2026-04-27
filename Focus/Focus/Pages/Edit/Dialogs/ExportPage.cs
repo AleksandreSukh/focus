@@ -16,6 +16,7 @@ internal class ExportPage : Page
 {
     private const string MarkdownOption = "md";
     private const string HtmlOption = "html";
+    private const string CopyTextOption = "copytext";
     private const string BlackBackgroundOption = "blackbg";
     private const string LightBackgroundOption = "lightbg";
     private const string FullOption = "full";
@@ -74,6 +75,13 @@ internal class ExportPage : Page
                 return;
             case HtmlOption:
                 SetFormat(ExportFormat.Html);
+                return;
+            case CopyTextOption:
+                SelectedExport = new ExportRequest(
+                    ExportFormat.PlainText,
+                    _fileName,
+                    _skipCollapsedDescendants,
+                    Destination: ExportDestination.ClipboardText);
                 return;
             case BlackBackgroundOption:
                 SetBackground(useBlackBackground: true);
@@ -236,6 +244,7 @@ internal class ExportPage : Page
         }
 
         yield return new ExportOption($"{NameOption} <file name>", $"{NameOption} {_fileName}", "set exported file name");
+        yield return new ExportOption(CopyTextOption, CopyTextOption, "copy plain text to clipboard");
         yield return new ExportOption(SaveOption, SaveOption, "create exported file");
         yield return new ExportOption(CancelOption, CancelOption, "return without exporting");
     }

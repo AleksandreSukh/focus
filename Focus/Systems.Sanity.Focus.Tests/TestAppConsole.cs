@@ -232,6 +232,19 @@ internal sealed class FakeClipboardCaptureService : IClipboardCaptureService
     }
 }
 
+internal sealed class FakeClipboardTextWriter : IClipboardTextWriter
+{
+    public ClipboardTextWriteResult Result { get; set; } = ClipboardTextWriteResult.Success();
+
+    public List<string> CopiedTexts { get; } = new();
+
+    public ClipboardTextWriteResult CopyText(string text)
+    {
+        CopiedTexts.Add(text);
+        return Result;
+    }
+}
+
 internal sealed class RecordingFileOpener : IFileOpener
 {
     public string? OpenedFilePath { get; private set; }
@@ -253,25 +266,39 @@ internal sealed class RecordingFileOpener : IFileOpener
 
 internal sealed class RecordingClipboardCommandRunner : IClipboardCommandRunner
 {
-    private readonly Queue<Func<string, IReadOnlyList<string>, string?, ClipboardCommandResult>> _responses = new();
+    private readonly Queue<Func<string, IReadOnlyList<string>, string?, string?, ClipboardCommandResult>> _responses = new();
 
-    public List<(string FileName, IReadOnlyList<string> Arguments, string? OutputFilePath)> Calls { get; } = new();
+    public List<(string FileName, IReadOnlyList<string> Arguments, string? OutputFilePath, string? StandardInput)> Calls { get; } = new();
 
     public void EnqueueResponse(Func<string, IReadOnlyList<string>, string?, ClipboardCommandResult> response)
+    {
+        _responses.Enqueue((fileName, arguments, outputFilePath, _) => response(fileName, arguments, outputFilePath));
+    }
+
+    public void EnqueueResponse(Func<string, IReadOnlyList<string>, string?, string?, ClipboardCommandResult> response)
     {
         _responses.Enqueue(response);
     }
 
     public ClipboardCommandResult Run(string fileName, IReadOnlyList<string> arguments)
     {
-        Calls.Add((fileName, arguments, null));
-        return _responses.Dequeue().Invoke(fileName, arguments, null);
+        Calls.Add((fileName, arguments, null, null));
+        return _responses.Dequeue().Invoke(fileName, arguments, null, null);
     }
 
     public ClipboardCommandResult RunToFile(string fileName, IReadOnlyList<string> arguments, string outputFilePath)
     {
-        Calls.Add((fileName, arguments, outputFilePath));
-        return _responses.Dequeue().Invoke(fileName, arguments, outputFilePath);
+        Calls.Add((fileName, arguments, outputFilePath, null));
+        return _responses.Dequeue().Invoke(fileName, arguments, outputFilePath, null);
+    }
+
+    public ClipboardCommandResult RunWithStandardInput(
+        string fileName,
+        IReadOnlyList<string> arguments,
+        string standardInput)
+    {
+        Calls.Add((fileName, arguments, null, standardInput));
+        return _responses.Dequeue().Invoke(fileName, arguments, null, standardInput);
     }
 }
 

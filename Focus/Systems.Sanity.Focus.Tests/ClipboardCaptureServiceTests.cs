@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using Systems.Sanity.Focus.Application;
 
 namespace Systems.Sanity.Focus.Tests;
@@ -54,5 +55,82 @@ public class ClipboardCaptureServiceTests
 
         Assert.False(result.IsSuccess);
         Assert.Equal("Clipboard capture on Linux requires \"wl-paste\" or \"xclip\".", result.ErrorMessage);
+    }
+
+    [Fact]
+    public void WindowsCopyText_UsesPowerShellWithStandardInput()
+    {
+        var commandRunner = new RecordingClipboardCommandRunner();
+        commandRunner.EnqueueResponse((_, _, _, _) => new ClipboardCommandResult(0, string.Empty, string.Empty));
+        var writer = new WindowsClipboardTextWriter(commandRunner);
+
+        var result = writer.CopyText("Line 1\nLine 2");
+        var call = commandRunner.Calls.Single();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("powershell", call.FileName);
+        Assert.Contains(call.Arguments, argument => argument.Contains("Set-Clipboard", StringComparison.Ordinal));
+        Assert.Equal("Line 1\nLine 2", call.StandardInput);
+    }
+
+    [Fact]
+    public void MacCopyText_UsesPbcopyWithStandardInput()
+    {
+        var commandRunner = new RecordingClipboardCommandRunner();
+        commandRunner.EnqueueResponse((_, _, _, _) => new ClipboardCommandResult(0, string.Empty, string.Empty));
+        var writer = new MacClipboardTextWriter(commandRunner);
+
+        var result = writer.CopyText("Hello chat");
+        var call = commandRunner.Calls.Single();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("pbcopy", call.FileName);
+        Assert.Equal("Hello chat", call.StandardInput);
+    }
+
+    [Fact]
+    public void LinuxCopyText_PrefersWlCopy()
+    {
+        var commandRunner = new RecordingClipboardCommandRunner();
+        commandRunner.EnqueueResponse((_, _, _, _) => new ClipboardCommandResult(0, string.Empty, string.Empty));
+        var writer = new LinuxClipboardTextWriter(commandRunner);
+
+        var result = writer.CopyText("Hello chat");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(["wl-copy"], commandRunner.Calls.Select(call => call.FileName).ToArray());
+        Assert.Equal("Hello chat", commandRunner.Calls.Single().StandardInput);
+    }
+
+    [Fact]
+    public void LinuxCopyText_FallsBackToXclip()
+    {
+        var commandRunner = new RecordingClipboardCommandRunner();
+        commandRunner.EnqueueResponse((_, _, _, _) =>
+            new ClipboardCommandResult(-1, string.Empty, string.Empty, new FileNotFoundException("missing")));
+        commandRunner.EnqueueResponse((_, _, _, _) => new ClipboardCommandResult(0, string.Empty, string.Empty));
+        var writer = new LinuxClipboardTextWriter(commandRunner);
+
+        var result = writer.CopyText("Hello chat");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(["wl-copy", "xclip"], commandRunner.Calls.Select(call => call.FileName).ToArray());
+        Assert.Equal("Hello chat", commandRunner.Calls.Last().StandardInput);
+    }
+
+    [Fact]
+    public void LinuxCopyText_ReturnsHelpfulErrorWhenClipboardToolsAreMissing()
+    {
+        var commandRunner = new RecordingClipboardCommandRunner();
+        commandRunner.EnqueueResponse((_, _, _, _) =>
+            new ClipboardCommandResult(-1, string.Empty, string.Empty, new FileNotFoundException("missing")));
+        commandRunner.EnqueueResponse((_, _, _, _) =>
+            new ClipboardCommandResult(-1, string.Empty, string.Empty, new FileNotFoundException("missing")));
+        var writer = new LinuxClipboardTextWriter(commandRunner);
+
+        var result = writer.CopyText("Hello chat");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("Clipboard text export on Linux requires \"wl-copy\" or \"xclip\".", result.ErrorMessage);
     }
 }

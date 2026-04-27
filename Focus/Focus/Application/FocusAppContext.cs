@@ -16,7 +16,8 @@ internal sealed class FocusAppContext
         MapsStorage mapsStorage,
         IPageNavigator? navigator,
         IClipboardCaptureService? clipboardCaptureService = null,
-        IFileOpener? fileOpener = null)
+        IFileOpener? fileOpener = null,
+        IClipboardTextWriter? clipboardTextWriter = null)
     {
         MapsStorage = mapsStorage;
         StartupSyncNotificationState = new StartupSyncNotificationState();
@@ -24,6 +25,7 @@ internal sealed class FocusAppContext
         LinkNavigationService = new LinkNavigationService(LinkIndex);
         MapSelectionService = new MapSelectionService(mapsStorage);
         ClipboardCaptureService = clipboardCaptureService ?? ClipboardCaptureServiceFactory.CreateDefault();
+        ClipboardTextWriter = clipboardTextWriter ?? ClipboardTextWriterFactory.CreateDefault();
         FileOpener = fileOpener ?? new DefaultFileOpener();
         Navigator = navigator ?? new PageNavigator(this);
     }
@@ -39,6 +41,8 @@ internal sealed class FocusAppContext
     public MapSelectionService MapSelectionService { get; }
 
     public IClipboardCaptureService ClipboardCaptureService { get; }
+
+    public IClipboardTextWriter ClipboardTextWriter { get; }
 
     public IFileOpener FileOpener { get; }
 

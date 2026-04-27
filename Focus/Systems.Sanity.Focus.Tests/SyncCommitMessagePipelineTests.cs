@@ -79,6 +79,36 @@ public class SyncCommitMessagePipelineTests
     }
 
     [Fact]
+    public void Execute_ExportCopyText_CopiesPlainTextWithoutFileOrSync()
+    {
+        using var workspace = new TestWorkspace();
+        var handler = new RecordingFileSynchronizationHandler();
+        var mapsStorage = CreateMapsStorage(workspace.RootDirectory, handler);
+        var clipboardTextWriter = new FakeClipboardTextWriter();
+        var appContext = new FocusAppContext(
+            mapsStorage,
+            navigator: null,
+            clipboardTextWriter: clipboardTextWriter);
+        var map = new MindMap("Alpha");
+        var child = map.AddAtCurrentNode("Child");
+        child.TaskState = TaskState.Todo;
+        var filePath = mapsStorage.SaveMapToStorage("alpha", map);
+        var workflow = new EditWorkflow(filePath, appContext);
+
+        using var consoleScope = new AppConsoleScope(new ScriptedConsoleSession("copytext"));
+        var result = workflow.Execute(new ConsoleInput("export"));
+
+        Assert.True(result.IsSuccess);
+        Assert.False(result.ShouldPersist);
+        Assert.Empty(handler.CommitMessages);
+        Assert.Equal("Copied plain text export to clipboard", result.Message);
+        Assert.Equal("Alpha\n- [ ] Child\n", clipboardTextWriter.CopiedTexts.Single().ReplaceLineEndings("\n"));
+        Assert.Empty(Directory.GetFiles(mapsStorage.UserMindMapsDirectory, "*.md"));
+        Assert.Empty(Directory.GetFiles(mapsStorage.UserMindMapsDirectory, "*.html"));
+        Assert.Empty(Directory.GetFiles(mapsStorage.UserMindMapsDirectory, "*.txt"));
+    }
+
+    [Fact]
     public void Show_PersistedCommand_ForwardsGeneratedSyncCommitMessageToHandler()
     {
         using var workspace = new TestWorkspace();

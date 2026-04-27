@@ -20,6 +20,9 @@ internal static class MapExportService
             case ExportFormat.Html:
                 HtmlPrinter.Print(node, sb, options);
                 break;
+            case ExportFormat.PlainText:
+                PlainTextPrinter.Print(node, sb, options);
+                break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(format), format, null);
         }
