@@ -25,7 +25,19 @@ import {
 } from './settings/repoSettings.js';
 import { renderConnectionScreen } from './settings/ConnectionScreen.js';
 import { renderSettingsScreen } from './settings/SettingsScreen.js';
+import {
+  getAttachmentViewerKind,
+  isAudioAttachment,
+  isTextAttachment,
+} from './attachments/attachmentTypes.js';
 import { loadImagePreview } from './attachments/imagePreview.js';
+import {
+  MAX_VOICE_NOTE_MS,
+  createVoiceNoteFile,
+  formatVoiceElapsedTime,
+  selectVoiceMimeType,
+  stopMediaStream,
+} from './attachments/voiceRecorder.js';
 import { GitHubMindMapProvider } from './maps/githubMindMapProvider.js';
 import {
   loadCachedMapSnapshots,
@@ -76,6 +88,7 @@ const THEME_META_COLORS = {
   dark: '#000000',
 };
 const MODAL_HISTORY_STATE_KEY = 'focusModal';
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
 const state = {
   runtimeConfig: null,
@@ -131,6 +144,7 @@ const renderCache = {
 let globalUiListenersBound = false;
 let hashRoutingBound = false;
 let pendingModalHistoryClose = null;
+let activeVoiceRecording = null;
 
 export async function bootstrapApp() {
   wireUi();
@@ -193,6 +207,7 @@ function wireUi() {
   ui.statusToggle?.addEventListener('click', () => {
     const openingStatus = !state.showStatus;
     if (openingStatus) {
+      discardActiveVoiceRecording();
       state.activeModal = null;
       state.showSettings = false;
       state.pendingFocusRequest = {
@@ -211,6 +226,7 @@ function wireUi() {
   ui.settingsToggle?.addEventListener('click', () => {
     const openingSettings = !state.showSettings;
     if (openingSettings) {
+      discardActiveVoiceRecording();
       state.activeModal = null;
       state.showStatus = false;
       state.pendingFocusRequest = {
@@ -703,6 +719,15 @@ function handleDocumentClick(event) {
       }
       return;
     }
+    case 'start-voice-note':
+      void handleStartVoiceRecording();
+      return;
+    case 'save-voice-note':
+      void handleSubmitVoiceRecording();
+      return;
+    case 'cancel-voice-note':
+      void handleCancelVoiceRecording();
+      return;
     case 'viewer-zoom-in':
       if (state.activeModal?.kind === 'imageViewer') {
         state.activeModal = { ...state.activeModal, zoom: Math.min(state.activeModal.zoom + 0.25, 5) };
@@ -876,6 +901,20 @@ function handleDocumentKeydown(event) {
   const target = event.target;
   if (!(target instanceof HTMLElement)) {
     return;
+  }
+
+  if (state.activeModal?.kind === 'editNode' && activeVoiceRecording) {
+    if (event.key === 'Enter' && !event.isComposing) {
+      event.preventDefault();
+      void handleSubmitVoiceRecording();
+      return;
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      void handleCancelVoiceRecording();
+      return;
+    }
   }
 
   if (event.key === 'Escape' && state.activeModal) {
@@ -1893,10 +1932,6 @@ function getPrimaryNodeAttachment(node) {
   return attachments.find((attachment) => typeof attachment?.relativePath === 'string' && attachment.relativePath) || attachments[0] || null;
 }
 
-function isTextAttachment(attachment) {
-  return typeof attachment?.mediaType === 'string' && attachment.mediaType.toLowerCase().startsWith('text/');
-}
-
 function isClipboardTextNode(node) {
   return typeof node?.metadata?.source === 'string' && node.metadata.source === 'clipboard-text';
 }
@@ -1904,7 +1939,7 @@ function isClipboardTextNode(node) {
 function canDeleteViewedAttachment(modal) {
   return Boolean(
     modal &&
-    (modal.kind === 'imageViewer' || modal.kind === 'textViewer') &&
+    (modal.kind === 'imageViewer' || modal.kind === 'textViewer' || modal.kind === 'audioViewer') &&
     modal.nodeId &&
     modal.attachmentId,
   );
@@ -1942,6 +1977,10 @@ function revokeModalObjectUrls(modal) {
 
   if (modal.kind === 'textViewer' && modal.downloadUrl) {
     URL.revokeObjectURL(modal.downloadUrl);
+  }
+
+  if (modal.kind === 'audioViewer' && modal.audioUrl) {
+    URL.revokeObjectURL(modal.audioUrl);
   }
 
   if (modal.kind === 'deleteAttachment' && modal.previousModal) {
@@ -2121,13 +2160,81 @@ async function openTextViewerForAttachment(mapPath, nodeId, attachment, returnFo
   URL.revokeObjectURL(downloadUrl);
 }
 
-async function openAttachmentViewerForAttachment(mapPath, nodeId, attachment, returnFocusKey = '') {
-  if (isTextAttachment(attachment)) {
-    await openTextViewerForAttachment(mapPath, nodeId, attachment, returnFocusKey);
+async function openAudioViewerForAttachment(mapPath, nodeId, attachment, returnFocusKey = '') {
+  if (!attachment) {
     return;
   }
 
-  await openImageViewerForAttachment(mapPath, nodeId, attachment, returnFocusKey);
+  state.activeModal = {
+    kind: 'audioViewer',
+    mapPath,
+    nodeId,
+    attachmentId: attachment.id,
+    draftText: '',
+    errorMessage: '',
+    returnFocusKey: returnFocusKey || buildNodeFocusKey(mapPath, nodeId),
+    attachmentRelativePath: attachment.relativePath,
+    displayName: attachment.displayName || attachment.relativePath,
+    audioUrl: null,
+    downloadUrl: null,
+    loading: true,
+  };
+  render();
+
+  const result = await state.service.loadAttachment(
+    mapPath,
+    nodeId,
+    attachment.relativePath,
+    attachment.mediaType,
+  );
+  if (!result.ok) {
+    if (
+      state.activeModal?.kind === 'audioViewer' &&
+      state.activeModal.mapPath === mapPath &&
+      state.activeModal.nodeId === nodeId &&
+      state.activeModal.attachmentId === attachment.id
+    ) {
+      state.activeModal = {
+        ...state.activeModal,
+        loading: false,
+        errorMessage: result.error.message || 'Failed to load attachment.',
+      };
+      render();
+    }
+    return;
+  }
+
+  const audioUrl = URL.createObjectURL(result.value);
+  if (
+    state.activeModal?.kind === 'audioViewer' &&
+    state.activeModal.mapPath === mapPath &&
+    state.activeModal.nodeId === nodeId &&
+    state.activeModal.attachmentId === attachment.id
+  ) {
+    state.activeModal = {
+      ...state.activeModal,
+      loading: false,
+      audioUrl,
+      downloadUrl: audioUrl,
+    };
+    render();
+    return;
+  }
+
+  URL.revokeObjectURL(audioUrl);
+}
+
+async function openAttachmentViewerForAttachment(mapPath, nodeId, attachment, returnFocusKey = '') {
+  switch (getAttachmentViewerKind(attachment)) {
+    case 'textViewer':
+      await openTextViewerForAttachment(mapPath, nodeId, attachment, returnFocusKey);
+      return;
+    case 'audioViewer':
+      await openAudioViewerForAttachment(mapPath, nodeId, attachment, returnFocusKey);
+      return;
+    default:
+      await openImageViewerForAttachment(mapPath, nodeId, attachment, returnFocusKey);
+  }
 }
 
 async function handleOpenAttachment(mapPath, nodeId, attachmentId) {
@@ -2160,8 +2267,7 @@ async function handleAttachFile(file) {
     return;
   }
 
-  const MAX_BYTES = 10 * 1024 * 1024;
-  if (file.size > MAX_BYTES) {
+  if (file.size > MAX_ATTACHMENT_BYTES) {
     state.activeModal = {
       ...state.activeModal,
       attachmentError: `File is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum size is 10 MB.`,
@@ -2170,14 +2276,33 @@ async function handleAttachFile(file) {
     return;
   }
 
-  const ACCEPTED_TYPES = /^(image\/|application\/pdf$|text\/)/;
+  const ACCEPTED_TYPES = /^(image\/|audio\/|application\/pdf$|text\/)/;
   if (!ACCEPTED_TYPES.test(file.type)) {
     state.activeModal = {
       ...state.activeModal,
-      attachmentError: `Unsupported file type "${file.type}". Attach an image, PDF, or text file.`,
+      attachmentError: `Unsupported file type "${file.type}". Attach an image, audio, PDF, or text file.`,
     };
     render();
     return;
+  }
+
+  await uploadAttachmentForActiveEditNode(file);
+}
+
+async function uploadAttachmentForActiveEditNode(file, displayName = file.name) {
+  const modalContext = getActiveModalContext('editNode');
+  if (!modalContext || !state.service) {
+    return false;
+  }
+
+  if (file.size > MAX_ATTACHMENT_BYTES) {
+    state.activeModal = {
+      ...state.activeModal,
+      attachmentUploading: false,
+      attachmentError: `File is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum size is 10 MB.`,
+    };
+    render();
+    return false;
   }
 
   const { snapshot } = modalContext;
@@ -2190,7 +2315,7 @@ async function handleAttachFile(file) {
   };
   render();
 
-  const commitMessage = buildAttachmentAddCommitMessage(mapName, file.name);
+  const commitMessage = buildAttachmentAddCommitMessage(mapName, displayName || file.name);
   const uploaded = await state.service.uploadAttachment(
     snapshot.filePath,
     modalContext.nodeUiState.node.uniqueIdentifier,
@@ -2208,7 +2333,10 @@ async function handleAttachFile(file) {
     return;
   }
 
-  const attachment = uploaded.value;
+  const attachment = {
+    ...uploaded.value,
+    displayName: displayName || uploaded.value.displayName,
+  };
   const operation = {
     type: 'addAttachment',
     filePath: snapshot.filePath,
@@ -2229,6 +2357,229 @@ async function handleAttachFile(file) {
     refreshVisibleSnapshotsFromServiceCache();
   }
 
+  render();
+  return enqueued.ok;
+}
+
+async function handleStartVoiceRecording() {
+  const modalContext = getActiveModalContext('editNode');
+  if (!modalContext || activeVoiceRecording) {
+    return;
+  }
+
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder !== 'function') {
+    setAttachmentError('Voice recording is not available in this browser.');
+    return;
+  }
+
+  state.activeModal = {
+    ...state.activeModal,
+    voiceStatus: 'starting',
+    voiceElapsedMs: 0,
+    attachmentError: '',
+  };
+  render();
+
+  let stream = null;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mimeType = selectVoiceMimeType(MediaRecorder);
+    const recorder = mimeType
+      ? new MediaRecorder(stream, { mimeType })
+      : new MediaRecorder(stream);
+    const chunks = [];
+    recorder.addEventListener('dataavailable', (event) => {
+      if (event.data && event.data.size > 0) {
+        chunks.push(event.data);
+      }
+    });
+
+    const startedAt = Date.now();
+    activeVoiceRecording = {
+      recorder,
+      stream,
+      chunks,
+      mimeType: recorder.mimeType || mimeType || 'audio/webm',
+      startedAt,
+      timerId: 0,
+      timeoutId: 0,
+      stopping: false,
+    };
+
+    recorder.start();
+    activeVoiceRecording.timerId = window.setInterval(updateVoiceRecordingElapsed, 500);
+    activeVoiceRecording.timeoutId = window.setTimeout(() => {
+      void handleSubmitVoiceRecording({ reachedLimit: true });
+    }, MAX_VOICE_NOTE_MS);
+
+    state.activeModal = {
+      ...state.activeModal,
+      voiceStatus: 'recording',
+      voiceElapsedMs: 0,
+      voiceReachedLimit: false,
+      attachmentError: '',
+    };
+    render();
+  } catch (error) {
+    if (stream) {
+      stopMediaStream(stream);
+    }
+    activeVoiceRecording = null;
+    setAttachmentError(error?.message || 'Could not start voice recording. Check microphone permission.');
+  }
+}
+
+async function handleSubmitVoiceRecording(options = {}) {
+  const recording = activeVoiceRecording;
+  if (!recording || recording.stopping) {
+    return;
+  }
+
+  recording.stopping = true;
+  clearVoiceRecordingTimers(recording);
+  state.activeModal = {
+    ...state.activeModal,
+    voiceStatus: 'saving',
+    voiceReachedLimit: Boolean(options.reachedLimit),
+    attachmentError: '',
+  };
+  render();
+
+  try {
+    const blob = await stopActiveVoiceRecording(recording);
+    if (!blob || blob.size === 0) {
+      setAttachmentError('Voice recording was empty. Try recording again.');
+      return;
+    }
+
+    const { file, displayName } = createVoiceNoteFile(blob, {
+      mimeType: recording.mimeType,
+    });
+    activeVoiceRecording = null;
+    await uploadAttachmentForActiveEditNode(file, displayName);
+    if (state.activeModal) {
+      state.activeModal = {
+        ...state.activeModal,
+        voiceStatus: '',
+        voiceElapsedMs: 0,
+        voiceReachedLimit: false,
+      };
+      render();
+    }
+  } catch (error) {
+    activeVoiceRecording = null;
+    setAttachmentError(error?.message || 'Could not save voice recording.');
+  } finally {
+    stopMediaStream(recording.stream);
+  }
+}
+
+async function handleCancelVoiceRecording() {
+  const recording = activeVoiceRecording;
+  if (!recording) {
+    return;
+  }
+
+  activeVoiceRecording = null;
+  clearVoiceRecordingTimers(recording);
+  try {
+    if (recording.recorder.state !== 'inactive') {
+      recording.recorder.stop();
+    }
+  } catch {
+  }
+  stopMediaStream(recording.stream);
+  if (state.activeModal) {
+    state.activeModal = {
+      ...state.activeModal,
+      voiceStatus: '',
+      voiceElapsedMs: 0,
+      voiceReachedLimit: false,
+      attachmentError: '',
+    };
+    render();
+  }
+}
+
+function discardActiveVoiceRecording() {
+  const recording = activeVoiceRecording;
+  if (!recording) {
+    return;
+  }
+
+  activeVoiceRecording = null;
+  clearVoiceRecordingTimers(recording);
+  try {
+    if (recording.recorder.state !== 'inactive') {
+      recording.recorder.stop();
+    }
+  } catch {
+  }
+  stopMediaStream(recording.stream);
+}
+
+function stopActiveVoiceRecording(recording) {
+  return new Promise((resolve, reject) => {
+    const finish = () => {
+      resolve(new Blob(recording.chunks, { type: recording.mimeType || 'audio/webm' }));
+    };
+    const fail = (event) => {
+      reject(event?.error || new Error('Voice recording failed.'));
+    };
+
+    recording.recorder.addEventListener('stop', finish, { once: true });
+    recording.recorder.addEventListener('error', fail, { once: true });
+
+    if (recording.recorder.state === 'inactive') {
+      finish();
+      return;
+    }
+
+    recording.recorder.stop();
+  });
+}
+
+function updateVoiceRecordingElapsed() {
+  if (!activeVoiceRecording || state.activeModal?.kind !== 'editNode') {
+    return;
+  }
+
+  const voiceElapsedMs = Math.min(Date.now() - activeVoiceRecording.startedAt, MAX_VOICE_NOTE_MS);
+  state.activeModal = {
+    ...state.activeModal,
+    voiceElapsedMs,
+  };
+  updateVoiceRecordingElapsedText(voiceElapsedMs);
+}
+
+function updateVoiceRecordingElapsedText(voiceElapsedMs) {
+  const elapsedNode = ui.workspaceOverlay?.querySelector?.('.voice-recorder-time');
+  if (elapsedNode instanceof HTMLElement) {
+    elapsedNode.textContent = formatVoiceElapsedTime(voiceElapsedMs);
+  }
+}
+
+function clearVoiceRecordingTimers(recording) {
+  if (recording.timerId) {
+    window.clearInterval(recording.timerId);
+  }
+  if (recording.timeoutId) {
+    window.clearTimeout(recording.timeoutId);
+  }
+}
+
+function setAttachmentError(message) {
+  if (!state.activeModal) {
+    return;
+  }
+
+  state.activeModal = {
+    ...state.activeModal,
+    attachmentUploading: false,
+    voiceStatus: '',
+    voiceElapsedMs: 0,
+    attachmentError: message,
+  };
   render();
 }
 
@@ -2647,7 +2998,9 @@ function handleViewerDownload() {
     ? state.activeModal.imageUrl
     : state.activeModal.kind === 'textViewer'
       ? state.activeModal.downloadUrl
-      : '';
+      : state.activeModal.kind === 'audioViewer'
+        ? state.activeModal.downloadUrl
+        : '';
 
   if (!viewerUrl) {
     return;
@@ -2656,7 +3009,11 @@ function handleViewerDownload() {
   downloadUrlAsFile(
     viewerUrl,
     state.activeModal.displayName
-    || (state.activeModal.kind === 'textViewer' ? 'attachment.txt' : 'attachment.png'),
+    || (state.activeModal.kind === 'textViewer'
+      ? 'attachment.txt'
+      : state.activeModal.kind === 'audioViewer'
+        ? 'attachment.webm'
+        : 'attachment.png'),
   );
 }
 
@@ -3150,6 +3507,10 @@ function closeDeleteAttachmentModal(options = {}) {
 function closeActiveModal(options = {}) {
   if (!state.activeModal) {
     return;
+  }
+
+  if (activeVoiceRecording) {
+    discardActiveVoiceRecording();
   }
 
   if (state.activeModal.kind === 'deleteAttachment') {
@@ -4278,6 +4639,22 @@ function getWorkspaceOverlayState() {
     };
   }
 
+  if (state.activeModal.kind === 'audioViewer') {
+    return {
+      kind: 'audioViewer',
+      key: JSON.stringify({
+        kind: state.activeModal.kind,
+        mapPath: state.activeModal.mapPath,
+        nodeId: state.activeModal.nodeId,
+        attachmentRelativePath: state.activeModal.attachmentRelativePath || '',
+        displayName: state.activeModal.displayName || '',
+        loading: state.activeModal.loading,
+        errorMessage: state.activeModal.errorMessage || '',
+        hasAudioUrl: Boolean(state.activeModal.audioUrl),
+      }),
+    };
+  }
+
   if (state.activeModal.kind === 'deleteAttachment') {
     return {
       kind: 'deleteAttachment',
@@ -4316,6 +4693,20 @@ function getWorkspaceOverlayState() {
     };
   }
 
+  if (state.activeModal.kind === 'editNode') {
+    return {
+      kind: 'editNode',
+      key: JSON.stringify({
+        kind: state.activeModal.kind,
+        mapPath: state.activeModal.mapPath || '',
+        nodeId: state.activeModal.nodeId || '',
+        draftText: state.activeModal.draftText || '',
+        hideDoneTasks: state.activeModal.hideDoneTasks || false,
+        errorMessage: state.activeModal.errorMessage || '',
+      }),
+    };
+  }
+
   return {
     kind: state.activeModal.kind,
     key: JSON.stringify({
@@ -4325,8 +4716,6 @@ function getWorkspaceOverlayState() {
       draftText: state.activeModal.draftText || '',
       hideDoneTasks: state.activeModal.hideDoneTasks || false,
       errorMessage: state.activeModal.errorMessage || '',
-      attachmentUploading: state.activeModal.attachmentUploading || false,
-      attachmentError: state.activeModal.attachmentError || '',
     }),
   };
 }
@@ -4376,6 +4765,28 @@ function updateRenderedAddChildNoteComposer() {
   feedback.innerHTML = state.activeModal.errorMessage
     ? `<p class="form-error note-composer-error" role="alert">${escapeHtml(state.activeModal.errorMessage)}</p>`
     : '';
+}
+
+function updateRenderedEditNodeModal() {
+  if (!(ui.workspaceOverlay instanceof HTMLElement) || state.activeModal?.kind !== 'editNode') {
+    return;
+  }
+
+  const modalContext = getActiveModalContext('editNode');
+  if (!modalContext) {
+    return;
+  }
+
+  const attachmentSection = ui.workspaceOverlay.querySelector('.attachments-section');
+  if (!(attachmentSection instanceof HTMLElement)) {
+    ui.workspaceOverlay.innerHTML = renderActiveModal();
+    return;
+  }
+
+  attachmentSection.outerHTML = renderAttachmentsSection(
+    state.activeModal.mapPath,
+    modalContext.nodeUiState.node,
+  );
 }
 
 function updateRenderedRepairMapModal() {
@@ -4538,6 +4949,15 @@ function renderWorkspaceOverlay() {
     renderCache.workspaceOverlayKey === overlayState.key
   ) {
     updateRenderedRepairMapModal();
+    return;
+  }
+
+  if (
+    overlayState.kind === 'editNode' &&
+    renderCache.workspaceOverlayKind === 'editNode' &&
+    renderCache.workspaceOverlayKey === overlayState.key
+  ) {
+    updateRenderedEditNodeModal();
     return;
   }
 
@@ -5223,7 +5643,7 @@ function buildModalTriggerKey(kind, mapPath, nodeId) {
 }
 
 function modalRequiresNodeRecord(kind) {
-  return !['deleteMap', 'imageViewer', 'textViewer', 'repairMap', 'resolveConflict'].includes(kind);
+  return !['deleteMap', 'imageViewer', 'textViewer', 'audioViewer', 'repairMap', 'resolveConflict'].includes(kind);
 }
 
 function renderActiveModal() {
@@ -5245,6 +5665,10 @@ function renderActiveModal() {
 
   if (state.activeModal.kind === 'textViewer') {
     return renderTextViewerModal();
+  }
+
+  if (state.activeModal.kind === 'audioViewer') {
+    return renderAudioViewerModal();
   }
 
   if (state.activeModal.kind === 'deleteAttachment') {
@@ -5653,6 +6077,51 @@ function renderTextViewerModal() {
   `;
 }
 
+function renderAudioViewerModal() {
+  const { displayName, audioUrl, loading, errorMessage, downloadUrl } = state.activeModal;
+  const canDeleteAttachment = canDeleteViewedAttachment(state.activeModal);
+  const bodyContent = loading
+    ? '<div class="image-viewer-loading shimmer"></div>'
+    : errorMessage
+      ? `<p class="form-error" role="alert">${escapeHtml(errorMessage)}</p>`
+      : `
+        <div class="audio-viewer-content">
+          <p class="audio-viewer-title">${escapeHtml(displayName)}</p>
+          <audio controls src="${escapeHtml(audioUrl)}" preload="metadata"></audio>
+        </div>
+      `;
+  const deleteControl = canDeleteAttachment
+    ? `<button type="button" class="ghost-button compact-button danger-text"
+          data-action="viewer-delete" aria-label="Delete attachment" title="Delete attachment">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="3 6 5 6 21 6"/>
+          <path d="M19 6l-1 14H6L5 6"/>
+          <path d="M10 11v6"/><path d="M14 11v6"/>
+          <path d="M9 6V4h6v2"/>
+        </svg>
+      </button>`
+    : '';
+
+  return `
+    <div class="modal-layer">
+      <button type="button" class="modal-backdrop" data-action="close-modal" aria-label="Close dialog"></button>
+      <div class="modal-card image-viewer-card text-viewer-card audio-viewer-card" role="dialog" aria-modal="true" aria-labelledby="viewer-title">
+        <div class="image-viewer-header">
+          <div class="image-viewer-controls">
+            ${deleteControl}
+            <button type="button" class="ghost-button compact-button" data-action="viewer-download" ${!downloadUrl ? 'disabled' : ''} aria-label="Download">Download</button>
+            <button type="button" class="ghost-button compact-button" data-action="close-modal">Close</button>
+          </div>
+        </div>
+        <div class="text-viewer-body audio-viewer-body">
+          ${bodyContent}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function renderRepairMapModal() {
   const filePath = state.activeModal.mapPath || '';
   const mapName = getMapLabel(filePath);
@@ -5816,11 +6285,14 @@ function renderNodeTextMarkup(rawText, wrapperClass) {
 function renderAttachmentsSection(mapPath, node) {
   const attachments = getNodeAttachments(node);
   const uploading = state.activeModal?.attachmentUploading === true;
+  const voiceStatus = state.activeModal?.voiceStatus || '';
+  const recordingVoice = voiceStatus === 'recording' || voiceStatus === 'starting' || voiceStatus === 'saving';
+  const voiceElapsed = formatVoiceElapsedTime(state.activeModal?.voiceElapsedMs || 0);
   const attachmentError = state.activeModal?.attachmentError || '';
 
   const attachmentRows = attachments.map((attachment) => `
     <div class="attachment-row">
-      <span class="attachment-icon">${isTextAttachment(attachment) ? '📄' : '🖼'}</span>
+      <span class="attachment-icon">${isAudioAttachment(attachment) ? 'AUD' : isTextAttachment(attachment) ? 'TXT' : 'IMG'}</span>
       <span class="attachment-name" title="${escapeHtml(attachment.displayName || attachment.relativePath)}">${escapeHtml(attachment.displayName || attachment.relativePath)}</span>
       <button
         type="button"
@@ -5837,10 +6309,39 @@ function renderAttachmentsSection(mapPath, node) {
         data-node-id="${escapeHtml(node.uniqueIdentifier)}"
         data-attachment-id="${escapeHtml(attachment.id)}"
         data-display-name="${escapeHtml(attachment.displayName || attachment.relativePath)}"
-        ${uploading ? 'disabled' : ''}
+        ${uploading || recordingVoice ? 'disabled' : ''}
       >Remove</button>
     </div>
   `).join('');
+
+  const voiceControls = recordingVoice
+    ? `
+      <div class="voice-recorder-row" aria-live="polite">
+        <span class="voice-recorder-dot" aria-hidden="true"></span>
+        <span class="voice-recorder-time">${escapeHtml(voiceStatus === 'starting' ? 'Starting...' : voiceElapsed)}</span>
+        ${state.activeModal?.voiceReachedLimit ? '<span class="attachment-hint">5 minute limit reached</span>' : ''}
+        <button
+          type="button"
+          class="secondary-button compact-button"
+          data-action="save-voice-note"
+          ${voiceStatus === 'saving' || voiceStatus === 'starting' ? 'disabled' : ''}
+        >${voiceStatus === 'saving' ? 'Saving...' : 'Save'}</button>
+        <button
+          type="button"
+          class="ghost-button compact-button danger-text"
+          data-action="cancel-voice-note"
+          ${voiceStatus === 'saving' ? 'disabled' : ''}
+        >Cancel</button>
+      </div>
+    `
+    : `
+      <button
+        type="button"
+        class="secondary-button compact-button"
+        data-action="start-voice-note"
+        ${uploading ? 'disabled' : ''}
+      >Voice note</button>
+    `;
 
   return `
     <div class="attachments-section">
@@ -5851,17 +6352,18 @@ function renderAttachmentsSection(mapPath, node) {
         <input
           type="file"
           id="attach-file-input"
-          accept="image/*,application/pdf,text/plain,text/markdown,.md"
+          accept="image/*,audio/*,application/pdf,text/plain,text/markdown,.md"
           style="display:none"
-          ${uploading ? 'disabled' : ''}
+          ${uploading || recordingVoice ? 'disabled' : ''}
         />
         <button
           type="button"
           class="secondary-button compact-button"
           data-action="trigger-attach-file"
-          ${uploading ? 'disabled' : ''}
+          ${uploading || recordingVoice ? 'disabled' : ''}
         >${uploading ? 'Uploading…' : '＋ Attach file'}</button>
-        <span class="attachment-hint">Images, PDF, text — max 10 MB</span>
+        ${voiceControls}
+        <span class="attachment-hint">Images, audio, PDF, text — max 10 MB</span>
       </div>
     </div>
   `;
