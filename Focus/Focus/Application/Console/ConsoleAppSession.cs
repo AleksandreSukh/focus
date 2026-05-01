@@ -30,6 +30,21 @@ internal sealed class ConsoleAppSession : IConsoleAppSession
         }
     }
 
+    public bool KeyAvailable
+    {
+        get
+        {
+            try
+            {
+                return SysConsole.KeyAvailable;
+            }
+            catch (Exception ex) when (ex is IOException || ex is InvalidOperationException)
+            {
+                return false;
+            }
+        }
+    }
+
     public void Beep()
     {
         SysConsole.Beep();

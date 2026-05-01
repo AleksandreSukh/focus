@@ -145,9 +145,12 @@ The user config currently supports:
 
 - `dataFolder`
 - `gitRepository`
+- `voiceRecorder`
 - `translations`
 
 A ready-to-copy sample config lives at [docs/focus-config.sample.json](docs/focus-config.sample.json).
+
+`voiceRecorder` is optional. The console `voice` command uses bundled ffmpeg by default; custom recorder setup and Windows DirectShow examples are documented in [docs/voice-recording.md](docs/voice-recording.md).
 
 `translations` lets Focus convert localized keyboard input back into the built-in command alphabet. The sample file includes a full Georgian `ka-GE` character dictionary for command entry.
 

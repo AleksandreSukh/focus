@@ -448,6 +448,64 @@ public class EditWorkflowTests
     }
 
     [Fact]
+    public void Execute_AttachmentShortcut_NavigatesToVisibleChildBeforeOpeningAttachment()
+    {
+        var fileOpener = new RecordingFileOpener();
+        using var workspace = new TestWorkspace(fileOpener: fileOpener);
+        var map = new MindMap("Root");
+        map.RootNode.AddAttachment(new NodeAttachment
+        {
+            Id = Guid.NewGuid(),
+            RelativePath = "capture.png",
+            MediaType = "image/png",
+            DisplayName = "Capture.png",
+            CreatedAtUtc = DateTimeOffset.UtcNow
+        });
+        map.AddAtCurrentNode("Visible child");
+        var filePath = workspace.SaveMap("workflow-map", map);
+
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+        var result = workflow.Execute(new ConsoleInput(AccessibleKeyNumbering.GetStringFor(1)));
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(fileOpener.OpenedFilePath);
+        Assert.Contains("Visible child", workflow.BuildScreen());
+    }
+
+    [Fact]
+    public void Execute_AttachmentShortcut_OpensAttachmentWhenMatchingChildShortcutIsHiddenDone()
+    {
+        var fileOpener = new RecordingFileOpener();
+        using var workspace = new TestWorkspace(fileOpener: fileOpener);
+        var map = new MindMap("Root");
+        map.RootNode.AddAttachment(new NodeAttachment
+        {
+            Id = Guid.NewGuid(),
+            RelativePath = "capture.png",
+            MediaType = "image/png",
+            DisplayName = "Capture.png",
+            CreatedAtUtc = DateTimeOffset.UtcNow
+        });
+        map.AddAtCurrentNode("Done child");
+        Assert.True(map.SetTaskState("1", TaskState.Done, out _));
+        Assert.True(map.SetHideDoneTasks(true, out _));
+        var filePath = workspace.SaveMap("workflow-map", map);
+        var attachmentPath = workspace.AppContext.MapsStorage.AttachmentStore.ResolveAttachmentPath(
+            filePath,
+            GetRequiredNodeIdentifier(map.RootNode),
+            "capture.png");
+        Directory.CreateDirectory(Path.GetDirectoryName(attachmentPath)!);
+        File.WriteAllText(attachmentPath, "attachment");
+
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+        var result = workflow.Execute(new ConsoleInput(AccessibleKeyNumbering.GetStringFor(1)));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(attachmentPath, fileOpener.OpenedFilePath);
+        Assert.DoesNotContain("Done child", workflow.BuildScreen());
+    }
+
+    [Fact]
     public void BuildScreen_ShowsGroupedHelpLines()
     {
         using var workspace = new TestWorkspace();

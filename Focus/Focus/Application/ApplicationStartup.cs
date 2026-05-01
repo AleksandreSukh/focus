@@ -21,8 +21,11 @@ internal static class ApplicationStartup
     {
         var mapsStorage = new MapsStorage(userConfig, runtimeOptions.GitSynchronizationOptions);
         var appContext = runtimeOptions.IsTestHost
-            ? TestHostAppOverrides.CreateContext(mapsStorage)
-            : new FocusAppContext(mapsStorage);
+            ? TestHostAppOverrides.CreateContext(mapsStorage, userConfig)
+            : new FocusAppContext(
+                mapsStorage,
+                navigator: null,
+                voiceRecorder: VoiceRecorderFactory.CreateDefault(userConfig.VoiceRecorder));
         return CreateHomePage(appContext);
     }
 

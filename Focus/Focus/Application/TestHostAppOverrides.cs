@@ -15,19 +15,23 @@ internal static class TestHostAppOverrides
     private const string ClipboardErrorEnvironmentVariable = "FOCUS_TEST_CLIPBOARD_ERROR";
     private const string OpenedFilesLogPathEnvironmentVariable = "FOCUS_TEST_OPENED_FILES_LOG";
 
-    public static FocusAppContext CreateContext(MapsStorage mapsStorage)
+    public static FocusAppContext CreateContext(MapsStorage mapsStorage, UserConfig? userConfig = null)
     {
         var clipboardCaptureService = CreateClipboardCaptureService();
         var fileOpener = CreateFileOpener();
+        var voiceRecorder = userConfig?.VoiceRecorder == null
+            ? null
+            : VoiceRecorderFactory.CreateDefault(userConfig.VoiceRecorder);
 
-        if (clipboardCaptureService == null && fileOpener == null)
+        if (clipboardCaptureService == null && fileOpener == null && voiceRecorder == null)
             return new FocusAppContext(mapsStorage);
 
         return new FocusAppContext(
             mapsStorage,
             navigator: null,
             clipboardCaptureService: clipboardCaptureService,
-            fileOpener: fileOpener);
+            fileOpener: fileOpener,
+            voiceRecorder: voiceRecorder);
     }
 
     private static IClipboardCaptureService? CreateClipboardCaptureService()

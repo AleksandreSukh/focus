@@ -54,23 +54,14 @@ internal sealed class MapAttachmentStore
         string displayName,
         DateTimeOffset? createdAtUtc = null)
     {
-        if (pngBytes.Length == 0)
-            throw new ArgumentException("Attachment bytes are empty.", nameof(pngBytes));
-
-        var timestampUtc = (createdAtUtc ?? DateTimeOffset.UtcNow).ToUniversalTime();
-        var fileName = $"{Guid.NewGuid():N}.png";
-        var attachmentDirectory = EnsureAttachmentDirectory(mapFilePath, nodeUniqueIdentifier);
-        var targetPath = Path.Combine(attachmentDirectory, fileName);
-        File.WriteAllBytes(targetPath, pngBytes);
-
-        return new NodeAttachment
-        {
-            Id = Guid.NewGuid(),
-            RelativePath = fileName,
-            MediaType = "image/png",
-            DisplayName = displayName,
-            CreatedAtUtc = timestampUtc
-        };
+        return SaveBinaryAttachment(
+            mapFilePath,
+            nodeUniqueIdentifier,
+            pngBytes,
+            ".png",
+            "image/png",
+            displayName,
+            createdAtUtc);
     }
 
     public NodeAttachment SaveTextAttachment(
@@ -93,6 +84,35 @@ internal sealed class MapAttachmentStore
             Id = Guid.NewGuid(),
             RelativePath = fileName,
             MediaType = "text/plain; charset=utf-8",
+            DisplayName = displayName,
+            CreatedAtUtc = timestampUtc
+        };
+    }
+
+    public NodeAttachment SaveBinaryAttachment(
+        string mapFilePath,
+        Guid nodeUniqueIdentifier,
+        byte[] bytes,
+        string fileExtension,
+        string mediaType,
+        string displayName,
+        DateTimeOffset? createdAtUtc = null)
+    {
+        if (bytes.Length == 0)
+            throw new ArgumentException("Attachment bytes are empty.", nameof(bytes));
+
+        var timestampUtc = (createdAtUtc ?? DateTimeOffset.UtcNow).ToUniversalTime();
+        var normalizedExtension = NormalizeFileExtension(fileExtension);
+        var fileName = $"{Guid.NewGuid():N}{normalizedExtension}";
+        var attachmentDirectory = EnsureAttachmentDirectory(mapFilePath, nodeUniqueIdentifier);
+        var targetPath = Path.Combine(attachmentDirectory, fileName);
+        File.WriteAllBytes(targetPath, bytes);
+
+        return new NodeAttachment
+        {
+            Id = Guid.NewGuid(),
+            RelativePath = fileName,
+            MediaType = string.IsNullOrWhiteSpace(mediaType) ? "application/octet-stream" : mediaType,
             DisplayName = displayName,
             CreatedAtUtc = timestampUtc
         };
@@ -266,6 +286,21 @@ internal sealed class MapAttachmentStore
 
     private static string NormalizeRelativePath(string relativePath) =>
         Path.GetFileName(relativePath ?? string.Empty);
+
+    private static string NormalizeFileExtension(string fileExtension)
+    {
+        var normalized = Path.GetFileName(fileExtension ?? string.Empty).Trim();
+        normalized = normalized.TrimStart('.');
+        if (string.IsNullOrWhiteSpace(normalized))
+            return ".bin";
+
+        var safeExtension = new string(normalized
+            .Where(character => char.IsLetterOrDigit(character))
+            .ToArray());
+        return string.IsNullOrWhiteSpace(safeExtension)
+            ? ".bin"
+            : $".{safeExtension.ToLowerInvariant()}";
+    }
 
     private static string NormalizeNodeDirectoryName(Guid nodeUniqueIdentifier) =>
         nodeUniqueIdentifier.ToString("D").ToLowerInvariant();

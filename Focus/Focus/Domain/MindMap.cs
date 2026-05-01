@@ -181,7 +181,7 @@ namespace Systems.Sanity.Focus.Domain
         public Dictionary<int, string> GetChildren()
         {
             _currentNode.RenumberChildNodes();
-            return GetSelectableChildren(_currentNode.Children)
+            return GetVisibleSelectableChildren(_currentNode)
                 .ToDictionary(node => node.Number, node => NodeDisplayHelper.GetSingleLinePreview(node.Name));
         }
 
@@ -419,7 +419,7 @@ namespace Systems.Sanity.Focus.Domain
 
         private Node? FindNode(string parameter)
         {
-            var currentNodes = GetSelectableChildren(_currentNode.Children);
+            var currentNodes = GetVisibleSelectableChildren(_currentNode).ToArray();
 
             if (int.TryParse(parameter, out var nodeNumber))
             {
@@ -439,8 +439,8 @@ namespace Systems.Sanity.Focus.Domain
                     .StartsWith(parameter, StringComparison.InvariantCultureIgnoreCase));
         }
 
-        private static IEnumerable<Node> GetSelectableChildren(IEnumerable<Node> children) =>
-            children.Where(node => node.NodeType != NodeType.IdeaBagItem);
+        private static IEnumerable<Node> GetVisibleSelectableChildren(Node node) =>
+            NodeExportHelpers.GetVisibleChildren(node, NodeBranchVisibility.HideDoneStateForNode(node));
 
         private static Node? FindNodeById(Node currentNode, Guid nodeIdentifier)
         {

@@ -11,6 +11,7 @@ internal sealed class TestWorkspace : IDisposable
         IClipboardCaptureService? clipboardCaptureService = null,
         IFileOpener? fileOpener = null,
         IClipboardTextWriter? clipboardTextWriter = null,
+        IVoiceRecorder? voiceRecorder = null,
         IFileSynchronizationHandler? fileSynchronizationHandler = null)
     {
         RootDirectory = Path.Combine(Path.GetTempPath(), "focus-tests", Guid.NewGuid().ToString("N"));
@@ -26,7 +27,13 @@ internal sealed class TestWorkspace : IDisposable
             : new MapsStorage(userConfig, fileSynchronizationHandler);
 
         Directory.CreateDirectory(MapsStorage.UserMindMapsDirectory);
-        AppContext = new FocusAppContext(MapsStorage, navigator, clipboardCaptureService, fileOpener, clipboardTextWriter);
+        AppContext = new FocusAppContext(
+            MapsStorage,
+            navigator,
+            clipboardCaptureService,
+            fileOpener,
+            clipboardTextWriter,
+            voiceRecorder);
     }
 
     public string RootDirectory { get; }

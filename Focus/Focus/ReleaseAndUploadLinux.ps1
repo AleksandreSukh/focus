@@ -48,6 +48,8 @@ function Invoke-LinuxBuildAndPublish
             throw "dotnet publish failed with exit code $LASTEXITCODE."
         }
 
+        Assert-FocusBundledFfmpegPresent -Platform Linux -PublishDirectoryPath (Get-LinuxPublishDirectoryPath)
+
         & vpk "[linux]" pack -u Focus -v $Version -p .\publish-linux -r linux-x64 -e Systems.Sanity.Focus --packTitle Focus
         if ($LASTEXITCODE)
         {

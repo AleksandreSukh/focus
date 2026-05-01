@@ -52,6 +52,8 @@ internal sealed class ScriptedConsoleSession : IConsoleAppSession
 
     public int WindowWidth => _windowWidth;
 
+    public bool KeyAvailable => _readKeys.Count > 0;
+
     public List<string> BackgroundMessages { get; } = new();
 
     public void SetTitle(string? title)
@@ -242,6 +244,43 @@ internal sealed class FakeClipboardTextWriter : IClipboardTextWriter
     {
         CopiedTexts.Add(text);
         return Result;
+    }
+}
+
+internal sealed class FakeVoiceRecorder : IVoiceRecorder
+{
+    public VoiceRecordingStartResult StartResult { get; set; } = VoiceRecordingStartResult.Success();
+
+    public VoiceRecordingResult StopResult { get; set; } =
+        VoiceRecordingResult.Error("No fake voice recording result configured.");
+
+    public VoiceRecordingCancelResult CancelResult { get; set; } = VoiceRecordingCancelResult.Success();
+
+    public int StartCallCount { get; private set; }
+
+    public int StopCallCount { get; private set; }
+
+    public int CancelCallCount { get; private set; }
+
+    public VoiceRecordingOptions? LastOptions { get; private set; }
+
+    public VoiceRecordingStartResult Start(VoiceRecordingOptions options)
+    {
+        StartCallCount++;
+        LastOptions = options;
+        return StartResult;
+    }
+
+    public Task<VoiceRecordingResult> StopAsync()
+    {
+        StopCallCount++;
+        return Task.FromResult(StopResult);
+    }
+
+    public Task<VoiceRecordingCancelResult> CancelAsync()
+    {
+        CancelCallCount++;
+        return Task.FromResult(CancelResult);
     }
 }
 

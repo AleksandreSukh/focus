@@ -137,6 +137,8 @@ function Invoke-MacBuildAndPublish
             throw "dotnet publish failed with exit code $LASTEXITCODE."
         }
 
+        Assert-FocusBundledFfmpegPresent -Platform Mac -PublishDirectoryPath (Get-MacPublishDirectoryPath)
+
         $vpkPackArguments = @(
             "pack"
             "-u"

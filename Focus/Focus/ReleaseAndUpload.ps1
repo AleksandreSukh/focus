@@ -58,6 +58,8 @@ function Invoke-WindowsBuildAndPublish
             throw "dotnet publish failed with exit code $LASTEXITCODE."
         }
 
+        Assert-FocusBundledFfmpegPresent -Platform Windows -PublishDirectoryPath (Get-WindowsPublishDirectoryPath)
+
         & $VpkExecutablePath pack -u Focus -v $Version -p .\publish -r win-x64 -e Systems.Sanity.Focus.exe --packTitle Focus
         if ($LASTEXITCODE)
         {

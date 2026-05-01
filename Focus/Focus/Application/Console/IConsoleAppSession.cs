@@ -10,6 +10,8 @@ public interface IConsoleAppSession
 
     int WindowWidth { get; }
 
+    bool KeyAvailable { get; }
+
     void SetTitle(string? title);
 
     void Clear();

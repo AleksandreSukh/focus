@@ -62,6 +62,141 @@ public class CaptureWorkflowTests
     }
 
     [Fact]
+    public void Execute_VoiceWithEnter_AddsAudioAttachmentToCurrentNode()
+    {
+        var tempAudioPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.webm");
+        File.WriteAllBytes(tempAudioPath, Encoding.UTF8.GetBytes("fake-audio"));
+        var voiceRecorder = new FakeVoiceRecorder
+        {
+            StopResult = VoiceRecordingResult.Success(
+                tempAudioPath,
+                ".webm",
+                "audio/webm; codecs=opus")
+        };
+        using var workspace = new TestWorkspace(voiceRecorder: voiceRecorder);
+        var filePath = workspace.SaveMap("workflow-map", new MindMap("Root"));
+        using var consoleScope = new AppConsoleScope(new ScriptedConsoleSession(
+            new ScriptedCommandLineEditor(Array.Empty<string>()),
+            readKeys: new[] { new ConsoleKeyInfo('\r', ConsoleKey.Enter, shift: false, alt: false, control: false) }));
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("voice"));
+        workflow.Save(result.SyncCommitMessage!);
+        var reopened = workspace.MapsStorage.OpenMap(filePath);
+        var attachment = reopened.RootNode.Metadata!.Attachments.Single();
+        var attachmentPath = workspace.AppContext.MapsStorage.AttachmentStore.ResolveAttachmentPath(
+            filePath,
+            GetRequiredNodeIdentifier(reopened.RootNode),
+            attachment.RelativePath);
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.ShouldPersist);
+        Assert.Equal("Capture voice note in workflow-map", result.SyncCommitMessage);
+        Assert.Equal(TimeSpan.FromMinutes(5), voiceRecorder.LastOptions!.MaxDuration);
+        Assert.Equal(1, voiceRecorder.StartCallCount);
+        Assert.Equal(1, voiceRecorder.StopCallCount);
+        Assert.Equal(0, voiceRecorder.CancelCallCount);
+        Assert.Equal("audio/webm; codecs=opus", attachment.MediaType);
+        Assert.StartsWith("Voice note ", attachment.DisplayName);
+        Assert.EndsWith(".webm", attachment.RelativePath);
+        Assert.Equal("fake-audio", File.ReadAllText(attachmentPath, Encoding.UTF8));
+        Assert.False(File.Exists(tempAudioPath));
+    }
+
+    [Fact]
+    public void Execute_VoiceWithEscape_CancelsWithoutPersistence()
+    {
+        var voiceRecorder = new FakeVoiceRecorder();
+        using var workspace = new TestWorkspace(voiceRecorder: voiceRecorder);
+        var filePath = workspace.SaveMap("workflow-map", new MindMap("Root"));
+        using var consoleScope = new AppConsoleScope(new ScriptedConsoleSession(
+            new ScriptedCommandLineEditor(Array.Empty<string>()),
+            readKeys: new[] { new ConsoleKeyInfo('\u001b', ConsoleKey.Escape, shift: false, alt: false, control: false) }));
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("voice"));
+
+        Assert.True(result.IsSuccess);
+        Assert.False(result.ShouldPersist);
+        Assert.Equal("Voice note cancelled", result.Message);
+        Assert.Equal(1, voiceRecorder.StartCallCount);
+        Assert.Equal(0, voiceRecorder.StopCallCount);
+        Assert.Equal(1, voiceRecorder.CancelCallCount);
+        Assert.Empty(workspace.MapsStorage.OpenMap(filePath).RootNode.Metadata!.Attachments);
+    }
+
+    [Fact]
+    public void Execute_VoiceStartFailure_ReturnsErrorWithoutPersistence()
+    {
+        var voiceRecorder = new FakeVoiceRecorder
+        {
+            StartResult = VoiceRecordingStartResult.Error("ffmpeg is missing")
+        };
+        using var workspace = new TestWorkspace(voiceRecorder: voiceRecorder);
+        var filePath = workspace.SaveMap("workflow-map", new MindMap("Root"));
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("voice"));
+
+        Assert.False(result.IsSuccess);
+        Assert.False(result.ShouldPersist);
+        Assert.Equal("ffmpeg is missing", result.ErrorString);
+        Assert.Equal(1, voiceRecorder.StartCallCount);
+        Assert.Equal(0, voiceRecorder.StopCallCount);
+    }
+
+    [Fact]
+    public void Execute_VoiceStopFailure_ReturnsErrorWithoutPersistence()
+    {
+        var voiceRecorder = new FakeVoiceRecorder
+        {
+            StopResult = VoiceRecordingResult.Error("microphone permission denied")
+        };
+        using var workspace = new TestWorkspace(voiceRecorder: voiceRecorder);
+        var filePath = workspace.SaveMap("workflow-map", new MindMap("Root"));
+        using var consoleScope = new AppConsoleScope(new ScriptedConsoleSession(
+            new ScriptedCommandLineEditor(Array.Empty<string>()),
+            readKeys: new[] { new ConsoleKeyInfo('\r', ConsoleKey.Enter, shift: false, alt: false, control: false) }));
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("voice"));
+
+        Assert.False(result.IsSuccess);
+        Assert.False(result.ShouldPersist);
+        Assert.Equal("microphone permission denied", result.ErrorString);
+        Assert.Equal(1, voiceRecorder.StopCallCount);
+        Assert.Empty(workspace.MapsStorage.OpenMap(filePath).RootNode.Metadata!.Attachments);
+    }
+
+    [Fact]
+    public void AttachmentStore_SaveBinaryAttachment_WritesAudioMetadata()
+    {
+        using var workspace = new TestWorkspace();
+        var map = new MindMap("Root");
+        var filePath = workspace.SaveMap("workflow-map", map);
+        var timestampUtc = DateTimeOffset.Parse("2026-04-27T08:30:00Z");
+
+        var attachment = workspace.MapsStorage.AttachmentStore.SaveBinaryAttachment(
+            filePath,
+            GetRequiredNodeIdentifier(map.RootNode),
+            Encoding.UTF8.GetBytes("audio"),
+            ".webm",
+            "audio/webm; codecs=opus",
+            "Voice note 2026-04-27 08:30",
+            timestampUtc);
+        var attachmentPath = workspace.MapsStorage.AttachmentStore.ResolveAttachmentPath(
+            filePath,
+            GetRequiredNodeIdentifier(map.RootNode),
+            attachment.RelativePath);
+
+        Assert.Equal("audio/webm; codecs=opus", attachment.MediaType);
+        Assert.Equal("Voice note 2026-04-27 08:30", attachment.DisplayName);
+        Assert.Equal(timestampUtc, attachment.CreatedAtUtc);
+        Assert.EndsWith(".webm", attachment.RelativePath);
+        Assert.Equal("audio", File.ReadAllText(attachmentPath, Encoding.UTF8));
+    }
+
+    [Fact]
     public void Execute_CaptureClipboardError_ReturnsErrorWithoutPersistence()
     {
         using var workspace = new TestWorkspace(
@@ -227,7 +362,7 @@ public class CaptureWorkflowTests
     }
 
     [Fact]
-    public void GetSuggestions_IncludeCaptureMetadataAndAttachmentCommands()
+    public void GetSuggestions_IncludeCaptureVoiceMetadataAndAttachmentCommands()
     {
         using var workspace = new TestWorkspace();
         var map = new MindMap("Root");
@@ -243,8 +378,11 @@ public class CaptureWorkflowTests
         var workflow = new EditWorkflow(filePath, workspace.AppContext);
 
         var suggestions = workflow.GetSuggestions().ToArray();
+        var screen = workflow.BuildScreen();
 
         Assert.Contains("capture", suggestions);
+        Assert.Contains("voice", suggestions);
+        Assert.Contains("voice", screen);
         Assert.Contains("meta", suggestions);
         Assert.Contains("attachments", suggestions);
         Assert.Contains("attachments 1", suggestions);

@@ -34,6 +34,8 @@ internal sealed class TestHostConsoleSession : IConsoleAppSession
 
     public int WindowWidth => _transport.WindowWidth;
 
+    public bool KeyAvailable => true;
+
     public void SetTitle(string? title)
     {
         if (_emitTitles && !string.IsNullOrWhiteSpace(title))

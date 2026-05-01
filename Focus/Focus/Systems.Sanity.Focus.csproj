@@ -28,6 +28,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Content Include="Tools\ffmpeg\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Systems.Sanity.Focus.Inrastructure\Systems.Sanity.Focus.Infrastructure.csproj" />
   </ItemGroup>
 

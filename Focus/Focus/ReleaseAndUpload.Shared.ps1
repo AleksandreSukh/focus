@@ -79,6 +79,53 @@ function Get-FocusPlatformChannelName
     }
 }
 
+function Get-FocusPlatformRuntimeIdentifier
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("Windows", "Linux", "Mac")]
+        [string]$Platform
+    )
+
+    switch ($Platform)
+    {
+        "Windows" { return "win-x64" }
+        "Linux" { return "linux-x64" }
+        "Mac" { return "osx-arm64" }
+    }
+}
+
+function Get-FocusBundledFfmpegRelativePath
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("Windows", "Linux", "Mac")]
+        [string]$Platform
+    )
+
+    $runtimeIdentifier = Get-FocusPlatformRuntimeIdentifier -Platform $Platform
+    $executableName = if ($Platform -eq "Windows") { "ffmpeg.exe" } else { "ffmpeg" }
+    return Join-Path (Join-Path (Join-Path "Tools" "ffmpeg") $runtimeIdentifier) $executableName
+}
+
+function Assert-FocusBundledFfmpegPresent
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("Windows", "Linux", "Mac")]
+        [string]$Platform,
+        [Parameter(Mandatory = $true)]
+        [string]$PublishDirectoryPath
+    )
+
+    $relativePath = Get-FocusBundledFfmpegRelativePath -Platform $Platform
+    $expectedPath = Join-Path $PublishDirectoryPath $relativePath
+    if (-not (Test-Path -LiteralPath $expectedPath -PathType Leaf))
+    {
+        throw "Missing bundled ffmpeg for $Platform release. Add '$relativePath' before publishing so voice recording works without PATH setup."
+    }
+}
+
 function Get-FocusPlatformMetadataFileNames
 {
     param(

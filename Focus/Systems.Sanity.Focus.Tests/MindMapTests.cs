@@ -1,4 +1,5 @@
 using Systems.Sanity.Focus.Domain;
+using Systems.Sanity.Focus.Infrastructure.Input;
 using System.Threading;
 
 namespace Systems.Sanity.Focus.Tests;
@@ -57,6 +58,52 @@ public class MindMapTests
         Assert.Equal("Block title", children[2]);
         Assert.False(map.HasNode("Idea"));
         Assert.True(map.HasNode("2"));
+    }
+
+    [Fact]
+    public void GetChildren_WhenAncestorHidesDoneTasks_SkipsDoneChildrenAndTheirShortcuts()
+    {
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("Branch");
+        Assert.True(map.ChangeCurrentNode("1"));
+        map.AddAtCurrentNode("Done child");
+        map.AddAtCurrentNode("Open child");
+        Assert.True(map.SetTaskState("1", TaskState.Done, out _));
+        Assert.True(map.SetTaskState("2", TaskState.Todo, out _));
+        map.GoToRoot();
+        Assert.True(map.SetHideDoneTasks(true, out _));
+        Assert.True(map.ChangeCurrentNode("1"));
+
+        var children = map.GetChildren();
+
+        Assert.Single(children);
+        Assert.False(children.ContainsKey(1));
+        Assert.Equal("Open child", children[2]);
+        Assert.False(map.HasNode("1"));
+        Assert.False(map.HasNode(AccessibleKeyNumbering.GetStringFor(1)));
+        Assert.True(map.HasNode("2"));
+        Assert.True(map.HasNode(AccessibleKeyNumbering.GetStringFor(2)));
+    }
+
+    [Fact]
+    public void GetChildren_WhenCurrentNodeShowsDoneOverride_IncludesDoneChildren()
+    {
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("Branch");
+        Assert.True(map.ChangeCurrentNode("1"));
+        map.AddAtCurrentNode("Done child");
+        Assert.True(map.SetTaskState("1", TaskState.Done, out _));
+        map.GoToRoot();
+        Assert.True(map.SetHideDoneTasks(true, out _));
+        Assert.True(map.SetHideDoneTasks("1", false, out _));
+        Assert.True(map.ChangeCurrentNode("1"));
+
+        var children = map.GetChildren();
+
+        Assert.Single(children);
+        Assert.Equal("Done child", children[1]);
+        Assert.True(map.HasNode("1"));
+        Assert.True(map.HasNode(AccessibleKeyNumbering.GetStringFor(1)));
     }
 
     [Fact]

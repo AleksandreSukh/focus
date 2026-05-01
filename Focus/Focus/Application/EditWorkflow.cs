@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.DomainServices;
 using Systems.Sanity.Focus.Infrastructure;
@@ -54,12 +55,14 @@ internal sealed class EditWorkflow
     private const string TasksOption = "tasks";
     private const string TasksAliasOption = "ts";
     private const string CaptureOption = "capture";
+    private const string VoiceOption = "voice";
     private const string MetaOption = "meta";
     private const string AttachmentsOption = "attachments";
     private const string ExportOption = "export";
     private const string ExitOption = "exit";
     private const int ClipboardTextPreviewMinLength = 20;
     private const int ClipboardTextPreviewMaxLength = 30;
+    private static readonly TimeSpan VoiceRecordingMaxDuration = TimeSpan.FromMinutes(5);
 
     private readonly string[] _nodeOptions =
     {
@@ -164,7 +167,8 @@ internal sealed class EditWorkflow
             $"{SliceOption} [child]",
             $"{HideOption} <child>",
             $"{UnhideOption} <child>",
-            CaptureOption
+            CaptureOption,
+            VoiceOption
         }));
         helpGroups.Add(new CommandHelpGroup("To Do", new[]
         {
@@ -261,6 +265,7 @@ internal sealed class EditWorkflow
                 ShowDoneTasksOption => ProcessSetHideDoneTasks(parameters, hideDoneTasks: false),
                 TasksOption or TasksAliasOption => ProcessTasks(parameters),
                 CaptureOption => ProcessCapture(),
+                VoiceOption => ProcessVoice(),
                 MetaOption => ProcessMeta(parameters),
                 AttachmentsOption => ProcessAttachments(parameters),
                 ExportOption => ProcessExport(),
@@ -355,6 +360,7 @@ internal sealed class EditWorkflow
                 TasksOption,
                 TasksAliasOption,
                 CaptureOption,
+                VoiceOption,
                 MetaOption,
                 AttachmentsOption,
                 ExportOption,
@@ -739,6 +745,140 @@ internal sealed class EditWorkflow
         {
             return CommandExecutionResult.Error(ExceptionDiagnostics.LogException(ex, "capturing clipboard"));
         }
+    }
+
+    private CommandExecutionResult ProcessVoice()
+    {
+        var startResult = _appContext.VoiceRecorder.Start(new VoiceRecordingOptions(VoiceRecordingMaxDuration));
+        if (!startResult.IsSuccess)
+            return CommandExecutionResult.Error(startResult.ErrorMessage ?? "Couldn't start voice recording.");
+
+        var recordingStartedAtUtc = DateTimeOffset.UtcNow;
+        try
+        {
+            var decision = WaitForVoiceRecordingDecision(recordingStartedAtUtc);
+            if (decision == VoiceRecordingDecision.Cancel)
+            {
+                var cancelResult = _appContext.VoiceRecorder.CancelAsync().GetAwaiter().GetResult();
+                return cancelResult.IsSuccess
+                    ? CommandExecutionResult.Success("Voice note cancelled")
+                    : CommandExecutionResult.Error(cancelResult.ErrorMessage ?? "Couldn't cancel voice recording.");
+            }
+
+            var recordingResult = _appContext.VoiceRecorder.StopAsync().GetAwaiter().GetResult();
+            if (!recordingResult.IsSuccess || string.IsNullOrWhiteSpace(recordingResult.FilePath))
+                return CommandExecutionResult.Error(recordingResult.ErrorMessage ?? "Couldn't save voice recording.");
+
+            try
+            {
+                var capturedAtUtc = DateTimeOffset.UtcNow;
+                var currentNode = _map.GetCurrentNode();
+                var currentNodeIdentifier = GetRequiredNodeIdentifier(currentNode);
+                var attachment = _appContext.MapsStorage.AttachmentStore.SaveBinaryAttachment(
+                    _filePath,
+                    currentNodeIdentifier,
+                    File.ReadAllBytes(recordingResult.FilePath),
+                    recordingResult.FileExtension,
+                    recordingResult.MediaType,
+                    BuildVoiceNoteAttachmentDisplayName(capturedAtUtc),
+                    capturedAtUtc);
+                currentNode.AddAttachment(attachment, capturedAtUtc);
+
+                var capSuffix = decision == VoiceRecordingDecision.TimeLimitReached
+                    ? " Recording stopped at the 5 minute limit."
+                    : string.Empty;
+                return PersistMapChange(
+                    "Capture voice note",
+                    message: $"Captured voice note into \"{NodeDisplayHelper.GetContentPeek(currentNode.Name)}\".{capSuffix}");
+            }
+            finally
+            {
+                DeleteFileIfExists(recordingResult.FilePath);
+            }
+        }
+        catch (Exception ex)
+        {
+            TryCancelVoiceRecording();
+            return CommandExecutionResult.Error(ExceptionDiagnostics.LogException(ex, "capturing voice note"));
+        }
+    }
+
+    private static void DeleteFileIfExists(string? filePath)
+    {
+        if (!string.IsNullOrWhiteSpace(filePath) && File.Exists(filePath))
+            File.Delete(filePath);
+    }
+
+    private void TryCancelVoiceRecording()
+    {
+        try
+        {
+            _appContext.VoiceRecorder.CancelAsync().GetAwaiter().GetResult();
+        }
+        catch
+        {
+        }
+    }
+
+    private static string BuildVoiceNoteAttachmentDisplayName(DateTimeOffset timestampUtc) =>
+        $"Voice note {timestampUtc:yyyy-MM-dd HH:mm}";
+
+    private VoiceRecordingDecision WaitForVoiceRecordingDecision(DateTimeOffset startedAtUtc)
+    {
+        var lastDisplayedSecond = -1;
+        while (true)
+        {
+            var elapsed = DateTimeOffset.UtcNow - startedAtUtc;
+            if (elapsed < TimeSpan.Zero)
+                elapsed = TimeSpan.Zero;
+
+            if (elapsed >= VoiceRecordingMaxDuration)
+            {
+                WriteVoiceRecordingStatus(VoiceRecordingMaxDuration, reachedLimit: true);
+                return VoiceRecordingDecision.TimeLimitReached;
+            }
+
+            var elapsedSecond = (int)elapsed.TotalSeconds;
+            if (elapsedSecond != lastDisplayedSecond)
+            {
+                WriteVoiceRecordingStatus(elapsed, reachedLimit: false);
+                lastDisplayedSecond = elapsedSecond;
+            }
+
+            if (AppConsole.Current.KeyAvailable)
+            {
+                var key = AppConsole.Current.ReadKey(intercept: true);
+                if (key.Key is ConsoleKey.Enter)
+                {
+                    AppConsole.Current.WriteLine(string.Empty);
+                    return VoiceRecordingDecision.Submit;
+                }
+
+                if (key.Key is ConsoleKey.Escape)
+                {
+                    AppConsole.Current.WriteLine(string.Empty);
+                    return VoiceRecordingDecision.Cancel;
+                }
+            }
+
+            Thread.Sleep(100);
+        }
+    }
+
+    private static void WriteVoiceRecordingStatus(TimeSpan elapsed, bool reachedLimit)
+    {
+        var elapsedText = $"{(int)elapsed.TotalMinutes:00}:{elapsed.Seconds:00}";
+        var suffix = reachedLimit
+            ? "5 minute limit reached. Saving..."
+            : "Press Enter to save or Esc to cancel.";
+        AppConsole.Current.Write($"\rRecording voice note {elapsedText}. {suffix}   ");
+    }
+
+    private enum VoiceRecordingDecision
+    {
+        Submit,
+        Cancel,
+        TimeLimitReached
     }
 
     private CommandExecutionResult ProcessGoToChildOrAddCommandBasedOnTheContent(string command, ConsoleInput input)
