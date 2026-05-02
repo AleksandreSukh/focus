@@ -1,13 +1,15 @@
+#nullable enable
+
 using System;
 using System.IO;
 using System.Linq;
 using Systems.Sanity.Focus.DomainServices;
 
-namespace Systems.Sanity.Focus.Pages;
+namespace Systems.Sanity.Focus.Application;
 
-public class MapFileHelper
+internal static class MapFilePathHelper
 {
-    public static string GetFullFilePath(string directory, string fileName, string requiredExtension = null)
+    public static string GetFullFilePath(string directory, string fileName, string? requiredExtension = null)
     {
         var fileNameExtension = string.IsNullOrWhiteSpace(requiredExtension)
             ? ConfigurationConstants.RequiredFileNameExtension

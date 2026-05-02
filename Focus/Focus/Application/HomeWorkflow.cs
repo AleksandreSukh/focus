@@ -5,26 +5,27 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
-using Systems.Sanity.Focus.Domain;
-using Systems.Sanity.Focus.DomainServices;
-using Systems.Sanity.Focus.Infrastructure.Diagnostics;
+using Systems.Sanity.Focus.Application.Display;
+using Systems.Sanity.Focus.Application.HomeCommands;
 using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Infrastructure.Input;
-using Systems.Sanity.Focus.Pages;
-using Systems.Sanity.Focus.Pages.Edit.Dialogs;
-using Systems.Sanity.Focus.Pages.Shared;
-using Systems.Sanity.Focus.Pages.Shared.Dialogs;
 
 namespace Systems.Sanity.Focus.Application;
 
 internal sealed class HomeWorkflow
 {
-    private const int SampleFileNumber = 1;
     private readonly FocusAppContext _appContext;
+    private readonly HomeCommandContext _commandContext;
+    private readonly HomeCommandCatalog _commandCatalog;
+    private readonly HomeFileOpenFallbackProcessor _fileOpenFallbackProcessor = new();
 
     public HomeWorkflow(FocusAppContext appContext)
     {
         _appContext = appContext;
+        _commandContext = new HomeCommandContext(appContext);
+        _commandCatalog = HomeCommandCatalog.CreateDefault(
+            _commandContext,
+            HomeCommandHandlerRegistry.CreateDefault());
     }
 
     public Dictionary<int, FileInfo> GetFileSelection()
@@ -48,253 +49,33 @@ internal sealed class HomeWorkflow
         if (showCommands)
         {
             var updatedVersion = AutoUpdateManager.CheckUpdatedVersion();
-            homePageMenuTextBuilder.Append(CommandHelpFormatter.BuildGroupedLines(GetHomeCommandGroups(files.Any(), updatedVersion)));
+            homePageMenuTextBuilder.Append(CommandHelpFormatter.BuildGroupedLines(
+                _commandCatalog.BuildHelpGroups(files.Any(), updatedVersion)));
         }
         else
         {
-            homePageMenuTextBuilder.Append($":i Commands hidden. Press \"~\" to show.{Environment.NewLine}");
+            homePageMenuTextBuilder.Append(CommandHelpText.BuildHiddenHelpLine());
         }
 
         return homePageMenuTextBuilder.ToString();
     }
 
-    private static IReadOnlyList<CommandHelpGroup> GetHomeCommandGroups(bool filesExist, string? updatedVersion)
-    {
-        var groups = new List<CommandHelpGroup>
-        {
-            new("Create", new[] { $"{HomePage.OptionNew} <file name>" }),
-            new("Find", new[]
-            {
-                $"{HomePage.OptionSearch} <query>",
-                $"{HomePage.OptionTasks}/{HomePage.OptionTasksAlias} [todo|doing|done|all]",
-                HomePage.OptionRefresh
-            }),
-            new("System", updatedVersion == null
-                ? new[] { HomePage.OptionExit }
-                : new[] { $"{HomePage.OptionUpdateApp} ({updatedVersion})", HomePage.OptionExit })
-        };
+    public string[] GetCommandOptions(IReadOnlyDictionary<int, FileInfo> fileSelection) =>
+        _commandCatalog.BuildCommandOptions(fileSelection).ToArray();
 
-        if (filesExist)
-        {
-            groups.Insert(1, new CommandHelpGroup("Open", new[]
-            {
-                SampleFileNumber.ToString(),
-                AccessibleKeyNumbering.GetStringFor(SampleFileNumber)
-            }));
-            groups.Insert(2, new CommandHelpGroup("Manage", new[]
-            {
-                $"{HomePage.OptionRen} <file>",
-                $"{HomePage.OptionDel} <file>"
-            }));
-        }
-
-        return groups;
-    }
+    public IEnumerable<string> GetSuggestions(IReadOnlyDictionary<int, FileInfo> fileSelection) =>
+        _commandCatalog.BuildSuggestions(fileSelection);
 
     public HomeWorkflowResult Execute(ConsoleInput input, IReadOnlyDictionary<int, FileInfo> fileSelection)
     {
-        return input.FirstWord.ToCommandKey() switch
-        {
-            HomePage.OptionExit => HomeWorkflowResult.Exit,
-            HomePage.OptionNew => HandleCreateFile(input),
-            HomePage.OptionRen => HandleRenameFile(input, fileSelection),
-            HomePage.OptionDel => HandleDeleteFile(input, fileSelection),
-            HomePage.OptionRefresh => HandleRefresh(),
-            HomePage.OptionUpdateApp => HandleUpdateApp(),
-            HomePage.OptionSearch => HandleSearch(input),
-            HomePage.OptionTasks or HomePage.OptionTasksAlias => HandleTasks(input),
-            _ => HandleOpenFile(input, fileSelection)
-        };
+        var command = input.FirstWord.ToCommandKey();
+        return _commandCatalog.TryExecute(command, input, fileSelection, out var result)
+            ? result
+            : _fileOpenFallbackProcessor.Execute(_commandContext, input, fileSelection);
     }
 
     public FileInfo? ResolveFile(IReadOnlyDictionary<int, FileInfo> fileSelection, string fileIdentifier)
     {
         return _appContext.MapSelectionService.FindFile(fileSelection, fileIdentifier);
-    }
-
-    private HomeWorkflowResult HandleRefresh()
-    {
-        try
-        {
-            var result = _appContext.MapsStorage.PullLatestAtStartup();
-            return result.Status == Infrastructure.FileSynchronization.StartupSyncStatus.Failed
-                ? HomeWorkflowResult.Error(result.ErrorMessage)
-                : HomeWorkflowResult.Continue;
-        }
-        catch (Exception ex)
-        {
-            return HomeWorkflowResult.Error(ExceptionDiagnostics.LogException(ex, "refreshing maps"));
-        }
-    }
-
-    private static HomeWorkflowResult HandleUpdateApp()
-    {
-        try
-        {
-            AutoUpdateManager.HandleUpdate();
-            return HomeWorkflowResult.Continue;
-        }
-        catch (Exception ex)
-        {
-            return HomeWorkflowResult.Error(ExceptionDiagnostics.LogException(ex, "updating application"));
-        }
-    }
-
-    private HomeWorkflowResult HandleCreateFile(ConsoleInput input)
-    {
-        try
-        {
-            _appContext.Navigator.OpenCreateMap(input.Parameters, new MindMap(input.Parameters));
-            return HomeWorkflowResult.Continue;
-        }
-        catch (Exception ex)
-        {
-            return HomeWorkflowResult.Error(ExceptionDiagnostics.LogException(ex, "creating map"));
-        }
-    }
-
-    private HomeWorkflowResult HandleDeleteFile(ConsoleInput input, IReadOnlyDictionary<int, FileInfo> fileSelection)
-    {
-        var file = ResolveFile(fileSelection, input.Parameters);
-        if (file == null)
-            return HomeWorkflowResult.Error($"File \"{input.Parameters}\" wasn't found. Try again.");
-
-        try
-        {
-            if (new Confirmation($"Are you sure you want to delete: \"{file.Name}\" and all of its attachments?").Confirmed())
-            {
-                _appContext.MapRepository.DeleteMap(file, MapDeletionMode.DeleteAttachments);
-                _appContext.RefreshLinkIndex();
-            }
-
-            return HomeWorkflowResult.Continue;
-        }
-        catch (MapDeletionBlockedException ex)
-        {
-            return HomeWorkflowResult.Error(ex.Message);
-        }
-        catch (Exception ex)
-        {
-            return HomeWorkflowResult.Error(ExceptionDiagnostics.LogException(ex, "deleting map"));
-        }
-    }
-
-    private HomeWorkflowResult HandleOpenFile(ConsoleInput input, IReadOnlyDictionary<int, FileInfo> fileSelection)
-    {
-        var file = ResolveFile(fileSelection, input.FirstWord);
-        if (file == null)
-            return HomeWorkflowResult.Error($"File \"{input.FirstWord}\" wasn't found. Try again.");
-
-        try
-        {
-            _appContext.Navigator.OpenEditMap(file.FullName);
-            return HomeWorkflowResult.Continue;
-        }
-        catch (MapConflictAutoResolveException ex)
-        {
-            return HomeWorkflowResult.Error(ex.Message);
-        }
-        catch (Exception ex)
-        {
-            return HomeWorkflowResult.Error(ExceptionDiagnostics.LogException(ex, "opening map"));
-        }
-    }
-
-    private HomeWorkflowResult HandleRenameFile(ConsoleInput input, IReadOnlyDictionary<int, FileInfo> fileSelection)
-    {
-        var file = ResolveFile(fileSelection, input.Parameters);
-        if (file == null)
-            return HomeWorkflowResult.Error($"File \"{input.Parameters}\" wasn't found. Try again.");
-
-        try
-        {
-            var dialog = new RenameFileDialog(_appContext.MapRepository, file);
-            dialog.Show();
-
-            if (dialog.NewFilePath != null)
-            {
-                var newBaseName = Path.GetFileNameWithoutExtension(dialog.NewFilePath);
-                var map = _appContext.MapRepository.OpenMap(dialog.NewFilePath);
-                map.RootNode.EditNode(newBaseName);
-                _appContext.MapRepository.SaveMap(dialog.NewFilePath, map);
-                _appContext.RefreshLinkIndex();
-            }
-
-            return HomeWorkflowResult.Continue;
-        }
-        catch (Exception ex)
-        {
-            return HomeWorkflowResult.Error(ExceptionDiagnostics.LogException(ex, "renaming map"));
-        }
-    }
-
-    private HomeWorkflowResult HandleSearch(ConsoleInput input)
-    {
-        try
-        {
-            var searchResult = SearchCommandHelper.Run(
-                input.Parameters,
-                query => MapsSearchService.Search(_appContext.MapRepository, query),
-                includeMapName: true);
-
-            if (searchResult.HasError)
-                return HomeWorkflowResult.Error(searchResult.ErrorMessage);
-
-            if (searchResult.SelectedResult != null)
-            {
-                _appContext.Navigator.OpenEditMap(
-                    searchResult.SelectedResult.MapFilePath,
-                    searchResult.SelectedResult.NodeId);
-            }
-
-            return HomeWorkflowResult.Continue;
-        }
-        catch (MapConflictAutoResolveException ex)
-        {
-            return HomeWorkflowResult.Error(ex.Message);
-        }
-        catch (Exception ex)
-        {
-            return HomeWorkflowResult.Error(ExceptionDiagnostics.LogException(ex, "searching maps"));
-        }
-    }
-
-    private HomeWorkflowResult HandleTasks(ConsoleInput input)
-    {
-        try
-        {
-            if (!TaskCommandHelper.TryParseFilter(input.Parameters, out var filter, out var errorMessage))
-                return HomeWorkflowResult.Error(errorMessage!);
-
-            var tasks = TaskQueryService.GetTasks(_appContext.MapRepository, filter);
-            if (!tasks.Any())
-                return HomeWorkflowResult.Error(TaskCommandHelper.BuildEmptyTasksMessage(filter, acrossAllMaps: true));
-
-            var selectedResult = new SearchResultsPage(
-                tasks,
-                TaskCommandHelper.GetTasksTitle(filter, acrossAllMaps: true),
-                new SearchResultDisplayOptions(
-                    includeMapName: true,
-                    colorizeAncestorPath: true,
-                    highlightTerms: Array.Empty<string>()))
-                .SelectResult();
-
-            if (selectedResult != null)
-            {
-                _appContext.Navigator.OpenEditMap(
-                    selectedResult.MapFilePath,
-                    selectedResult.NodeId);
-            }
-
-            return HomeWorkflowResult.Continue;
-        }
-        catch (MapConflictAutoResolveException ex)
-        {
-            return HomeWorkflowResult.Error(ex.Message);
-        }
-        catch (Exception ex)
-        {
-            return HomeWorkflowResult.Error(ExceptionDiagnostics.LogException(ex, "listing tasks"));
-        }
     }
 }

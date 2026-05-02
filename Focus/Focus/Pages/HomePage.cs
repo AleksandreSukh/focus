@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Systems.Sanity.Focus.Application;
+using Systems.Sanity.Focus.Application.HomeCommands;
 using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Infrastructure.Diagnostics;
 using Systems.Sanity.Focus.Infrastructure.Input;
@@ -14,22 +15,20 @@ namespace Systems.Sanity.Focus.Pages;
 
 internal sealed class HomePage : PageWithExclusiveOptions
 {
-    public const string OptionNew = "new";
-    public const string OptionRen = "ren";
-    public const string OptionDel = "del";
-    public const string OptionExit = "exit";
-    public const string OptionRefresh = "ls";
-    public const string OptionUpdateApp = "update";
-    public const string OptionSearch = "search";
-    public const string OptionTasks = "tasks";
-    internal const string OptionTasksAlias = "ts";
-
-    private static readonly string[] FileOptions = { OptionRen, OptionDel };
+    public const string OptionNew = HomeCommandKeys.New;
+    public const string OptionRen = HomeCommandKeys.Rename;
+    public const string OptionDel = HomeCommandKeys.Delete;
+    public const string OptionExit = HomeCommandKeys.Exit;
+    public const string OptionRefresh = HomeCommandKeys.Refresh;
+    public const string OptionUpdateApp = HomeCommandKeys.UpdateApp;
+    public const string OptionSearch = HomeCommandKeys.Search;
+    public const string OptionTasks = HomeCommandKeys.Tasks;
+    internal const string OptionTasksAlias = HomeCommandKeys.TasksAlias;
 
     private readonly FocusAppContext _appContext;
     private readonly HomeWorkflow _workflow;
     private Dictionary<int, FileInfo> _fileSelection = new();
-    private bool _showCommands = false;
+    private readonly CommandHelpVisibilityState _commandHelpVisibility = new();
 
     public HomePage(FocusAppContext appContext)
     {
@@ -75,52 +74,24 @@ internal sealed class HomePage : PageWithExclusiveOptions
     {
         AppConsole.Current.Clear();
         ColorfulConsole.WriteLine(GetHeaderRibbonString("Welcome"));
-        ColorfulConsole.Write(_workflow.BuildHomePageText(_fileSelection, _showCommands));
+        ColorfulConsole.Write(_workflow.BuildHomePageText(_fileSelection, _commandHelpVisibility.ShowCommands));
     }
 
     private bool HandlePreviewKey(ConsoleKeyInfo keyInfo, string currentText)
     {
-        if (!string.IsNullOrEmpty(currentText) || keyInfo.KeyChar != '~')
+        if (!_commandHelpVisibility.TryHandlePreviewKey(keyInfo, currentText))
             return false;
 
-        _showCommands = !_showCommands;
         RenderScreen();
         ColorfulConsole.WriteLine(string.Empty);
         return true;
     }
 
-    protected override string[] GetCommandOptions()
-    {
-        var optionsWhenFileExists = new[]
-        {
-            OptionNew, OptionRen, OptionDel, OptionRefresh, OptionSearch, OptionTasks, OptionTasksAlias, OptionExit, OptionUpdateApp
-        };
-        var optionsWhenNoFileExists = new[]
-        {
-            OptionNew, OptionRefresh, OptionSearch, OptionTasks, OptionTasksAlias, OptionExit, OptionUpdateApp
-        };
+    protected override string[] GetCommandOptions() =>
+        _workflow.GetCommandOptions(_fileSelection);
 
-        return _fileSelection.Any()
-            ? _fileSelection.Keys.Select(k => k.ToString())
-                .Union(_fileSelection.Keys.Select(AccessibleKeyNumbering.GetStringFor))
-                .Union(_fileSelection.Values.Select(file => file.NameWithoutExtension()))
-                .Union(optionsWhenFileExists)
-                .ToArray()
-            : optionsWhenNoFileExists;
-    }
-
-    protected override IEnumerable<string> GetPageSpecificSuggestions(string text, int index)
-    {
-        if (!_fileSelection.Any())
-            return GetCommandOptions()
-                .Union(TaskCommandHelper.GetTaskListSuggestions(OptionTasks, OptionTasksAlias));
-
-        return GetCommandOptions()
-            .Union(_fileSelection.Values.Select(file => $"{OptionSearch} {file.NameWithoutExtension()}"))
-            .Union(TaskCommandHelper.GetTaskListSuggestions(OptionTasks, OptionTasksAlias))
-            .Union(FileOptions.SelectMany(option => _fileSelection.Keys.Select(key => $"{option} {key}")))
-            .Union(FileOptions.SelectMany(option => _fileSelection.Keys.Select(key => $"{option} {AccessibleKeyNumbering.GetStringFor(key)}")));
-    }
+    protected override IEnumerable<string> GetPageSpecificSuggestions(string text, int index) =>
+        _workflow.GetSuggestions(_fileSelection);
 
     private static string GetHeaderRibbonString(string title)
     {

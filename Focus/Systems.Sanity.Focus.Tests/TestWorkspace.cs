@@ -1,4 +1,5 @@
 using Systems.Sanity.Focus.Application;
+using Systems.Sanity.Focus.Application.WorkflowInteractions;
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.Infrastructure.FileSynchronization;
 
@@ -12,7 +13,9 @@ internal sealed class TestWorkspace : IDisposable
         IFileOpener? fileOpener = null,
         IClipboardTextWriter? clipboardTextWriter = null,
         IVoiceRecorder? voiceRecorder = null,
-        IFileSynchronizationHandler? fileSynchronizationHandler = null)
+        IFileSynchronizationHandler? fileSynchronizationHandler = null,
+        IWorkflowInteractions? workflowInteractions = null,
+        IApplicationStatusSink? statusSink = null)
     {
         RootDirectory = Path.Combine(Path.GetTempPath(), "focus-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(RootDirectory);
@@ -33,7 +36,9 @@ internal sealed class TestWorkspace : IDisposable
             clipboardCaptureService,
             fileOpener,
             clipboardTextWriter,
-            voiceRecorder);
+            voiceRecorder,
+            workflowInteractions,
+            statusSink);
     }
 
     public string RootDirectory { get; }

@@ -1,8 +1,10 @@
 using System.IO;
+using Systems.Sanity.Focus.Application;
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.Infrastructure.Diagnostics;
 using Systems.Sanity.Focus.Infrastructure.FileSynchronization.Git;
 using Systems.Sanity.Focus.Pages.Edit;
+using Systems.Sanity.Focus.Pages.Shared;
 
 namespace Systems.Sanity.Focus.Tests;
 
@@ -16,7 +18,7 @@ public class EditMapPageTests
         map.AddAtCurrentNode("Child");
         var filePath = workspace.SaveMap("workflow-map", map);
         var commandLineEditor = new PreviewKeyCommandLineEditor(
-            new ConsoleKeyInfo('~', ConsoleKey.Oem3, shift: true, alt: false, control: false),
+            CommandHelpVisibilityState.BuildToggleKeyInfo(),
             "exit");
 
         using var consoleScope = new AppConsoleScope(new ScriptedConsoleSession(commandLineEditor));
@@ -37,11 +39,12 @@ public class EditMapPageTests
 
         var renderedOutput = output.ToString();
         var navigateIndex = renderedOutput.IndexOf("Navigate:", StringComparison.InvariantCulture);
-        var hiddenHintIndex = renderedOutput.IndexOf("Commands hidden. Press \"~\" to show.", StringComparison.InvariantCulture);
+        var hiddenHintIndex = renderedOutput.IndexOf(CommandHelpText.HiddenHelpMessage, StringComparison.InvariantCulture);
 
         Assert.True(commandLineEditor.PreviewKeyHandled);
+        Assert.True(hiddenHintIndex >= 0);
         Assert.True(navigateIndex >= 0);
-        Assert.True(hiddenHintIndex > navigateIndex);
+        Assert.True(hiddenHintIndex < navigateIndex);
     }
 
     [Fact]

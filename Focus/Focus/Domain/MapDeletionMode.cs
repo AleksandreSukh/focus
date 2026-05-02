@@ -1,6 +1,6 @@
 #nullable enable
 
-namespace Systems.Sanity.Focus.Application;
+namespace Systems.Sanity.Focus.Domain;
 
 public enum MapDeletionMode
 {

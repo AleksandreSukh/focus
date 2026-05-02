@@ -2,7 +2,6 @@
 
 using System;
 using Systems.Sanity.Focus.Domain;
-using Systems.Sanity.Focus.Pages;
 using Systems.Sanity.Focus.Pages.Edit;
 
 namespace Systems.Sanity.Focus.Application;
@@ -16,9 +15,11 @@ internal sealed class PageNavigator : IPageNavigator
         _appContext = appContext;
     }
 
-    public void OpenCreateMap(string fileName, MindMap mindMap, string? sourceMapFilePath = null)
+    public void OpenCreateMap(string fileName, MindMap mindMap)
     {
-        new CreateMapPage(_appContext, fileName, mindMap, sourceMapFilePath).Show();
+        var createdFilePath = new CreateMapWorkflow(_appContext).Create(fileName, mindMap);
+        if (!string.IsNullOrWhiteSpace(createdFilePath))
+            OpenEditMap(createdFilePath);
     }
 
     public void OpenEditMap(string filePath, Guid? initialNodeIdentifier = null)

@@ -1,7 +1,7 @@
 using System.IO;
 using System.Threading;
+using Systems.Sanity.Focus.Application;
 using Systems.Sanity.Focus.Domain;
-using Systems.Sanity.Focus.Pages;
 using Systems.Sanity.Focus.Pages.Edit.Dialogs;
 
 namespace Systems.Sanity.Focus.Tests;
@@ -9,10 +9,9 @@ namespace Systems.Sanity.Focus.Tests;
 public class AttachmentLifecycleTests
 {
     [Fact]
-    public void CreateMapPage_Show_PreservesNodeScopedAttachmentsForDetachedMap()
+    public void CreateMapWorkflow_Create_PreservesNodeScopedAttachmentsForDetachedMap()
     {
-        var navigator = new RecordingPageNavigator();
-        using var workspace = new TestWorkspace(navigator);
+        using var workspace = new TestWorkspace();
         var sourceMap = new MindMap("Source");
         var detachedNode = sourceMap.AddAtCurrentNode("Detached");
         detachedNode.AddAttachment(new NodeAttachment
@@ -33,15 +32,16 @@ public class AttachmentLifecycleTests
 
         var detachedMap = new MindMap(detachedNode);
 
-        new CreateMapPage(workspace.AppContext, "detached", detachedMap, sourceFilePath).Show();
+        var createdFilePath = new CreateMapWorkflow(workspace.AppContext).Create("detached", detachedMap);
 
-        Assert.NotNull(navigator.OpenedEditMapFilePath);
+        Assert.NotNull(createdFilePath);
+        var createdMap = workspace.MapsStorage.OpenMap(createdFilePath!);
         var targetAttachmentPath = workspace.MapsStorage.AttachmentStore.ResolveAttachmentPath(
-            navigator.OpenedEditMapFilePath!,
-            GetRequiredNodeIdentifier(detachedMap.RootNode),
-            detachedMap.RootNode.Metadata!.Attachments[0].RelativePath);
-        Assert.Equal(sourceAttachmentPath, targetAttachmentPath);
+            createdFilePath!,
+            GetRequiredNodeIdentifier(createdMap.RootNode),
+            createdMap.RootNode.Metadata!.Attachments[0].RelativePath);
         Assert.True(File.Exists(targetAttachmentPath));
+        Assert.Equal("attachment", File.ReadAllText(targetAttachmentPath));
     }
 
     [Fact]

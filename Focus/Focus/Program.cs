@@ -38,7 +38,7 @@ internal static class Program
         {
             _ = ExceptionDiagnostics.RunInBackgroundAsync(
                 "checking for updates",
-                AutoUpdateManager.StartUpdateChecker,
+                () => AutoUpdateManager.StartUpdateChecker(),
                 WriteUserMessage);
         }
 

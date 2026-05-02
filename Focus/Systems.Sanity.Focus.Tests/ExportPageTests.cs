@@ -1,7 +1,7 @@
 using System.Reflection;
+using Systems.Sanity.Focus.Application;
 using Systems.Sanity.Focus.DomainServices;
 using Systems.Sanity.Focus.Infrastructure;
-using Systems.Sanity.Focus.Pages.Edit;
 using Systems.Sanity.Focus.Pages.Edit.Dialogs;
 
 namespace Systems.Sanity.Focus.Tests;

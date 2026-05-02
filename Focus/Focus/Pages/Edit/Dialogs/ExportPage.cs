@@ -39,7 +39,7 @@ internal class ExportPage : Page
 
     public ExportPage(string defaultFileName)
     {
-        _defaultFileName = MapFileHelper.SanitizeFileName(defaultFileName, fallbackFileName: "export");
+        _defaultFileName = MapFilePathHelper.SanitizeFileName(defaultFileName, fallbackFileName: "export");
         _fileName = _defaultFileName;
     }
 
@@ -131,7 +131,7 @@ internal class ExportPage : Page
             return;
         }
 
-        _fileName = MapFileHelper.SanitizeFileName(fileName.Trim(), fallbackFileName: "export");
+        _fileName = MapFilePathHelper.SanitizeFileName(fileName.Trim(), fallbackFileName: "export");
         _message = $"File name set to \"{_fileName}\"";
     }
 

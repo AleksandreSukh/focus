@@ -2,6 +2,7 @@
 
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.DomainServices;
+using Systems.Sanity.Focus.Application.WorkflowInteractions;
 
 namespace Systems.Sanity.Focus.Application;
 
@@ -18,7 +19,9 @@ internal sealed class FocusAppContext
         IClipboardCaptureService? clipboardCaptureService = null,
         IFileOpener? fileOpener = null,
         IClipboardTextWriter? clipboardTextWriter = null,
-        IVoiceRecorder? voiceRecorder = null)
+        IVoiceRecorder? voiceRecorder = null,
+        IWorkflowInteractions? workflowInteractions = null,
+        IApplicationStatusSink? statusSink = null)
     {
         MapsStorage = mapsStorage;
         StartupSyncNotificationState = new StartupSyncNotificationState();
@@ -29,6 +32,8 @@ internal sealed class FocusAppContext
         ClipboardTextWriter = clipboardTextWriter ?? ClipboardTextWriterFactory.CreateDefault();
         VoiceRecorder = voiceRecorder ?? VoiceRecorderFactory.CreateDefault();
         FileOpener = fileOpener ?? new DefaultFileOpener();
+        WorkflowInteractions = workflowInteractions ?? new ConsoleWorkflowInteractions();
+        StatusSink = statusSink ?? new ConsoleApplicationStatusSink();
         Navigator = navigator ?? new PageNavigator(this);
     }
 
@@ -49,6 +54,10 @@ internal sealed class FocusAppContext
     public IVoiceRecorder VoiceRecorder { get; }
 
     public IFileOpener FileOpener { get; }
+
+    public IWorkflowInteractions WorkflowInteractions { get; }
+
+    public IApplicationStatusSink StatusSink { get; }
 
     public IPageNavigator Navigator { get; }
 

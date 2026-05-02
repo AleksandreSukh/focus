@@ -1,7 +1,9 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
+using Systems.Sanity.Focus.Application;
 using Systems.Sanity.Focus.Domain;
+using Systems.Sanity.Focus.Pages.Shared;
 
 namespace Systems.Sanity.Focus.E2E.Tests;
 
@@ -62,6 +64,9 @@ internal static class FocusScenario
     public static IFocusScenarioStep SendKey(ConsoleKeyInfo keyInfo) =>
         new SendKeyStep(keyInfo);
 
+    public static IFocusScenarioStep ToggleCommandHelp() =>
+        SendKey(CommandHelpVisibilityState.BuildToggleKeyInfo());
+
     public static IFocusScenarioStep Pause(TimeSpan duration) =>
         new PauseStep(duration);
 
@@ -70,6 +75,15 @@ internal static class FocusScenario
 
     public static IFocusScenarioStep WaitForOutputOccurrences(string expectedText, int occurrences, TimeSpan? timeout = null) =>
         new WaitForOutputOccurrencesStep(expectedText, occurrences, timeout);
+
+    public static IFocusScenarioStep WaitForHiddenCommandHelp(TimeSpan? timeout = null) =>
+        WaitForOutput(CommandHelpText.HiddenHelpMessage, timeout);
+
+    public static IFocusScenarioStep WaitForHiddenCommandHelpOccurrences(int occurrences, TimeSpan? timeout = null) =>
+        WaitForOutputOccurrences(CommandHelpText.HiddenHelpMessage, occurrences, timeout);
+
+    public static IFocusScenarioStep WaitForEditorReady(string anchorText, TimeSpan? timeout = null) =>
+        new WaitForEditorReadyStep(anchorText, timeout);
 
     public static IFocusScenarioStep AssertMap(string fileName, Action<MindMap> assertMap) =>
         new AssertMapStep(fileName, assertMap);
@@ -108,6 +122,15 @@ internal static class FocusScenario
     {
         public Task ExecuteAsync(FocusScenarioContext context) =>
             context.App.WaitForOutputOccurrencesAsync(ExpectedText, Occurrences, Timeout);
+    }
+
+    private sealed record WaitForEditorReadyStep(string AnchorText, TimeSpan? Timeout) : IFocusScenarioStep
+    {
+        public async Task ExecuteAsync(FocusScenarioContext context)
+        {
+            await context.App.WaitForOutputAsync(AnchorText, Timeout);
+            await context.App.WaitForOutputAsync(CommandHelpText.HiddenHelpMessage, Timeout);
+        }
     }
 
     private sealed record AssertMapStep(string FileName, Action<MindMap> AssertMap) : IFocusScenarioStep

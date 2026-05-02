@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using Systems.Sanity.Focus.Application.Display;
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.DomainServices;
 using Systems.Sanity.Focus.Infrastructure;

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using Systems.Sanity.Focus.Application;
 using Systems.Sanity.Focus.Domain;
+using Systems.Sanity.Focus.DomainServices;
 using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Infrastructure.FileSynchronization;
 using Systems.Sanity.Focus.Pages.Edit;
@@ -38,6 +39,38 @@ public class SyncCommitMessagePipelineTests
 
         Assert.True(result.IsSuccess);
         Assert.Equal(["Export markdown from alpha"], handler.CommitMessages);
+    }
+
+    [Fact]
+    public void Execute_ExportMarkdown_UsesWorkflowInteractionExportRequest()
+    {
+        using var workspace = new TestWorkspace();
+        var handler = new RecordingFileSynchronizationHandler();
+        var mapsStorage = CreateMapsStorage(workspace.RootDirectory, handler);
+        var interactions = new RecordingWorkflowInteractions
+        {
+            ExportRequest = new ExportRequest(
+                ExportFormat.Markdown,
+                "alpha-export",
+                SkipCollapsedDescendants: false)
+        };
+        var appContext = new FocusAppContext(
+            mapsStorage,
+            navigator: null,
+            workflowInteractions: interactions);
+        var filePath = mapsStorage.SaveMapToStorage("alpha", new MindMap("Alpha"));
+        var workflow = new EditWorkflow(filePath, appContext);
+
+        var result = workflow.Execute(new ConsoleInput("export"));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(["Alpha"], interactions.SelectExportDefaultFileNames);
+        var requestedPath = Assert.Single(interactions.RequestedAvailableFilePaths);
+        Assert.Equal(mapsStorage.UserMindMapsDirectory, requestedPath.DirectoryPath);
+        Assert.Equal("alpha-export", requestedPath.FileName);
+        Assert.Equal(".md", requestedPath.FileExtension);
+        Assert.Equal(["Export markdown from alpha"], handler.CommitMessages);
+        Assert.True(File.Exists(Path.Combine(mapsStorage.UserMindMapsDirectory, "alpha-export.md")));
     }
 
     [Fact]

@@ -13,15 +13,16 @@ internal class AutoUpdateManager
     private static readonly object _lockObj = new();
     private static UpdateManager _updateManager;
 
-    public static async Task StartUpdateChecker()
+    public static async Task StartUpdateChecker(IApplicationStatusSink? statusSink = null)
     {
+        statusSink ??= new ConsoleApplicationStatusSink();
         await Task.Delay(TimeSpan.FromSeconds(5));
         var githubUpdateManager = GetGithubUpdateManager();
         if (githubUpdateManager.IsInstalled)
         {
             while (true)
             {
-                await CheckForUpdate();
+                await CheckForUpdate(statusSink);
                 await Task.Delay(TimeSpan.FromMinutes(30));
             }
         }
@@ -60,7 +61,7 @@ internal class AutoUpdateManager
     private static UpdateManager GetGithubUpdateManager() => _updateManager ??= 
         new UpdateManager(new SimpleWebSource("https://focusupdate.sandro.casa/Releases"));
 
-    private static async Task CheckForUpdate()
+    private static async Task CheckForUpdate(IApplicationStatusSink statusSink)
     {
         try
         {
@@ -71,7 +72,7 @@ internal class AutoUpdateManager
                 var newVersion = await githubUpdateManager.CheckForUpdatesAsync();
                 if (newVersion != null)
                 {
-                    Console.Title = $"Update available:\"{newVersion.TargetFullRelease.Version}\"";
+                    statusSink.SetTitle($"Update available:\"{newVersion.TargetFullRelease.Version}\"");
 
                     lock (_lockObj)
                     {
@@ -85,7 +86,7 @@ internal class AutoUpdateManager
             ExceptionDiagnostics.ReportBackgroundException(
                 e,
                 "checking for updates",
-                message => AppConsole.Current.WriteBackgroundMessage(message));
+                statusSink.WriteBackgroundMessage);
         }
     }
 }

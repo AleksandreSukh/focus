@@ -14,11 +14,11 @@ public class TaskModeTests
         map.AddAtCurrentNode("Todo task");
         map.AddAtCurrentNode("Doing task");
         map.AddAtCurrentNode("Done task");
-        map.AddIdeaAtCurrentNode("Idea tag");
+        var ideaTag = map.AddIdeaAtCurrentNode("Idea tag");
         Assert.True(map.SetTaskState("1", TaskState.Todo, out _));
         Assert.True(map.SetTaskState("2", TaskState.Doing, out _));
         Assert.True(map.SetTaskState("3", TaskState.Done, out _));
-        map.GetNode("Idea")!.TaskState = TaskState.Todo;
+        ideaTag.TaskState = TaskState.Todo;
 
         var filePath = workspace.SaveMap("tasks", map);
         var results = TaskQueryService.GetTasks(map, filePath, TaskListFilter.All);

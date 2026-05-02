@@ -4,7 +4,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using Systems.Sanity.Focus.Application;
 using Systems.Sanity.Focus.Domain;
 
 namespace Systems.Sanity.Focus.DomainServices;

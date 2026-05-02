@@ -99,19 +99,19 @@ internal sealed class RecordingPageNavigator : IPageNavigator
 
     public string? OpenedCreateMapFileName { get; private set; }
 
-    public string? OpenedCreateMapSourceFilePath { get; private set; }
+    public MindMap? OpenedCreateMapMindMap { get; private set; }
 
     public Exception? OpenEditMapException { get; set; }
 
     public Exception? OpenCreateMapException { get; set; }
 
-    public void OpenCreateMap(string fileName, MindMap mindMap, string? sourceMapFilePath = null)
+    public void OpenCreateMap(string fileName, MindMap mindMap)
     {
         if (OpenCreateMapException != null)
             throw OpenCreateMapException;
 
         OpenedCreateMapFileName = fileName;
-        OpenedCreateMapSourceFilePath = sourceMapFilePath;
+        OpenedCreateMapMindMap = mindMap;
     }
 
     public void OpenEditMap(string filePath, Guid? initialNodeIdentifier = null)

@@ -184,6 +184,33 @@ public class MindMapTests
     }
 
     [Fact]
+    public void SetHideDoneTasks_ParentRefreshClearsChildOverrideAndRestoresInheritedVisibility()
+    {
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("Branch");
+        Assert.True(map.ChangeCurrentNode("1"));
+        map.AddAtCurrentNode("Open child");
+        map.AddAtCurrentNode("Done child");
+        Assert.True(map.SetTaskState("1", TaskState.Todo, out _));
+        Assert.True(map.SetTaskState("2", TaskState.Done, out _));
+
+        map.GoToRoot();
+        Assert.True(map.SetHideDoneTasks(true, out _));
+        Assert.True(map.SetHideDoneTasks("1", false, out _));
+        Assert.True(map.ChangeCurrentNode("1"));
+        Assert.Equal(2, map.GetChildren().Count);
+
+        map.GoToRoot();
+        Assert.True(map.SetHideDoneTasks(true, out _));
+        Assert.True(map.ChangeCurrentNode("1"));
+        var children = map.GetChildren();
+
+        Assert.Single(children);
+        Assert.Equal("Open child", children[1]);
+        Assert.False(children.ContainsValue("Done child"));
+    }
+
+    [Fact]
     public void SetTaskState_RejectsRootAndIdeaTags()
     {
         var map = new MindMap("Root");

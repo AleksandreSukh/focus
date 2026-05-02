@@ -99,7 +99,7 @@ public class ConsoleAppE2ETests
             context,
             FocusScenario.WaitForOutput("Welcome"),
             FocusScenario.SendLine("new alpha"),
-            FocusScenario.WaitForOutput("Navigate"),
+            FocusScenario.WaitForEditorReady("| * alpha"),
             FocusScenario.SendLine("first task"),
             FocusScenario.SendLine(string.Empty),
             FocusScenario.SendLine("todo 1"),
@@ -209,7 +209,7 @@ public class ConsoleAppE2ETests
             FocusScenario.SendLine("search Unique"),
             FocusScenario.WaitForOutput("Search results for \"Unique\""),
             FocusScenario.SendLine("1"),
-            FocusScenario.WaitForOutput("Navigate"),
+            FocusScenario.WaitForEditorReady("Unique Search Result"),
             FocusScenario.SendLine("up"),
             FocusScenario.WaitForOutput("Search Root"),
             FocusScenario.SendLine("exit"),
@@ -217,7 +217,7 @@ public class ConsoleAppE2ETests
             FocusScenario.SendLine("tasks todo"),
             FocusScenario.WaitForOutput("Todo Result"),
             FocusScenario.SendLine("1"),
-            FocusScenario.WaitForOutput("Navigate"),
+            FocusScenario.WaitForEditorReady("Todo Result"),
             FocusScenario.SendLine("up"),
             FocusScenario.WaitForOutput("Task Root"),
             FocusScenario.SendLine("exit"),
@@ -577,14 +577,19 @@ public class ConsoleAppE2ETests
                 Assert.True(savedMap.RootNode.HideDoneTasksExplicit);
                 Assert.False(savedBranch.HideDoneTasks);
                 Assert.Null(savedBranch.HideDoneTasksExplicit);
-            }),
+            }));
+
+        var transcriptAfterParentRefresh = app.GetTranscript().Length;
+
+        await FocusScenario.RunAsync(
+            context,
             FocusScenario.SendLine("cd 1"),
             FocusScenario.WaitForOutputOccurrences("Open child", 4),
             FocusScenario.SendLine("exit"),
             FocusScenario.WaitForOutput("Welcome"),
             FocusScenario.SendLine("exit"));
 
-        Assert.DoesNotContain("[x] Done child", app.GetTranscript()[transcriptAfterChildShow..], StringComparison.Ordinal);
+        Assert.DoesNotContain("[x] Done child", app.GetTranscript()[transcriptAfterParentRefresh..], StringComparison.Ordinal);
 
         var exitCode = await app.WaitForExitAsync();
 
@@ -606,11 +611,11 @@ public class ConsoleAppE2ETests
             context,
             FocusScenario.WaitForOutput("Welcome"),
             FocusScenario.SendLine("alpha"),
+            FocusScenario.WaitForEditorReady("Alpha root"),
+            FocusScenario.ToggleCommandHelp(),
             FocusScenario.WaitForOutput("Navigate"),
-            FocusScenario.SendKey(new ConsoleKeyInfo('~', ConsoleKey.Oem3, shift: true, alt: false, control: false)),
-            FocusScenario.WaitForOutput("Commands hidden. Press \"~\" to show."),
-            FocusScenario.SendKey(new ConsoleKeyInfo('~', ConsoleKey.Oem3, shift: true, alt: false, control: false)),
-            FocusScenario.WaitForOutputOccurrences("Navigate", 2),
+            FocusScenario.ToggleCommandHelp(),
+            FocusScenario.WaitForHiddenCommandHelpOccurrences(3),
             FocusScenario.SendLine("exit"),
             FocusScenario.WaitForOutput("Welcome"),
             FocusScenario.SendLine("exit"));
@@ -1305,7 +1310,7 @@ public class ConsoleAppE2ETests
             context,
             FocusScenario.WaitForOutput("Welcome"),
             FocusScenario.SendLine("alpha"),
-            FocusScenario.WaitForOutput("Navigate"),
+            FocusScenario.WaitForEditorReady("alpha"),
             FocusScenario.SendLine("export"),
             FocusScenario.WaitForOutput("*** Export ***"),
             FocusScenario.SendLine("html"),
@@ -1313,7 +1318,7 @@ public class ConsoleAppE2ETests
             FocusScenario.SendLine("name scratch report"),
             FocusScenario.WaitForOutput("File name set to \"scratch report\""),
             FocusScenario.SendLine("cancel"),
-            FocusScenario.WaitForOutput("Navigate"),
+            FocusScenario.WaitForHiddenCommandHelpOccurrences(3),
             FocusScenario.SendLine("exit"),
             FocusScenario.WaitForOutput("Welcome"),
             FocusScenario.SendLine("exit"));
@@ -1457,7 +1462,7 @@ public class ConsoleAppE2ETests
             context,
             FocusScenario.WaitForOutput("Welcome"),
             FocusScenario.SendLine("del 1"),
-            FocusScenario.WaitForOutput("Are you sure you want to delete: \"alpha.json\"?"),
+            FocusScenario.WaitForOutput("Are you sure you want to delete: \"alpha.json\" and all of its attachments?"),
             FocusScenario.SendLine(string.Empty),
             FocusScenario.WaitForOutputOccurrences("Welcome", 2),
             FocusScenario.SendLine("alpha"),
@@ -1534,7 +1539,7 @@ public class ConsoleAppE2ETests
             FocusScenario.WaitForOutput("Welcome"),
             FocusScenario.SendLine("conflicted"),
             FocusScenario.WaitForOutput("Root theirs"),
-            FocusScenario.WaitForOutput("Navigate"),
+            FocusScenario.WaitForEditorReady("Root theirs"),
             FocusScenario.SendLine("exit"),
             FocusScenario.WaitForOutputOccurrences("Welcome", 2),
             FocusScenario.SendLine("exit"));
@@ -1608,7 +1613,7 @@ public class ConsoleAppE2ETests
             context,
             FocusScenario.SendLine("alpha"),
             FocusScenario.WaitForOutput("Alpha resolved"),
-            FocusScenario.WaitForOutputOccurrences("Commands hidden. Press \"~\" to show.", 2),
+            FocusScenario.WaitForHiddenCommandHelpOccurrences(2),
             FocusScenario.SendLine("exit"),
             FocusScenario.WaitForOutputOccurrences("Welcome", 2),
             FocusScenario.SendLine("ls"),
@@ -1661,7 +1666,7 @@ public class ConsoleAppE2ETests
             context,
             FocusScenario.SendLine("1"),
             FocusScenario.WaitForOutput("Alpha resolved"),
-            FocusScenario.WaitForOutputOccurrences("Commands hidden. Press \"~\" to show.", 2),
+            FocusScenario.WaitForHiddenCommandHelpOccurrences(2),
             FocusScenario.SendLine("exit"),
             FocusScenario.WaitForOutputOccurrences("Welcome", 2),
             FocusScenario.SendLine("ls"),
@@ -1785,7 +1790,7 @@ public class ConsoleAppE2ETests
             context,
             FocusScenario.WaitForOutput("Welcome"),
             FocusScenario.SendLine("alpha"),
-            FocusScenario.WaitForOutput("Navigate"),
+            FocusScenario.WaitForEditorReady("alpha"),
             FocusScenario.SendLine("export"),
             FocusScenario.WaitForOutput("*** Export ***"),
             FocusScenario.SendLine("html"),

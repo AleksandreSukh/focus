@@ -41,7 +41,7 @@ namespace Systems.Sanity.Focus.Pages.Edit.Dialogs
 			var fileNameToTry = fileName;
 			var suggestionBaseFileName = fileName;
 			var existingFileWithThisNameCounter = 2;
-			var filePath = MapFileHelper.GetFullFilePath(dir, fileNameToTry, _fileExtension);
+			var filePath = MapFilePathHelper.GetFullFilePath(dir, fileNameToTry, _fileExtension);
 			while (File.Exists(filePath))
 			{
 				var fileNameToAlter = Path.GetFileNameWithoutExtension(filePath);
@@ -67,7 +67,7 @@ namespace Systems.Sanity.Focus.Pages.Edit.Dialogs
 					existingFileWithThisNameCounter = 2;
 				}
 
-				filePath = MapFileHelper.GetFullFilePath(dir, fileNameToTry, _fileExtension);
+				filePath = MapFilePathHelper.GetFullFilePath(dir, fileNameToTry, _fileExtension);
 			}
 
 			return filePath;

@@ -2,7 +2,7 @@
 
 using System;
 
-namespace Systems.Sanity.Focus.Application;
+namespace Systems.Sanity.Focus.Domain;
 
 public sealed class MapDeletionBlockedException : Exception
 {

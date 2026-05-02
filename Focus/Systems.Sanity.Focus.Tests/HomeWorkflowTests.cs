@@ -53,6 +53,22 @@ public class HomeWorkflowTests
     }
 
     [Fact]
+    public void Execute_CreateFile_OpensCreateMapWithRequestedName()
+    {
+        var navigator = new RecordingPageNavigator();
+        using var workspace = new TestWorkspace(navigator);
+        var workflow = new HomeWorkflow(workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("new alpha"), workflow.GetFileSelection());
+
+        Assert.False(result.ShouldExit);
+        Assert.False(result.IsError);
+        Assert.Equal("alpha", navigator.OpenedCreateMapFileName);
+        Assert.NotNull(navigator.OpenedCreateMapMindMap);
+        Assert.Equal("alpha", navigator.OpenedCreateMapMindMap!.RootNode.Name);
+    }
+
+    [Fact]
     public void Execute_RefreshCommand_ReturnsContinueWithoutOpeningMap()
     {
         var navigator = new RecordingPageNavigator();
@@ -245,6 +261,27 @@ public class HomeWorkflowTests
     }
 
     [Fact]
+    public void Execute_DeleteCommand_UsesWorkflowInteractionConfirmation()
+    {
+        var interactions = new RecordingWorkflowInteractions
+        {
+            DefaultConfirmationResult = false
+        };
+        using var workspace = new TestWorkspace(workflowInteractions: interactions);
+        var filePath = workspace.SaveMap("alpha", new MindMap("Alpha"));
+        var workflow = new HomeWorkflow(workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("del 1"), workflow.GetFileSelection());
+
+        Assert.False(result.ShouldExit);
+        Assert.False(result.IsError);
+        Assert.True(File.Exists(filePath));
+        Assert.Equal(
+            ["Are you sure you want to delete: \"alpha.json\" and all of its attachments?"],
+            interactions.ConfirmationMessages);
+    }
+
+    [Fact]
     public void Execute_Tasks_OpensSelectedMapAndNode()
     {
         var navigator = new RecordingPageNavigator();
@@ -270,6 +307,59 @@ public class HomeWorkflowTests
         Assert.False(result.IsError);
         Assert.Equal(betaFilePath, navigator.OpenedEditMapFilePath);
         Assert.Equal(betaTaskId, navigator.OpenedEditMapNodeIdentifier);
+    }
+
+    [Fact]
+    public void Execute_Search_UsesWorkflowInteractionResultSelection()
+    {
+        var navigator = new RecordingPageNavigator();
+        var interactions = new RecordingWorkflowInteractions
+        {
+            SearchResultSelector = results => results.Single()
+        };
+        using var workspace = new TestWorkspace(navigator, workflowInteractions: interactions);
+
+        var map = new MindMap("Search Root");
+        var child = map.AddAtCurrentNode("Unique Search Result");
+        var filePath = workspace.SaveMap("search-map", map);
+        var workflow = new HomeWorkflow(workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("search Unique"), workflow.GetFileSelection());
+
+        Assert.False(result.ShouldExit);
+        Assert.False(result.IsError);
+        Assert.Equal(filePath, navigator.OpenedEditMapFilePath);
+        Assert.Equal(child.UniqueIdentifier, navigator.OpenedEditMapNodeIdentifier);
+        Assert.Equal(["Search results for \"Unique\""], interactions.SearchSelectionTitles);
+        Assert.True(interactions.SearchSelectionDisplayOptions.Single().IncludeMapName);
+    }
+
+    [Fact]
+    public void Execute_RenameCommand_UsesWorkflowInteractionReturnedPath()
+    {
+        var interactions = new RecordingWorkflowInteractions
+        {
+            RenameMapFileSelector = (repository, file) =>
+            {
+                var newPath = Path.Combine(file.DirectoryName!, "beta.json");
+                repository.MoveMap(file.FullName, newPath);
+                return newPath;
+            }
+        };
+        using var workspace = new TestWorkspace(workflowInteractions: interactions);
+        var originalPath = workspace.SaveMap("alpha", new MindMap("Alpha"));
+        var workflow = new HomeWorkflow(workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("ren 1"), workflow.GetFileSelection());
+        var renamedPath = Path.Combine(workspace.MapsStorage.UserMindMapsDirectory, "beta.json");
+        var renamedMap = workspace.MapsStorage.OpenMap(renamedPath);
+
+        Assert.False(result.ShouldExit);
+        Assert.False(result.IsError);
+        Assert.Equal(1, interactions.RenameMapFileCallCount);
+        Assert.False(File.Exists(originalPath));
+        Assert.True(File.Exists(renamedPath));
+        Assert.Equal("beta", renamedMap.RootNode.Name);
     }
 
     [Fact]

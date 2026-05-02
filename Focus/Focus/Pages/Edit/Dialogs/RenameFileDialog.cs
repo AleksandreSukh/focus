@@ -1,8 +1,10 @@
 #nullable enable
 
+using System;
 using System.IO;
 using System.Linq;
 using Systems.Sanity.Focus.Application;
+using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Pages.Shared;
 
@@ -23,7 +25,9 @@ internal sealed class RenameFileDialog : Page
 
     public override void Show()
     {
-        var existingFilePath = MapFileHelper.GetFullFilePath(_existingFile.DirectoryName, _existingFile.Name);
+        var existingDirectoryName = _existingFile.DirectoryName
+            ?? throw new InvalidOperationException("Existing file directory could not be determined.");
+        var existingFilePath = MapFilePathHelper.GetFullFilePath(existingDirectoryName, _existingFile.Name);
         var fileExtension = _existingFile.Extension;
         var newFileName = GetInput("Enter new name here: ", _existingFile.NameWithoutExtension())?.InputString;
 
@@ -43,7 +47,7 @@ internal sealed class RenameFileDialog : Page
         if (_existingFile.Name != newFileName)
         {
             new RequestRenameUntilFileNameIsAvailableDialog(
-                    _existingFile.DirectoryName,
+                    existingDirectoryName,
                     newFileName,
                     filePath =>
                     {

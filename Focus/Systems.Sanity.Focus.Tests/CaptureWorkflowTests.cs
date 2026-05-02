@@ -2,6 +2,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using Systems.Sanity.Focus.Application;
+using Systems.Sanity.Focus.Application.WorkflowInteractions;
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.Infrastructure.Diagnostics;
 using Systems.Sanity.Focus.Infrastructure;
@@ -123,6 +124,29 @@ public class CaptureWorkflowTests
         Assert.Equal(0, voiceRecorder.StopCallCount);
         Assert.Equal(1, voiceRecorder.CancelCallCount);
         Assert.Empty(workspace.MapsStorage.OpenMap(filePath).RootNode.Metadata!.Attachments);
+    }
+
+    [Fact]
+    public void Execute_VoiceCancel_UsesWorkflowInteractionDecision()
+    {
+        var interactions = new RecordingWorkflowInteractions();
+        interactions.EnqueueVoiceRecordingDecision(WorkflowVoiceRecordingDecision.Cancel);
+        var voiceRecorder = new FakeVoiceRecorder();
+        using var workspace = new TestWorkspace(
+            voiceRecorder: voiceRecorder,
+            workflowInteractions: interactions);
+        var filePath = workspace.SaveMap("workflow-map", new MindMap("Root"));
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("voice"));
+
+        Assert.True(result.IsSuccess);
+        Assert.False(result.ShouldPersist);
+        Assert.Equal("Voice note cancelled", result.Message);
+        Assert.Equal(1, interactions.VoiceRecordingDecisionCallCount);
+        Assert.Equal(1, voiceRecorder.StartCallCount);
+        Assert.Equal(0, voiceRecorder.StopCallCount);
+        Assert.Equal(1, voiceRecorder.CancelCallCount);
     }
 
     [Fact]

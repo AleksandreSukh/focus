@@ -19,13 +19,18 @@ internal static class ApplicationStartup
 
     internal static HomePage CreateHomePage(UserConfig userConfig, AppRuntimeOptions runtimeOptions)
     {
-        var mapsStorage = new MapsStorage(userConfig, runtimeOptions.GitSynchronizationOptions);
+        var statusSink = new ConsoleApplicationStatusSink();
+        var mapsStorage = new MapsStorage(
+            userConfig,
+            runtimeOptions.GitSynchronizationOptions,
+            statusSink.WriteBackgroundMessage);
         var appContext = runtimeOptions.IsTestHost
-            ? TestHostAppOverrides.CreateContext(mapsStorage, userConfig)
+            ? TestHostAppOverrides.CreateContext(mapsStorage, userConfig, statusSink)
             : new FocusAppContext(
                 mapsStorage,
                 navigator: null,
-                voiceRecorder: VoiceRecorderFactory.CreateDefault(userConfig.VoiceRecorder));
+                voiceRecorder: VoiceRecorderFactory.CreateDefault(userConfig.VoiceRecorder),
+                statusSink: statusSink);
         return CreateHomePage(appContext);
     }
 
@@ -47,7 +52,7 @@ internal static class ApplicationStartup
         return Task.Run(() => ExceptionDiagnostics.Guard(
             "running startup sync",
             () => RunStartupSync(appContext, initialSnapshot),
-            message => AppConsole.Current.WriteBackgroundMessage(message)));
+            appContext.StatusSink.WriteBackgroundMessage));
     }
 
     internal static IReadOnlyCollection<string> DetectChangedMapFiles(
@@ -78,7 +83,7 @@ internal static class ApplicationStartup
         {
             if (!string.IsNullOrWhiteSpace(startupSyncResult.ErrorMessage))
             {
-                AppConsole.Current.WriteBackgroundMessage(startupSyncResult.ErrorMessage);
+                appContext.StatusSink.WriteBackgroundMessage(startupSyncResult.ErrorMessage);
             }
             return;
         }
@@ -89,7 +94,7 @@ internal static class ApplicationStartup
             return;
 
         appContext.StartupSyncNotificationState.ApplyRepositoryUpdates(changedFiles);
-        AppConsole.Current.SetTitle(appContext.StartupSyncNotificationState.GetCurrentTitle());
+        appContext.StatusSink.SetTitle(appContext.StartupSyncNotificationState.GetCurrentTitle());
     }
 
     private static IReadOnlyDictionary<string, MapFileSnapshot> CaptureMapSnapshot(MapsStorage mapsStorage)

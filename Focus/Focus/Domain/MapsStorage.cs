@@ -4,7 +4,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using Systems.Sanity.Focus.Application;
 using Systems.Sanity.Focus.Infrastructure.FileSynchronization;
 using Systems.Sanity.Focus.Infrastructure.FileSynchronization.Git;
 
@@ -15,12 +14,18 @@ namespace Systems.Sanity.Focus.Domain
         private readonly IFileSynchronizationHandler _fileSynchronizationHandler;
 
         public MapsStorage(UserConfig userConfig)
-            : this(userConfig, CreateFileSyncHandler(userConfig.GitRepository, GitSynchronizationOptions.BackgroundDebounced))
+            : this(userConfig, GitSynchronizationOptions.BackgroundDebounced)
         {
         }
 
-        internal MapsStorage(UserConfig userConfig, GitSynchronizationOptions gitSynchronizationOptions)
-            : this(userConfig, CreateFileSyncHandler(userConfig.GitRepository, gitSynchronizationOptions))
+        internal MapsStorage(
+            UserConfig userConfig,
+            GitSynchronizationOptions gitSynchronizationOptions,
+            Action<string>? writeBackgroundMessage = null)
+            : this(userConfig, CreateFileSyncHandler(
+                userConfig.GitRepository,
+                gitSynchronizationOptions,
+                writeBackgroundMessage))
         {
         }
 
@@ -139,13 +144,14 @@ namespace Systems.Sanity.Focus.Domain
 
         private static IFileSynchronizationHandler CreateFileSyncHandler(
             string gitRepositoryPath,
-            GitSynchronizationOptions gitSynchronizationOptions)
+            GitSynchronizationOptions gitSynchronizationOptions,
+            Action<string>? writeBackgroundMessage)
         {
             if (GitHelper.IsRepositoryAvailable(gitRepositoryPath))
             {
                 var gitHelper = new GitHelper(
                     gitRepositoryPath,
-                    message => AppConsole.Current.WriteBackgroundMessage(message),
+                    writeBackgroundMessage,
                     gitSynchronizationOptions,
                     (absoluteFilePath, conflictedContent) =>
                     {

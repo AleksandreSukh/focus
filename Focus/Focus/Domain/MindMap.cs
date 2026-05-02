@@ -11,6 +11,12 @@ namespace Systems.Sanity.Focus.Domain
     [Serializable]
     public class MindMap
     {
+        private enum NodeLookupScope
+        {
+            VisibleSelectable,
+            TaskAddressable
+        }
+
         private Node _currentNode;
 
         public MindMap()
@@ -241,7 +247,7 @@ namespace Systems.Sanity.Focus.Domain
 
         public bool SetHideDoneTasks(string nodeIdentifier, bool hideDoneTasks, out string errorMessage)
         {
-            var node = FindNode(nodeIdentifier);
+            var node = FindNode(nodeIdentifier, NodeLookupScope.TaskAddressable);
             if (node == null)
             {
                 errorMessage = $"Can't find \"{nodeIdentifier}\"";
@@ -264,7 +270,7 @@ namespace Systems.Sanity.Focus.Domain
 
         public bool SetTaskState(string nodeIdentifier, TaskState taskState, out string errorMessage)
         {
-            var node = FindNode(nodeIdentifier);
+            var node = FindNode(nodeIdentifier, NodeLookupScope.TaskAddressable);
             if (node == null)
             {
                 errorMessage = $"Can't find \"{nodeIdentifier}\"";
@@ -285,7 +291,7 @@ namespace Systems.Sanity.Focus.Domain
 
         public bool ToggleTaskState(string nodeIdentifier, out string errorMessage)
         {
-            var node = FindNode(nodeIdentifier);
+            var node = FindNode(nodeIdentifier, NodeLookupScope.TaskAddressable);
             if (node == null)
             {
                 errorMessage = $"Can't find \"{nodeIdentifier}\"";
@@ -417,24 +423,31 @@ namespace Systems.Sanity.Focus.Domain
             }
         }
 
-        private Node? FindNode(string parameter)
+        private Node? FindNode(string parameter, NodeLookupScope lookupScope = NodeLookupScope.VisibleSelectable)
         {
-            var currentNodes = GetVisibleSelectableChildren(_currentNode).ToArray();
+            var visibleNode = FindNodeInCandidates(parameter, GetVisibleSelectableChildren(_currentNode));
+            if (visibleNode != null || lookupScope == NodeLookupScope.VisibleSelectable)
+                return visibleNode;
+
+            return FindNodeInCandidates(
+                parameter,
+                _currentNode.Children.Where(node => node.NodeType == NodeType.IdeaBagItem));
+        }
+
+        private static Node? FindNodeInCandidates(string parameter, IEnumerable<Node> candidates)
+        {
+            var candidateNodes = candidates.ToArray();
 
             if (int.TryParse(parameter, out var nodeNumber))
             {
-                return currentNodes.FirstOrDefault(node => node.Number == nodeNumber);
+                return candidateNodes.FirstOrDefault(node => node.Number == nodeNumber);
             }
 
             var shortcutNumber = Infrastructure.Input.AccessibleKeyNumbering.GetNumberFor(parameter);
             if (shortcutNumber != 0)
-            {
-                var targetNode = currentNodes.FirstOrDefault(node => node.Number == shortcutNumber);
-                if (targetNode != null)
-                    return targetNode;
-            }
+                return candidateNodes.FirstOrDefault(node => node.Number == shortcutNumber);
 
-            return currentNodes.FirstOrDefault(node =>
+            return candidateNodes.FirstOrDefault(node =>
                 NodeDisplayHelper.GetSingleLinePreview(node.Name)
                     .StartsWith(parameter, StringComparison.InvariantCultureIgnoreCase));
         }

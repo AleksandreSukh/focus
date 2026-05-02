@@ -1,4 +1,5 @@
 using Systems.Sanity.Focus;
+using Systems.Sanity.Focus.Application.Display;
 using Systems.Sanity.Focus.Pages.Shared;
 
 namespace Systems.Sanity.Focus.Tests;

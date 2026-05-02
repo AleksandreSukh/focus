@@ -4,9 +4,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using Systems.Sanity.Focus.Application;
 
-namespace Systems.Sanity.Focus.Pages.Shared;
+namespace Systems.Sanity.Focus.Application.Display;
 
 internal sealed record CommandHelpGroup(
     string Label,

@@ -16,7 +16,7 @@ internal sealed class EditMapPage : PageWithSuggestedOptions
     private readonly FocusAppContext _appContext;
     private readonly string _filePath;
     private readonly EditWorkflow _workflow;
-    private bool _showCommands = false;
+    private readonly CommandHelpVisibilityState _commandHelpVisibility = new();
 
     public EditMapPage(string filePath, FocusAppContext appContext, Guid? initialNodeIdentifier = null)
     {
@@ -91,7 +91,7 @@ internal sealed class EditMapPage : PageWithSuggestedOptions
             _appContext.StartupSyncNotificationState.BuildTitle(_workflow.FileTitle, _workflow.FilePath));
         AppConsole.Current.Clear();
         AppConsole.Current.ClearScrollback();
-        ColorfulConsole.Write(_workflow.BuildScreen(message, isError, _showCommands));
+        ColorfulConsole.Write(_workflow.BuildScreen(message, isError, _commandHelpVisibility.ShowCommands));
     }
 
     private ConsoleInput ReadCommand(Action rerender)
@@ -109,10 +109,9 @@ internal sealed class EditMapPage : PageWithSuggestedOptions
 
     private bool HandlePreviewKey(ConsoleKeyInfo keyInfo, string currentText, Action rerender)
     {
-        if (!string.IsNullOrEmpty(currentText) || keyInfo.KeyChar != '~')
+        if (!_commandHelpVisibility.TryHandlePreviewKey(keyInfo, currentText))
             return false;
 
-        _showCommands = !_showCommands;
         rerender();
         ColorfulConsole.WriteLine(string.Empty);
         return true;

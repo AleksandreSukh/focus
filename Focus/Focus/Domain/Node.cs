@@ -27,7 +27,7 @@ public class Node
         Metadata = NodeMetadata.Create(NodeMetadataSources.Manual, Environment.MachineName);
     }
 
-    public NodeType NodeType { get; }
+    public NodeType NodeType { get; set; }
 
     public Guid? UniqueIdentifier { get; set; }
 

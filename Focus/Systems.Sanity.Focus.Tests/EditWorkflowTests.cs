@@ -529,6 +529,43 @@ public class EditWorkflowTests
     }
 
     [Fact]
+    public void GetSuggestions_WithoutChildren_IncludesCommandsAndTaskFilters()
+    {
+        using var workspace = new TestWorkspace();
+        var filePath = workspace.SaveMap("workflow-map", new MindMap("Root"));
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+
+        var suggestions = workflow.GetSuggestions().ToArray();
+
+        Assert.Contains("addblock", suggestions);
+        Assert.Contains("todo", suggestions);
+        Assert.Contains("td", suggestions);
+        Assert.Contains("tasks done", suggestions);
+        Assert.Contains("ts all", suggestions);
+        Assert.DoesNotContain("cd 1", suggestions);
+    }
+
+    [Fact]
+    public void GetSuggestions_WithChildren_IncludesChildParameterSuggestions()
+    {
+        using var workspace = new TestWorkspace();
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("Child");
+        var filePath = workspace.SaveMap("workflow-map", map);
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+
+        var suggestions = workflow.GetSuggestions().ToArray();
+
+        Assert.Contains("cd 1", suggestions);
+        Assert.Contains("edit 1", suggestions);
+        Assert.Contains("todo 1", suggestions);
+        Assert.Contains("td 1", suggestions);
+        Assert.Contains("edit Child", suggestions);
+        Assert.Contains("search Child", suggestions);
+        Assert.DoesNotContain("clearideas 1", suggestions);
+    }
+
+    [Fact]
     public void BuildScreen_RendersTextBlocksAsQuotedBlocks()
     {
         using var workspace = new TestWorkspace();
@@ -581,7 +618,7 @@ public class EditWorkflowTests
 
         Assert.DoesNotContain(ColorLabel("Go to"), screen);
         Assert.DoesNotContain(ColorLabel("Navigate"), screen);
-        Assert.Contains(":i Commands hidden. Press \"~\" to show.", screen);
+        Assert.Contains($":i {CommandHelpText.HiddenHelpMessage}", screen);
     }
 
     [Fact]
@@ -655,6 +692,169 @@ public class EditWorkflowTests
 
         Assert.Contains(":Nodes to be linked>", screen);
         Assert.Contains(ColorLabel("Links"), screen);
+    }
+
+    [Fact]
+    public void Execute_Add_UsesWorkflowInteractionAndPersistsReportedChanges()
+    {
+        var interactions = new RecordingWorkflowInteractions
+        {
+            AddNotesResult = true,
+            AddNotesAction = (map, _) => map.AddAtCurrentNode("Added through interaction")
+        };
+        using var workspace = new TestWorkspace(workflowInteractions: interactions);
+        var filePath = workspace.SaveMap("workflow-map", new MindMap("Root"));
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("add"));
+        workflow.Save(result.SyncCommitMessage!);
+        var reopened = workspace.MapsStorage.OpenMap(filePath);
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.ShouldPersist);
+        Assert.Equal("Add note in workflow-map", result.SyncCommitMessage);
+        Assert.Single(interactions.AddNotesInitialInputs);
+        Assert.Null(interactions.AddNotesInitialInputs.Single());
+        Assert.Contains(reopened.GetChildren().Values, value => value == "Added through interaction");
+    }
+
+    [Fact]
+    public void Execute_DeleteChild_UsesWorkflowInteractionConfirmationCancellation()
+    {
+        var interactions = new RecordingWorkflowInteractions
+        {
+            DefaultConfirmationResult = false
+        };
+        using var workspace = new TestWorkspace(workflowInteractions: interactions);
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("Child");
+        var filePath = workspace.SaveMap("workflow-map", map);
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("del 1"));
+
+        Assert.False(result.IsSuccess);
+        Assert.False(result.ShouldPersist);
+        Assert.Equal("Cancelled!", result.ErrorString);
+        Assert.Equal(["Are you sure to delete \"1\". \"Child\""], interactions.ConfirmationMessages);
+        Assert.Contains("Child", workflow.BuildScreen());
+    }
+
+    [Fact]
+    public void Execute_Search_UsesWorkflowInteractionResultSelection()
+    {
+        var interactions = new RecordingWorkflowInteractions
+        {
+            SearchResultSelector = results => results.Single()
+        };
+        using var workspace = new TestWorkspace(workflowInteractions: interactions);
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("Unique Search Result");
+        var filePath = workspace.SaveMap("workflow-map", map);
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+
+        var searchResult = workflow.Execute(new ConsoleInput("search Unique"));
+        var todoResult = workflow.Execute(new ConsoleInput("todo"));
+        workflow.Save(todoResult.SyncCommitMessage!);
+        var reopened = workspace.MapsStorage.OpenMap(filePath);
+
+        Assert.True(searchResult.IsSuccess);
+        Assert.True(todoResult.IsSuccess);
+        Assert.Equal(TaskState.Todo, reopened.GetNode("1")!.TaskState);
+        Assert.Equal(["Search results for \"Unique\""], interactions.SearchSelectionTitles);
+        Assert.False(interactions.SearchSelectionDisplayOptions.Single().IncludeMapName);
+    }
+
+    [Fact]
+    public void Execute_UnknownInputFallback_ConfirmsAndAddsCurrentInputThroughWorkflowInteraction()
+    {
+        var interactions = new RecordingWorkflowInteractions
+        {
+            AddNotesResult = true,
+            AddNotesAction = (map, initialInput) => map.AddAtCurrentNode(initialInput ?? string.Empty)
+        };
+        using var workspace = new TestWorkspace(workflowInteractions: interactions);
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("Existing child");
+        var filePath = workspace.SaveMap("workflow-map", map);
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("new child from fallback"));
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.ShouldPersist);
+        Assert.Equal("Add note in workflow-map", result.SyncCommitMessage);
+        Assert.Equal(["new child from fallback"], interactions.AddNotesInitialInputs);
+        Assert.Contains("Did you mean to add new record?", interactions.ConfirmationMessages.Single());
+        Assert.Contains("new child from fallback", workflow.BuildScreen());
+    }
+
+    [Fact]
+    public void Execute_Tasks_UsesWorkflowInteractionResultSelection()
+    {
+        var interactions = new RecordingWorkflowInteractions
+        {
+            SearchResultSelector = results => results.Single(result => result.NodeName == "Done task")
+        };
+        using var workspace = new TestWorkspace(workflowInteractions: interactions);
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("Todo task");
+        map.AddAtCurrentNode("Done task");
+        Assert.True(map.SetTaskState("1", TaskState.Todo, out _));
+        Assert.True(map.SetTaskState("2", TaskState.Done, out _));
+        var filePath = workspace.SaveMap("workflow-map", map);
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("tasks all"));
+
+        Assert.True(result.IsSuccess);
+        Assert.Contains("[x] Done task", workflow.BuildScreen());
+        Assert.Equal(["tasks in current map"], interactions.SearchSelectionTitles);
+        Assert.False(interactions.SearchSelectionDisplayOptions.Single().IncludeMapName);
+    }
+
+    [Fact]
+    public void Execute_OpenLink_UsesWorkflowInteractionResultSelection()
+    {
+        var interactions = new RecordingWorkflowInteractions
+        {
+            SearchResultSelector = results => results.Single(result => result.NodeName == "Linked child")
+        };
+        using var workspace = new TestWorkspace(workflowInteractions: interactions);
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("Linked child");
+        Assert.True(map.LinkToNode("1", map.RootNode, LinkRelationType.Relates, "metadata"));
+        var filePath = workspace.SaveMap("workflow-map", map);
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("openlink"));
+
+        Assert.True(result.IsSuccess);
+        Assert.Contains("Linked child", workflow.BuildScreen());
+        Assert.Contains("Linked nodes", interactions.SearchSelectionTitles.Single());
+        Assert.True(interactions.SearchSelectionDisplayOptions.Single().IncludeMapName);
+    }
+
+    [Fact]
+    public void Execute_SliceOutChild_OpensCreateMapWithDetachedMap()
+    {
+        var navigator = new RecordingPageNavigator();
+        var interactions = new RecordingWorkflowInteractions();
+        interactions.EnqueueOptionSelection(2);
+        using var workspace = new TestWorkspace(navigator, workflowInteractions: interactions);
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("Detached child");
+        var filePath = workspace.SaveMap("workflow-map", map);
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("slice 1"));
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.ShouldPersist);
+        Assert.Equal("Detach node from workflow-map", result.SyncCommitMessage);
+        Assert.Equal("Detached child", navigator.OpenedCreateMapFileName);
+        Assert.NotNull(navigator.OpenedCreateMapMindMap);
+        Assert.Equal("Detached child", navigator.OpenedCreateMapMindMap!.RootNode.Name);
     }
 
     private static Guid GetRequiredNodeIdentifier(Node node) =>

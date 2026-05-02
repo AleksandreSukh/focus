@@ -9,5 +9,5 @@ internal interface IPageNavigator
 {
     void OpenEditMap(string filePath, Guid? initialNodeIdentifier = null);
 
-    void OpenCreateMap(string fileName, MindMap mindMap, string? sourceMapFilePath = null);
+    void OpenCreateMap(string fileName, MindMap mindMap);
 }

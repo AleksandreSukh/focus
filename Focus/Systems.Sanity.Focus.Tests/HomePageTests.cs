@@ -6,11 +6,45 @@ using Systems.Sanity.Focus.Infrastructure.Diagnostics;
 using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Infrastructure.Input;
 using Systems.Sanity.Focus.Pages;
+using Systems.Sanity.Focus.Pages.Shared;
 
 namespace Systems.Sanity.Focus.Tests;
 
 public class HomePageTests
 {
+    [Fact]
+    public void Show_TildePreviewTogglesCommandHelpBeforeExecutingExit()
+    {
+        using var workspace = new TestWorkspace();
+        var commandLineEditor = new PreviewKeyCommandLineEditor(
+            CommandHelpVisibilityState.BuildToggleKeyInfo(),
+            "exit");
+
+        using var consoleScope = new AppConsoleScope(new ScriptedConsoleSession(commandLineEditor));
+        using var output = new StringWriter();
+        var originalOutput = Console.Out;
+
+        try
+        {
+            Console.SetOut(output);
+
+            var page = new HomePage(workspace.AppContext);
+            page.Show();
+        }
+        finally
+        {
+            Console.SetOut(originalOutput);
+        }
+
+        var renderedOutput = output.ToString();
+        var hiddenHintIndex = renderedOutput.IndexOf(CommandHelpText.HiddenHelpMessage, StringComparison.InvariantCulture);
+        var commandHelpIndex = renderedOutput.IndexOf("new <file name>", StringComparison.InvariantCulture);
+
+        Assert.True(commandLineEditor.PreviewKeyHandled);
+        Assert.True(hiddenHintIndex >= 0);
+        Assert.True(commandHelpIndex > hiddenHintIndex);
+    }
+
     [Fact]
     public void Show_LocalizedFileNameInput_OpensSelectedMap()
     {

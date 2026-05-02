@@ -4,30 +4,12 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using Systems.Sanity.Focus.Application.Display;
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.DomainServices;
 using Systems.Sanity.Focus.Infrastructure;
 
 namespace Systems.Sanity.Focus.Pages.Shared;
-
-internal sealed record SearchResultDisplayOptions
-{
-    public SearchResultDisplayOptions(
-        bool includeMapName,
-        bool colorizeAncestorPath,
-        IReadOnlyList<string>? highlightTerms = null)
-    {
-        IncludeMapName = includeMapName;
-        ColorizeAncestorPath = colorizeAncestorPath;
-        HighlightTerms = highlightTerms ?? Array.Empty<string>();
-    }
-
-    public bool IncludeMapName { get; }
-
-    public bool ColorizeAncestorPath { get; }
-
-    public IReadOnlyList<string> HighlightTerms { get; }
-}
 
 internal static class SearchResultDisplayFormatter
 {

@@ -3,9 +3,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using Systems.Sanity.Focus.Domain;
 
-namespace Systems.Sanity.Focus.Application;
+namespace Systems.Sanity.Focus.Domain;
 
 public interface IMapRepository
 {

@@ -1,6 +1,6 @@
 using Systems.Sanity.Focus.DomainServices;
 
-namespace Systems.Sanity.Focus.Pages.Edit;
+namespace Systems.Sanity.Focus.Application;
 
 internal enum ExportDestination
 {

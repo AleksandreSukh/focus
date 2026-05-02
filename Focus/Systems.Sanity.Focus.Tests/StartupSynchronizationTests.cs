@@ -107,14 +107,17 @@ public class StartupSynchronizationTests
                 File.AppendAllText(changedFilePath, Environment.NewLine);
                 return StartupSyncResult.Succeeded;
             });
-        var appContext = new FocusAppContext(mapsStorage);
+        var statusSink = new RecordingApplicationStatusSink();
+        var appContext = new FocusAppContext(mapsStorage, navigator: null, statusSink: statusSink);
         appContext.StartupSyncNotificationState.SetCurrentOpenFile(changedFilePath);
 
         await ApplicationStartup.StartStartupSyncInBackground(appContext);
 
+        var expectedTitle = $"{Path.GetFileName(changedFilePath)} (update required)";
         Assert.Equal(
-            $"{Path.GetFileName(changedFilePath)} (update required)",
+            expectedTitle,
             appContext.StartupSyncNotificationState.GetCurrentTitle());
+        Assert.Equal([expectedTitle], statusSink.Titles);
         Assert.True(appContext.StartupSyncNotificationState.TryConsumeCurrentFileUpdateWarning(
             changedFilePath,
             out var warningMessage));
@@ -137,36 +140,57 @@ public class StartupSynchronizationTests
                 File.AppendAllText(changedFilePath, Environment.NewLine);
                 return StartupSyncResult.Succeeded;
             });
-        var appContext = new FocusAppContext(mapsStorage);
+        var statusSink = new RecordingApplicationStatusSink();
+        var appContext = new FocusAppContext(mapsStorage, navigator: null, statusSink: statusSink);
         appContext.StartupSyncNotificationState.SetCurrentOpenFile(openFilePath);
 
         await ApplicationStartup.StartStartupSyncInBackground(appContext);
 
+        var expectedTitle = $"{Path.GetFileName(openFilePath)} (updates available)";
         Assert.Equal(
-            $"{Path.GetFileName(openFilePath)} (updates available)",
+            expectedTitle,
             appContext.StartupSyncNotificationState.GetCurrentTitle());
+        Assert.Equal([expectedTitle], statusSink.Titles);
         Assert.False(appContext.StartupSyncNotificationState.TryConsumeCurrentFileUpdateWarning(
             openFilePath,
             out _));
     }
 
     [Fact]
+    public async Task StartStartupSyncInBackground_WritesFailureMessage_WhenSyncReturnsFailure()
+    {
+        using var workspace = new TestWorkspace();
+        const string failureMessage = "Couldn't refresh maps from git.";
+        var mapsStorage = CreateMapsStorage(
+            workspace.RootDirectory,
+            () => StartupSyncResult.Failed(failureMessage));
+        var statusSink = new RecordingApplicationStatusSink();
+        var appContext = new FocusAppContext(mapsStorage, navigator: null, statusSink: statusSink);
+
+        await ApplicationStartup.StartStartupSyncInBackground(appContext);
+
+        Assert.Equal([failureMessage], statusSink.BackgroundMessages);
+        Assert.Empty(statusSink.Titles);
+    }
+
+    [Fact]
     public async Task StartStartupSyncInBackground_WritesGenericBackgroundMessage_WhenSyncThrowsUnexpectedly()
     {
         using var diagnosticsScope = new ExceptionDiagnosticsScope();
-        var consoleSession = new ScriptedConsoleSession();
-        using var consoleScope = new AppConsoleScope(consoleSession);
         var syncHandler = new ThrowingFileSynchronizationHandler
         {
             PullLatestAtStartupException = new InvalidOperationException("startup sync exploded")
         };
-        using var workspace = new TestWorkspace(fileSynchronizationHandler: syncHandler);
+        var statusSink = new RecordingApplicationStatusSink();
+        using var workspace = new TestWorkspace(
+            fileSynchronizationHandler: syncHandler,
+            statusSink: statusSink);
 
         await ApplicationStartup.StartStartupSyncInBackground(workspace.AppContext);
 
         Assert.Contains(
             ExceptionDiagnostics.BuildUserMessage("running startup sync"),
-            consoleSession.BackgroundMessages);
+            statusSink.BackgroundMessages);
         Assert.Contains("Action: running startup sync", diagnosticsScope.ReadLog());
         Assert.Contains("startup sync exploded", diagnosticsScope.ReadLog());
     }
