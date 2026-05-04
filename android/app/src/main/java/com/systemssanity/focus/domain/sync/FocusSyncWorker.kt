@@ -36,10 +36,30 @@ class FocusSyncWorker(
         return container.createWorkspaceSyncCoordinator(settings, token)
             .processPendingOperations()
             .fold(
-                onSuccess = { workspace ->
-                    container.preferencesStore.recordSyncSuccess(
-                        "Synced queued changes. Pending operations: ${workspace.pendingOperations.size}.",
-                    )
+                onSuccess = { result ->
+                    val blocked = result.blockedPendingMap
+                    val pausedUnreadable = result.pausedUnreadableMap
+                    val conflict = result.pendingConflictMap
+                    if (conflict != null) {
+                        container.preferencesStore.recordSyncFailure(
+                            "Resolve conflict for ${conflict.mapName} to resume queued changes.",
+                            state = "conflict",
+                        )
+                    } else if (blocked != null) {
+                        container.preferencesStore.recordSyncFailure(
+                            "Queued changes for ${blocked.mapName} need review.",
+                            state = "blocked",
+                        )
+                    } else if (pausedUnreadable != null) {
+                        container.preferencesStore.recordSyncFailure(
+                            "Repair ${pausedUnreadable.mapName.ifBlank { pausedUnreadable.fileName }} to resume queued changes.",
+                            state = "blocked",
+                        )
+                    } else {
+                        container.preferencesStore.recordSyncSuccess(
+                            "Synced queued changes. Pending operations: ${result.workspace.pendingOperations.size}.",
+                        )
+                    }
                     Result.success()
                 },
                 onFailure = { error ->

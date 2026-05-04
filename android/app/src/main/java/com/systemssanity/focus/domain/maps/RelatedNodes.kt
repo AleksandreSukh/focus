@@ -18,7 +18,9 @@ data class RelatedNodeEntry(
 object RelatedNodes {
     fun collectOutgoing(node: Node, snapshots: List<MapSnapshot>): List<RelatedNodeEntry> =
         node.links.values.mapNotNull { link ->
-            val target = findNodeAcrossSnapshots(snapshots, link.id) ?: return@mapNotNull null
+            val targetNodeId = normalizeNodeId(link.id)
+            if (targetNodeId.isBlank()) return@mapNotNull null
+            val target = findNodeAcrossSnapshots(snapshots, targetNodeId) ?: return@mapNotNull null
             RelatedNodeEntry(
                 direction = RelatedNodeEntry.Direction.Outgoing,
                 mapPath = target.snapshot.filePath,
@@ -32,10 +34,12 @@ object RelatedNodes {
 
     fun collectBacklinks(targetNodeId: String, snapshots: List<MapSnapshot>): List<RelatedNodeEntry> {
         val entries = mutableListOf<RelatedNodeEntry>()
+        val normalizedTargetNodeId = normalizeNodeId(targetNodeId)
+        if (normalizedTargetNodeId.isBlank()) return entries
         snapshots.forEach { snapshot ->
             traverse(snapshot.document.rootNode, emptyList()) { node, path ->
                 node.links.values
-                    .filter { it.id.equals(targetNodeId, ignoreCase = true) }
+                    .filter { normalizeNodeId(it.id).equals(normalizedTargetNodeId, ignoreCase = true) }
                     .forEach { link ->
                         entries += RelatedNodeEntry(
                             direction = RelatedNodeEntry.Direction.Backlink,
@@ -44,7 +48,7 @@ object RelatedNodes {
                             nodeId = node.uniqueIdentifier,
                             nodeName = MapQueries.normalizeNodeDisplayText(node.name),
                             nodePathSegments = path,
-                            relationLabel = "backlink: ${relationLabel(link.relationType)}",
+                            relationLabel = backlinkRelationLabel(link.relationType),
                         )
                     }
             }
@@ -60,6 +64,11 @@ object RelatedNodes {
         else -> "link"
     }
 
+    fun backlinkRelationLabel(relationType: Int): String {
+        val outgoingLabel = relationLabel(relationType)
+        return if (outgoingLabel == "link") "backlink" else "backlink: $outgoingLabel"
+    }
+
     private data class LocatedNode(val snapshot: MapSnapshot, val record: NodeRecord)
 
     private fun findNodeAcrossSnapshots(snapshots: List<MapSnapshot>, nodeId: String): LocatedNode? =
@@ -72,6 +81,8 @@ object RelatedNodes {
         visitor(node, nextPath)
         node.children.forEach { traverse(it, nextPath, visitor) }
     }
+
+    private fun normalizeNodeId(nodeId: String): String = nodeId.trim()
 
     private fun List<RelatedNodeEntry>.sorted(): List<RelatedNodeEntry> =
         sortedWith(compareBy<RelatedNodeEntry> { it.mapName }.thenBy { it.nodePathSegments.joinToString(" > ") })

@@ -2,6 +2,8 @@ package com.systemssanity.focus.data.github
 
 import com.systemssanity.focus.domain.maps.CommitMessages
 import com.systemssanity.focus.domain.maps.MapConflictResolver
+import com.systemssanity.focus.domain.maps.UnreadableMapReason
+import com.systemssanity.focus.domain.maps.UnreadableMaps
 import com.systemssanity.focus.domain.model.MapSnapshot
 import com.systemssanity.focus.domain.model.MindMapDocument
 import com.systemssanity.focus.domain.model.MindMapJson
@@ -26,6 +28,9 @@ class GitHubMindMapProvider(
                 throw UnreadableMapException(
                     reason = UnreadableMapReason.AutoResolveFailed,
                     filePath = filePath,
+                    fileName = fileName,
+                    mapName = mapName,
+                    revision = snapshot.versionToken,
                     rawText = snapshot.content,
                 )
             }
@@ -48,7 +53,7 @@ class GitHubMindMapProvider(
             filePath = filePath,
             fileName = fileName,
             mapName = mapName,
-            document = parseReadableMap(filePath, snapshot.content),
+            document = parseReadableMap(filePath, snapshot.content, snapshot.versionToken),
             revision = snapshot.versionToken,
             loadedAtMillis = System.currentTimeMillis(),
         )
@@ -72,8 +77,14 @@ class GitHubMindMapProvider(
 
     suspend fun deleteAttachment(nodeId: String, relativePath: String, expectedRevision: String?, commitMessage: String) {
         val path = buildAttachmentPath(nodeId, relativePath)
-        val revision = expectedRevision ?: client.getBinaryFile(path, "application/octet-stream").versionToken
-        client.deleteFile(path, revision, commitMessage)
+        try {
+            val revision = expectedRevision ?: client.getBinaryFile(path, "application/octet-stream").versionToken
+            client.deleteFile(path, revision, commitMessage)
+        } catch (error: GitHubApiException) {
+            if (error.code != GitHubApiException.Code.NotFound) {
+                throw error
+            }
+        }
     }
 
     suspend fun saveConflictResolution(filePath: String, mapName: String, document: MindMapDocument, expectedRevision: String): String =
@@ -89,10 +100,11 @@ class GitHubMindMapProvider(
         return parts.joinToString("/")
     }
 
-    private fun parseReadableMap(filePath: String, content: String): MindMapDocument =
+    private fun parseReadableMap(filePath: String, content: String, revision: String): MindMapDocument =
         try {
             MindMapJson.parse(content)
         } catch (error: Exception) {
+            val fileName = UnreadableMaps.fileName(filePath)
             throw UnreadableMapException(
                 reason = if (MapConflictResolver.hasConflictMarkers(content)) {
                     UnreadableMapReason.MergeConflict
@@ -100,22 +112,21 @@ class GitHubMindMapProvider(
                     UnreadableMapReason.InvalidJson
                 },
                 filePath = filePath,
+                fileName = fileName,
+                mapName = fileName.removeSuffix(".json"),
+                revision = revision,
                 rawText = content,
                 cause = error,
             )
         }
 }
 
-enum class UnreadableMapReason {
-    AutoResolveFailed,
-    MergeConflict,
-    InvalidJson,
-    Unknown,
-}
-
 class UnreadableMapException(
     val reason: UnreadableMapReason,
     val filePath: String,
+    val fileName: String = UnreadableMaps.fileName(filePath),
+    val mapName: String = UnreadableMaps.mapName(filePath),
+    val revision: String = "",
     val rawText: String,
     cause: Throwable? = null,
-) : Exception("Map \"$filePath\" could not be parsed.", cause)
+) : Exception(UnreadableMaps.message(fileName, reason), cause)

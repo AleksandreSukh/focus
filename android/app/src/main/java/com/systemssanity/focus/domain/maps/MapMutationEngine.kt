@@ -14,8 +14,10 @@ object MapMutationEngine {
         val normalized = MindMapJson.normalize(document)
         return when (mutation) {
             is MapMutation.EditNodeText -> editNodeText(normalized, mutation)
+            is MapMutation.RenameMap -> renameMap(normalized, mutation)
             is MapMutation.SetTaskState -> setTaskState(normalized, mutation)
             is MapMutation.SetHideDoneTasks -> setHideDoneTasks(normalized, mutation)
+            is MapMutation.SetStarred -> setStarred(normalized, mutation)
             is MapMutation.AddChildNote -> addChild(normalized, mutation, TaskState.None)
             is MapMutation.AddChildTask -> addChild(normalized, mutation, TaskState.Todo)
             is MapMutation.DeleteNode -> deleteNode(normalized, mutation)
@@ -31,6 +33,25 @@ object MapMutationEngine {
             if (!node.canEditText) return@updateNode rejected("VALIDATION_ERROR", "Idea-tag nodes are read-only.")
             node.copy(name = text).touched(mutation.timestamp)
         }
+    }
+
+    private fun renameMap(document: MindMapDocument, mutation: MapMutation.RenameMap): MutationApplyResult {
+        val text = sanitizeInput(mutation.text)
+        if (text.isBlank()) return rejected("VALIDATION_ERROR", "Map title cannot be empty.")
+
+        val root = document.rootNode
+        if (root.uniqueIdentifier != mutation.nodeId) {
+            return rejected("VALIDATION_ERROR", "Only the root node can rename the map.")
+        }
+        if (!root.canEditText) {
+            return rejected("VALIDATION_ERROR", "Root node is read-only.")
+        }
+
+        return applied(
+            document.copy(rootNode = root.copy(name = text).touched(mutation.timestamp), updatedAt = mutation.timestamp),
+            affectedNodeId = mutation.nodeId,
+            selectedNodeId = mutation.nodeId,
+        )
     }
 
     private fun setTaskState(document: MindMapDocument, mutation: MapMutation.SetTaskState): MutationApplyResult {
@@ -52,6 +73,56 @@ object MapMutationEngine {
                 children = node.children.map { clearHideDoneOverrides(it, mutation.timestamp) },
             ).touched(mutation.timestamp)
         }
+
+    private fun setStarred(document: MindMapDocument, mutation: MapMutation.SetStarred): MutationApplyResult {
+        if (document.rootNode.uniqueIdentifier == mutation.nodeId) {
+            return rejected("VALIDATION_ERROR", "Can't change starred state for root node.")
+        }
+
+        var found = false
+        var rejection: MutationApplyResult.Rejected? = null
+
+        fun visit(parent: Node): Node {
+            val childIndex = parent.children.indexOfFirst { it.uniqueIdentifier == mutation.nodeId }
+            if (childIndex >= 0) {
+                found = true
+                val target = parent.children[childIndex]
+                if (target.isIdeaTag) {
+                    rejection = rejected("VALIDATION_ERROR", "Starred state is not supported for idea tags.")
+                    return parent
+                }
+
+                val updatedTarget = target.copy(starred = mutation.starred).touched(mutation.timestamp)
+                val remainingChildren = parent.children.filterIndexed { index, _ -> index != childIndex }
+                val insertIndex = if (mutation.starred) {
+                    firstSelectableChildIndex(remainingChildren)
+                } else {
+                    unstarredInsertionIndex(remainingChildren)
+                }
+                val nextChildren = remainingChildren.toMutableList().apply {
+                    add(insertIndex, updatedTarget)
+                }
+                return parent.copy(children = nextChildren).renumberedChildren().touched(mutation.timestamp)
+            }
+
+            var changed = false
+            val nextChildren = parent.children.map { child ->
+                val nextChild = visit(child)
+                if (nextChild != child) changed = true
+                nextChild
+            }
+            return if (changed) parent.copy(children = nextChildren) else parent
+        }
+
+        val nextRoot = visit(document.rootNode)
+        rejection?.let { return it }
+        if (!found) return rejected("NOT_FOUND", "Node \"${mutation.nodeId}\" was not found.")
+        return applied(
+            document.copy(rootNode = nextRoot, updatedAt = mutation.timestamp),
+            affectedNodeId = mutation.nodeId,
+            selectedNodeId = mutation.nodeId,
+        )
+    }
 
     private fun addChild(document: MindMapDocument, mutation: MapMutation, taskState: TaskState): MutationApplyResult {
         val parentId = when (mutation) {
@@ -106,7 +177,7 @@ object MapMutationEngine {
             document.copy(rootNode = nextRoot, updatedAt = mutation.timestamp),
             affectedNodeId = parentId,
             selectedNodeId = parentId,
-            deletedAttachments = collectAttachmentRefs(deleted),
+            deletedAttachments = collectDeletedAttachmentRefs(deleted),
         )
     }
 
@@ -205,6 +276,19 @@ object MapMutationEngine {
     private fun Node.renumberedChildren(): Node =
         copy(children = children.mapIndexed { index, child -> child.copy(number = index + 1) })
 
+    private fun firstSelectableChildIndex(children: List<Node>): Int =
+        children.indexOfFirst { !it.isIdeaTag }.takeIf { it >= 0 } ?: children.size
+
+    private fun unstarredInsertionIndex(children: List<Node>): Int {
+        for (index in children.indices.reversed()) {
+            val child = children[index]
+            if (!child.isIdeaTag && child.starred) {
+                return index + 1
+            }
+        }
+        return firstSelectableChildIndex(children)
+    }
+
     private fun applied(
         document: MindMapDocument,
         affectedNodeId: String,
@@ -231,15 +315,4 @@ object MapMutationEngine {
         return node.children.firstNotNullOfOrNull { findNode(it, nodeId) }
     }
 
-    private fun collectAttachmentRefs(node: Node): List<DeletedAttachmentRef> {
-        val own = node.metadata?.attachments.orEmpty().map { attachment ->
-            DeletedAttachmentRef(
-                nodeId = node.uniqueIdentifier,
-                attachmentId = attachment.id,
-                relativePath = attachment.relativePath,
-                displayName = attachment.displayName.ifBlank { attachment.relativePath },
-            )
-        }
-        return own + node.children.flatMap(::collectAttachmentRefs)
-    }
 }

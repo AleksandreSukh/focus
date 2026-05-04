@@ -115,6 +115,11 @@ object MapQueries {
         return result
     }
 
+    fun hasDoneDescendants(document: MindMapDocument, nodeId: String): Boolean {
+        val record = findNode(document, nodeId) ?: return false
+        return record.node.children.any(::subtreeHasDoneNode)
+    }
+
     fun getTreeHideDoneState(node: Node, ancestorHidesDone: Boolean): Boolean {
         val local = when {
             node.hideDoneTasksExplicit == true -> node.hideDoneTasks
@@ -129,6 +134,9 @@ object MapQueries {
 
     private fun isTaskNode(node: Node, parent: Node?): Boolean =
         parent != null && node.nodeType != NodeType.IdeaBagItem && node.taskState.isTask
+
+    private fun subtreeHasDoneNode(node: Node): Boolean =
+        node.taskState == TaskState.Done || node.children.any(::subtreeHasDoneNode)
 }
 
 enum class TaskFilter {

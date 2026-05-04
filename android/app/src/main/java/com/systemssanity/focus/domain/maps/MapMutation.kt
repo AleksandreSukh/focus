@@ -20,6 +20,16 @@ sealed interface MapMutation {
     ) : MapMutation
 
     @Serializable
+    data class RenameMap(
+        override val filePath: String,
+        val newFilePath: String,
+        val nodeId: String,
+        val text: String,
+        override val timestamp: String,
+        override val commitMessage: String,
+    ) : MapMutation
+
+    @Serializable
     data class SetTaskState(
         override val filePath: String,
         val nodeId: String,
@@ -33,6 +43,15 @@ sealed interface MapMutation {
         override val filePath: String,
         val nodeId: String,
         val hideDoneTasks: Boolean,
+        override val timestamp: String,
+        override val commitMessage: String,
+    ) : MapMutation
+
+    @Serializable
+    data class SetStarred(
+        override val filePath: String,
+        val nodeId: String,
+        val starred: Boolean,
         override val timestamp: String,
         override val commitMessage: String,
     ) : MapMutation
@@ -102,3 +121,17 @@ sealed interface MutationApplyResult {
     data class Applied(val result: MutationResult) : MutationApplyResult
     data class Rejected(val code: String, val message: String) : MutationApplyResult
 }
+
+class MapMutationRejectedException(
+    val code: String,
+    message: String,
+) : Exception(message)
+
+fun MapMutation.resultFilePath(): String =
+    when (this) {
+        is MapMutation.RenameMap -> newFilePath
+        else -> filePath
+    }
+
+fun MapMutation.touchesFilePath(path: String): Boolean =
+    filePath == path || (this is MapMutation.RenameMap && newFilePath == path)

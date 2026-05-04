@@ -1,5 +1,7 @@
 package com.systemssanity.focus.domain.maps
 
+import java.net.URI
+
 data class InlineRun(val text: String, val colorName: String?)
 
 data class InlineToken(
@@ -97,9 +99,13 @@ object InlineFormatter {
             }
             val matched = match.value
             val trimmed = trimTrailingUrlPunctuation(matched)
-            tokens += InlineToken(trimmed, run.colorName, url = trimmed)
-            if (trimmed.length < matched.length) {
-                tokens += InlineToken(matched.substring(trimmed.length), run.colorName)
+            if (isSupportedHttpUrl(trimmed)) {
+                tokens += InlineToken(trimmed, run.colorName, url = trimmed)
+                if (trimmed.length < matched.length) {
+                    tokens += InlineToken(matched.substring(trimmed.length), run.colorName)
+                }
+            } else {
+                tokens += InlineToken(matched, run.colorName)
             }
             index = match.range.last + 1
         }
@@ -111,9 +117,37 @@ object InlineFormatter {
 
     private fun trimTrailingUrlPunctuation(candidate: String): String {
         var end = candidate.length
-        while (end > 0 && candidate[end - 1] in listOf('.', ',', ';', ':', '!', '?')) {
-            end -= 1
+        while (end > 0) {
+            val trailingCharacter = candidate[end - 1]
+            if (
+                shouldTrimSimpleTrailingPunctuation(trailingCharacter) ||
+                isUnmatchedClosingDelimiter(candidate, end, trailingCharacter)
+            ) {
+                end -= 1
+                continue
+            }
+            break
         }
         return candidate.substring(0, end)
+    }
+
+    private fun shouldTrimSimpleTrailingPunctuation(trailingCharacter: Char): Boolean =
+        trailingCharacter in listOf('.', ',', ';', ':', '!', '?')
+
+    private fun isUnmatchedClosingDelimiter(candidate: String, end: Int, trailingCharacter: Char): Boolean =
+        when (trailingCharacter) {
+            ')' -> countOccurrences(candidate, '(', end) < countOccurrences(candidate, ')', end)
+            ']' -> countOccurrences(candidate, '[', end) < countOccurrences(candidate, ']', end)
+            '}' -> countOccurrences(candidate, '{', end) < countOccurrences(candidate, '}', end)
+            else -> false
+        }
+
+    private fun countOccurrences(input: String, character: Char, length: Int): Int =
+        input.take(length).count { it == character }
+
+    private fun isSupportedHttpUrl(candidate: String): Boolean {
+        if (candidate.isBlank()) return false
+        val uri = runCatching { URI(candidate) }.getOrNull() ?: return false
+        return uri.scheme?.lowercase() in setOf("http", "https") && !uri.host.isNullOrBlank()
     }
 }

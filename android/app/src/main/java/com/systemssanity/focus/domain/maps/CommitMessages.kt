@@ -20,6 +20,9 @@ object CommitMessages {
     fun nodeHideDone(mapName: String, nodeId: String, hideDoneTasks: Boolean): String =
         "map:hide-done ${mapName.normalizedMapName()} ${nodeId.normalized()} -> ${if (hideDoneTasks) "hide" else "show"}"
 
+    fun nodeStar(mapName: String, nodeId: String, starred: Boolean): String =
+        "map:star ${mapName.normalizedMapName()} ${nodeId.normalized()} -> ${if (starred) "starred" else "unstarred"}"
+
     fun nodeDelete(mapName: String, nodeId: String): String =
         "map:delete ${mapName.normalizedMapName()} ${nodeId.normalized()}"
 
