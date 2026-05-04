@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  NODE_TYPE,
   TASK_STATE,
   applyMapMutation,
   getNodeBadges,
@@ -62,7 +63,7 @@ describe('mind map model hide-done support', () => {
     assert.equal('HideDoneTasks' in document.rootNode.children[0], false);
   });
 
-  it('normalizes starred nodes and exposes a non-mutating badge', () => {
+  it('normalizes starred nodes without exposing a badge', () => {
     const document = normalizeMindMapDocument({
       RootNode: {
         Name: 'Root',
@@ -83,8 +84,162 @@ describe('mind map model hide-done support', () => {
 
     assert.equal(child.starred, true);
     assert.equal('Starred' in child, false);
-    assert.ok(getNodeBadges(child).includes('Starred'));
+    assert.equal(getNodeBadges(child).includes('Starred'), false);
     assert.ok(serialized.includes('"starred": true'));
+  });
+
+  it('stars a child by moving it to the top and renumbering siblings', () => {
+    const document = normalizeMindMapDocument({
+      rootNode: {
+        name: 'Root',
+        children: [
+          { name: 'First', children: [] },
+          { name: 'Second', children: [] },
+          { name: 'Third', children: [] },
+        ],
+      },
+    }, {
+      fileTimestampIso: '2026-04-20T08:00:00Z',
+    });
+    const second = document.rootNode.children[1];
+
+    const result = applyMapMutation(document, {
+      type: 'setStarred',
+      nodeId: second.uniqueIdentifier,
+      starred: true,
+      timestamp: '2026-04-20T09:15:00Z',
+    });
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(document.rootNode.children.map((child) => child.name), ['Second', 'First', 'Third']);
+    assert.deepEqual(document.rootNode.children.map((child) => child.number), [1, 2, 3]);
+    assert.equal(document.rootNode.children[0].starred, true);
+    assert.equal(second.metadata.updatedAtUtc, '2026-04-20T09:15:00Z');
+    assert.equal(document.rootNode.metadata.updatedAtUtc, '2026-04-20T09:15:00Z');
+    assert.equal(document.updatedAt, '2026-04-20T09:15:00Z');
+  });
+
+  it('stars a second child before the already starred child', () => {
+    const document = normalizeMindMapDocument({
+      rootNode: {
+        name: 'Root',
+        children: [
+          { name: 'First', children: [] },
+          { name: 'Second', children: [] },
+          { name: 'Third', children: [] },
+        ],
+      },
+    }, {
+      fileTimestampIso: '2026-04-20T08:00:00Z',
+    });
+    const second = document.rootNode.children[1];
+    const third = document.rootNode.children[2];
+
+    assert.equal(applyMapMutation(document, {
+      type: 'setStarred',
+      nodeId: third.uniqueIdentifier,
+      starred: true,
+      timestamp: '2026-04-20T09:15:00Z',
+    }).ok, true);
+    assert.equal(applyMapMutation(document, {
+      type: 'setStarred',
+      nodeId: second.uniqueIdentifier,
+      starred: true,
+      timestamp: '2026-04-20T09:16:00Z',
+    }).ok, true);
+
+    assert.deepEqual(document.rootNode.children.map((child) => child.name), ['Second', 'Third', 'First']);
+    assert.deepEqual(document.rootNode.children.map((child) => child.starred), [true, true, false]);
+  });
+
+  it('unstars a child below remaining starred siblings', () => {
+    const document = normalizeMindMapDocument({
+      rootNode: {
+        name: 'Root',
+        children: [
+          { name: 'First', children: [] },
+          { name: 'Second', children: [] },
+          { name: 'Third', children: [] },
+        ],
+      },
+    }, {
+      fileTimestampIso: '2026-04-20T08:00:00Z',
+    });
+    const second = document.rootNode.children[1];
+    const third = document.rootNode.children[2];
+
+    assert.equal(applyMapMutation(document, {
+      type: 'setStarred',
+      nodeId: third.uniqueIdentifier,
+      starred: true,
+      timestamp: '2026-04-20T09:15:00Z',
+    }).ok, true);
+    assert.equal(applyMapMutation(document, {
+      type: 'setStarred',
+      nodeId: second.uniqueIdentifier,
+      starred: true,
+      timestamp: '2026-04-20T09:16:00Z',
+    }).ok, true);
+    assert.equal(applyMapMutation(document, {
+      type: 'setStarred',
+      nodeId: second.uniqueIdentifier,
+      starred: false,
+      timestamp: '2026-04-20T09:17:00Z',
+    }).ok, true);
+
+    assert.deepEqual(document.rootNode.children.map((child) => child.name), ['Third', 'Second', 'First']);
+    assert.deepEqual(document.rootNode.children.map((child) => child.starred), [true, false, false]);
+  });
+
+  it('rejects starring the root node', () => {
+    const document = normalizeMindMapDocument({
+      rootNode: {
+        name: 'Root',
+        children: [],
+      },
+    }, {
+      fileTimestampIso: '2026-04-20T08:00:00Z',
+    });
+
+    const result = applyMapMutation(document, {
+      type: 'setStarred',
+      nodeId: document.rootNode.uniqueIdentifier,
+      starred: true,
+      timestamp: '2026-04-20T09:15:00Z',
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error.message, "Can't change starred state for root node");
+    assert.equal(document.rootNode.starred, false);
+  });
+
+  it('rejects starring idea tags', () => {
+    const document = normalizeMindMapDocument({
+      rootNode: {
+        name: 'Root',
+        children: [
+          {
+            name: 'Idea',
+            nodeType: NODE_TYPE.IDEA_BAG_ITEM,
+            children: [],
+          },
+        ],
+      },
+    }, {
+      fileTimestampIso: '2026-04-20T08:00:00Z',
+    });
+    const idea = document.rootNode.children[0];
+
+    const result = applyMapMutation(document, {
+      type: 'setStarred',
+      nodeId: idea.uniqueIdentifier,
+      starred: true,
+      timestamp: '2026-04-20T09:15:00Z',
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error.message, 'Starred state is not supported for idea tags');
+    assert.equal(idea.starred, false);
   });
 
   it('applies setHideDoneTasks as a persisted node mutation', () => {

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  buildNodeStarCommitMessage,
   buildTodoAddCommitMessage,
   buildTodoDeleteCommitMessage,
   buildTodoEditCommitMessage,
@@ -22,5 +23,16 @@ describe('commit message generation', () => {
     assert.equal(buildTodoToggleCommitMessage(' id-1 ', true), 'todo:toggle id-1 -> done');
     assert.equal(buildTodoToggleCommitMessage(' id-1 ', false), 'todo:toggle id-1 -> open');
     assert.equal(buildTodoDeleteCommitMessage('  id-1  '), 'todo:delete id-1');
+  });
+
+  it('builds node star messages', () => {
+    assert.equal(
+      buildNodeStarCommitMessage(' Alpha Map ', ' node-1 ', true),
+      'map:star Alpha Map node-1 -> starred',
+    );
+    assert.equal(
+      buildNodeStarCommitMessage(' Alpha Map ', ' node-1 ', false),
+      'map:star Alpha Map node-1 -> unstarred',
+    );
   });
 });

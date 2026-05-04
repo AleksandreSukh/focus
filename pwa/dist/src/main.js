@@ -9,6 +9,7 @@ import {
   buildNodeDeleteCommitMessage,
   buildNodeEditCommitMessage,
   buildNodeHideDoneTasksCommitMessage,
+  buildNodeStarCommitMessage,
   buildNodeTaskStateCommitMessage,
   getSyncMetadata,
   recordSyncState,
@@ -760,6 +761,12 @@ function handleDocumentClick(event) {
         clickableElement.dataset.sourceMapPath || '',
         clickableElement.dataset.sourceNodeId || '',
         clickableElement.dataset.relationLabel || '',
+      );
+      return;
+    case 'toggle-node-star':
+      void handleToggleNodeStar(
+        clickableElement.dataset.mapPath || '',
+        clickableElement.dataset.nodeId || '',
       );
       return;
     case 'show-done-items': {
@@ -1762,6 +1769,38 @@ async function handleSetTaskState(taskStateValue, explicitMapPath, explicitNodeI
     state.pendingFocusRequest = {
       type: 'focusKey',
       value: buildNodeFocusKey(filePath, nodeId),
+    };
+    focusPendingElement();
+  }
+}
+
+async function handleToggleNodeStar(filePath, nodeId) {
+  const snapshot = state.mapsByPath[filePath];
+  if (!snapshot || !nodeId) {
+    return;
+  }
+
+  const record = findNodeRecord(snapshot.document, nodeId);
+  if (!record || !record.parent) {
+    return;
+  }
+
+  const starred = !Boolean(record.node.starred);
+  const result = enqueueOperation({
+    type: 'setStarred',
+    filePath,
+    nodeId,
+    starred,
+    timestamp: nowIso(),
+    commitMessage: buildNodeStarCommitMessage(snapshot.mapName, nodeId, starred),
+  }, {
+    selectedNodeIdOverride: state.selectedMapPath === filePath ? state.selectedNodeId : nodeId,
+  });
+
+  if (result.ok) {
+    state.pendingFocusRequest = {
+      type: 'focusKey',
+      value: buildNodeStarFocusKey(filePath, nodeId),
     };
     focusPendingElement();
   }
@@ -3841,6 +3880,10 @@ function buildNodeFocusKey(mapPath, nodeId) {
   return `node|${mapPath}|${nodeId}`;
 }
 
+function buildNodeStarFocusKey(mapPath, nodeId) {
+  return `node-star|${mapPath}|${nodeId}`;
+}
+
 function buildRelatedNodeToggleKey(mapPath, nodeId, relationLabel = '') {
   return [mapPath, nodeId, relationLabel]
     .map((value) => encodeURIComponent(String(value ?? '')))
@@ -5385,16 +5428,19 @@ function renderTreeNode(snapshot, node, depth, selectedNodeState, ancestorHidesD
           : '<span class="tree-spacer" aria-hidden="true"></span>'}
         ${renderNodeBullet(snapshot.filePath, node)}
         <div class="reader-node-body">
-          <div
-            role="button"
-            tabindex="0"
-            class="tree-label ${isSelected ? 'selected' : ''}"
-            data-action="select-node"
-            data-map-path="${escapeHtml(snapshot.filePath)}"
-            data-node-id="${escapeHtml(node.uniqueIdentifier)}"
-            data-focus-key="${escapeHtml(buildNodeFocusKey(snapshot.filePath, node.uniqueIdentifier))}"
-          >
-            ${nodeTextMarkup}
+          <div class="reader-node-title-line">
+            <div
+              role="button"
+              tabindex="0"
+              class="tree-label ${isSelected ? 'selected' : ''}"
+              data-action="select-node"
+              data-map-path="${escapeHtml(snapshot.filePath)}"
+              data-node-id="${escapeHtml(node.uniqueIdentifier)}"
+              data-focus-key="${escapeHtml(buildNodeFocusKey(snapshot.filePath, node.uniqueIdentifier))}"
+            >
+              ${nodeTextMarkup}
+            </div>
+            ${renderNodeStarButton(snapshot, node)}
           </div>
           ${isSelected ? renderSelectedNodeActions(snapshot, selectedNodeState) : ''}
         </div>
@@ -5403,6 +5449,24 @@ function renderTreeNode(snapshot, node, depth, selectedNodeState, ancestorHidesD
         ? `<ul class="reader-list child-list">${visibleChildren.map((child) => renderTreeNode(snapshot, child, depth + 1, selectedNodeState, getTreeHideDoneState(node, ancestorHidesDone))).join('')}</ul>`
         : ''}
     </li>
+  `;
+}
+
+function renderNodeStarButton(snapshot, node) {
+  const starred = Boolean(node.starred);
+  const actionLabel = `${starred ? 'Unstar' : 'Star'} ${normalizeNodeDisplayText(node.name)}`;
+  return `
+    <button
+      type="button"
+      class="node-star-button"
+      data-action="toggle-node-star"
+      data-map-path="${escapeHtml(snapshot.filePath)}"
+      data-node-id="${escapeHtml(node.uniqueIdentifier)}"
+      data-focus-key="${escapeHtml(buildNodeStarFocusKey(snapshot.filePath, node.uniqueIdentifier))}"
+      aria-pressed="${starred ? 'true' : 'false'}"
+      aria-label="${escapeHtml(actionLabel)}"
+      title="${escapeHtml(actionLabel)}"
+    ><span aria-hidden="true">${starred ? '★' : '☆'}</span></button>
   `;
 }
 
@@ -6529,6 +6593,8 @@ function describeOperation(operation) {
       return `text change in ${mapLabel}`;
     case 'setTaskState':
       return `task state update in ${mapLabel}`;
+    case 'setStarred':
+      return `star update in ${mapLabel}`;
     case 'setHideDoneTasks':
       return `branch task visibility update in ${mapLabel}`;
     case 'addChildTask':

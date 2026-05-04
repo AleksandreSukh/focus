@@ -37,6 +37,9 @@ export const buildNodeTaskStateCommitMessage = (mapName: string, nodeId: string,
 export const buildNodeHideDoneTasksCommitMessage = (mapName: string, nodeId: string, hideDoneTasks: boolean): string =>
   `map:hide-done ${normalizeMapName(mapName)} ${normalizeValue(nodeId)} -> ${hideDoneTasks ? 'hide' : 'show'}`;
 
+export const buildNodeStarCommitMessage = (mapName: string, nodeId: string, starred: boolean): string =>
+  `map:star ${normalizeMapName(mapName)} ${normalizeValue(nodeId)} -> ${starred ? 'starred' : 'unstarred'}`;
+
 export const buildAttachmentAddCommitMessage = (mapName: string, fileName: string): string =>
   `map:attach ${normalizeMapName(mapName)} ${truncate(normalizeValue(fileName), 48)}`.trimEnd();
 

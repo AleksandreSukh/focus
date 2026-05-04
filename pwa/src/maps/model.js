@@ -192,6 +192,8 @@ export function applyMapMutation(document, mutation) {
       return editNodeText(document, mutation, timestamp);
     case 'setTaskState':
       return setNodeTaskState(document, mutation, timestamp);
+    case 'setStarred':
+      return setNodeStarred(document, mutation, timestamp);
     case 'setHideDoneTasks':
       return setNodeHideDoneTasks(document, mutation, timestamp);
     case 'addChildNote':
@@ -276,10 +278,6 @@ export function getNodeBadges(node, hideDoneTasks = Boolean(getLocalHideDoneOver
 
   if (hideDoneTasks) {
     badges.push('Hide done');
-  }
-
-  if (node.starred) {
-    badges.push('Starred');
   }
 
   if (node.links && typeof node.links === 'object' && Object.keys(node.links).length > 0) {
@@ -584,6 +582,46 @@ function setNodeHideDoneTasks(document, mutation, timestamp) {
   };
 }
 
+function setNodeStarred(document, mutation, timestamp) {
+  const record = findNodeRecord(document, mutation.nodeId);
+  if (!record) {
+    return notFoundError(mutation.nodeId);
+  }
+
+  if (!record.parent) {
+    return validationError("Can't change starred state for root node");
+  }
+
+  if (record.node.nodeType === NODE_TYPE.IDEA_BAG_ITEM) {
+    return validationError('Starred state is not supported for idea tags');
+  }
+
+  const parent = record.parent;
+  const currentIndex = parent.children.indexOf(record.node);
+  if (currentIndex === -1) {
+    return validationError('Node was not found in parent children.');
+  }
+
+  const starred = Boolean(mutation.starred);
+  record.node.starred = starred;
+  parent.children.splice(currentIndex, 1);
+  const insertIndex = starred
+    ? getFirstSelectableChildIndex(parent)
+    : getUnstarredInsertionIndex(parent);
+  parent.children.splice(insertIndex, 0, record.node);
+  renumberChildren(parent);
+  touchMetadata(record.node, timestamp);
+  touchMetadata(parent, timestamp);
+  touchDocumentTimestamp(document, timestamp);
+  return {
+    ok: true,
+    value: {
+      affectedNodeId: record.node.uniqueIdentifier,
+      selectedNodeId: record.node.uniqueIdentifier,
+    },
+  };
+}
+
 function addChildNode(document, mutation, timestamp, taskState) {
   const normalizedText = normalizeInputText(mutation.text);
   if (!normalizedText) {
@@ -785,6 +823,22 @@ function renumberChildren(node) {
   node.children.forEach((child, index) => {
     child.number = index + 1;
   });
+}
+
+function getFirstSelectableChildIndex(parent) {
+  const index = parent.children.findIndex((child) => child.nodeType !== NODE_TYPE.IDEA_BAG_ITEM);
+  return index >= 0 ? index : parent.children.length;
+}
+
+function getUnstarredInsertionIndex(parent) {
+  for (let index = parent.children.length - 1; index >= 0; index -= 1) {
+    const child = parent.children[index];
+    if (child.nodeType !== NODE_TYPE.IDEA_BAG_ITEM && child.starred) {
+      return index + 1;
+    }
+  }
+
+  return getFirstSelectableChildIndex(parent);
 }
 
 function traverseDocument(document, visitor) {

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   buildNodeHideDoneTasksCommitMessage,
+  buildNodeStarCommitMessage,
   buildNodeTaskStateCommitMessage,
 } from './commitMessages.js';
 
@@ -21,6 +22,17 @@ describe('mind map commit message generation', () => {
     assert.equal(
       buildNodeHideDoneTasksCommitMessage(' Alpha Map ', ' node-1 ', false),
       'map:hide-done Alpha Map node-1 -> show',
+    );
+  });
+
+  it('builds star commit messages for node star changes', () => {
+    assert.equal(
+      buildNodeStarCommitMessage(' Alpha Map ', ' node-1 ', true),
+      'map:star Alpha Map node-1 -> starred',
+    );
+    assert.equal(
+      buildNodeStarCommitMessage(' Alpha Map ', ' node-1 ', false),
+      'map:star Alpha Map node-1 -> unstarred',
     );
   });
 });

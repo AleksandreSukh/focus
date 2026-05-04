@@ -1197,6 +1197,19 @@ h3 {
   gap: 0.38rem;
 }
 
+.reader-node-title-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.18rem;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.reader-node-title-line .tree-label {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
 .map-document-title,
 .tree-label {
   display: inline-flex;
@@ -1220,6 +1233,33 @@ h3 {
 .tree-label {
   font-size: 1rem;
   line-height: 1.6;
+}
+
+.node-star-button {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.8rem;
+  height: 1.8rem;
+  margin-top: 0.08rem;
+  padding: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1.08rem;
+  line-height: 1;
+}
+
+.node-star-button:hover,
+.node-star-button:focus-visible {
+  background: var(--panel-muted);
+  color: var(--accent-strong);
+}
+
+.node-star-button[aria-pressed='true'] {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
 }
 
 .map-document-title.selected,
@@ -1962,6 +2002,7 @@ h3 {
 .task-dot-button,
 .tree-toggle,
 .tree-label,
+.node-star-button,
 .map-document-title,
 .mini-action,
 .secondary-button,
@@ -1985,6 +2026,7 @@ h3 {
 .task-dot-button:focus-visible,
 .tree-toggle:focus-visible,
 .tree-label:focus-visible,
+.node-star-button:focus-visible,
 .map-document-title:focus-visible,
 .mini-action:focus-visible,
 .secondary-button:focus-visible,
