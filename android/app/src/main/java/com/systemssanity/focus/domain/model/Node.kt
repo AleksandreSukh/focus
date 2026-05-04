@@ -22,6 +22,7 @@ data class Node(
     @SerialName("collapsed") val collapsed: Boolean = false,
     @SerialName("hideDoneTasks") val hideDoneTasks: Boolean = false,
     @SerialName("hideDoneTasksExplicit") val hideDoneTasksExplicit: Boolean? = null,
+    @SerialName("starred") val starred: Boolean = false,
     @SerialName("taskState") val taskState: TaskState = TaskState.None,
     @SerialName("metadata") val metadata: NodeMetadata? = null,
 ) {

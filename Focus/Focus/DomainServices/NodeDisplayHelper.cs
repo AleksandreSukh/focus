@@ -7,7 +7,7 @@ namespace Systems.Sanity.Focus.DomainServices;
 internal static class NodeDisplayHelper
 {
     public static string BuildDisplayName(Node node) =>
-        PrefixTaskMarker(GetSingleLinePreview(node.Name), node.TaskState);
+        PrefixTaskMarker(PrefixStarMarker(GetSingleLinePreview(node.Name), node.Starred), node.TaskState);
 
     public static string BuildNodePath(Node node) =>
         string.Join(" > ", BuildNodePathSegments(node));
@@ -45,6 +45,9 @@ internal static class NodeDisplayHelper
 
     public static string PrefixTaskMarker(string text, TaskState taskState) =>
         taskState.WithDisplayMarker(text);
+
+    private static string PrefixStarMarker(string text, bool starred) =>
+        starred ? $"* {text}" : text;
 
     public static string GetSingleLinePreview(string? text)
     {

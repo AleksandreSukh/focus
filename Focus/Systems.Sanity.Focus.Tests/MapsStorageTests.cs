@@ -80,6 +80,23 @@ public class MapsStorageTests
     }
 
     [Fact]
+    public void SaveAndOpenMap_RoundTripsStarredFlag()
+    {
+        using var workspace = new TestWorkspace();
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("Child");
+        Assert.True(map.StarNode("1", out _));
+
+        var filePath = workspace.SaveMap("alpha", map);
+        var reopened = workspace.MapsStorage.OpenMap(filePath);
+        var reopenedChild = reopened.GetNode("1");
+
+        Assert.NotNull(reopenedChild);
+        Assert.True(reopenedChild!.Starred);
+        Assert.Contains("\"starred\": true", File.ReadAllText(filePath), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void OpenMap_BackfillsLegacyMetadataWithoutPersistingUntilSave()
     {
         using var workspace = new TestWorkspace();

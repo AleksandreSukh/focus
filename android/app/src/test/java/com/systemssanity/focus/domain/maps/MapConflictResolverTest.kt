@@ -42,4 +42,20 @@ class MapConflictResolverTest {
         assertEquals(true, resolved.resolvedContent.orEmpty().contains("Ours"))
         assertEquals(true, resolved.resolvedContent.orEmpty().contains("Theirs"))
     }
+
+    @Test
+    fun structurallyMergesStarredAsNewerNodeScalar() {
+        val conflicted = """
+            <<<<<<< HEAD
+            {"updatedAt":"2026-04-25T10:00:00Z","rootNode":{"uniqueIdentifier":"11111111-1111-4111-8111-111111111111","nodeType":0,"name":"Root","children":[],"links":{},"number":1,"starred":false,"taskState":0,"metadata":{"createdAtUtc":"2026-04-25T10:00:00Z","updatedAtUtc":"2026-04-25T10:00:00Z","source":"manual","device":"android","attachments":[]}}}
+            =======
+            {"updatedAt":"2026-04-25T10:05:00Z","rootNode":{"uniqueIdentifier":"11111111-1111-4111-8111-111111111111","nodeType":0,"name":"Root","children":[],"links":{},"number":1,"starred":true,"taskState":0,"metadata":{"createdAtUtc":"2026-04-25T10:00:00Z","updatedAtUtc":"2026-04-25T10:05:00Z","source":"manual","device":"android","attachments":[]}}}
+            >>>>>>> main
+        """.trimIndent()
+
+        val resolved = MapConflictResolver.tryResolve(conflicted)
+
+        assertTrue(resolved.ok)
+        assertEquals(true, resolved.resolvedContent.orEmpty().contains("\"starred\": true"))
+    }
 }

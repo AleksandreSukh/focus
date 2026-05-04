@@ -32,7 +32,9 @@ internal enum EditCommandId
     SetTaskTodo,
     ShowDoneTasks,
     Slice,
+    Star,
     ToggleTaskState,
+    Unstar,
     Unhide,
     Voice
 }

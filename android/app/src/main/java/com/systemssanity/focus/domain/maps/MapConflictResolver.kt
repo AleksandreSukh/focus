@@ -70,6 +70,7 @@ object MapConflictResolver {
             collapsed = if (takeTheirs) theirs.collapsed else ours.collapsed,
             hideDoneTasks = if (takeTheirs) theirs.hideDoneTasks else ours.hideDoneTasks,
             hideDoneTasksExplicit = if (takeTheirs) theirs.hideDoneTasksExplicit else ours.hideDoneTasksExplicit,
+            starred = if (takeTheirs) theirs.starred else ours.starred,
             taskState = if (takeTheirs) theirs.taskState else ours.taskState,
             metadata = mergedMetadata,
             links = ours.links + theirs.links.filterKeys { it !in ours.links },

@@ -186,6 +186,18 @@ internal sealed class EditCommandCatalog
                 "Edit",
                 "max <child>",
                 EditCommandParameterSuggestionKind.ChildNumberAndPreview),
+            new EditCommandDescriptor(
+                EditCommandId.Star,
+                "star",
+                "Edit",
+                "star [child]",
+                EditCommandParameterSuggestionKind.ChildNumberAndPreview),
+            new EditCommandDescriptor(
+                EditCommandId.Unstar,
+                "unstar",
+                "Edit",
+                "unstar [child]",
+                EditCommandParameterSuggestionKind.ChildNumberAndPreview),
             new EditCommandDescriptor(EditCommandId.Capture, "capture", "Edit", "capture"),
             new EditCommandDescriptor(EditCommandId.Voice, "voice", "Edit", "voice"),
 

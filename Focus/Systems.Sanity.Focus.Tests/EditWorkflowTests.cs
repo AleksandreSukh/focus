@@ -63,6 +63,69 @@ public class EditWorkflowTests
     }
 
     [Fact]
+    public void Execute_StarAndUnstarNode_ReordersAndPersistsFlag()
+    {
+        using var workspace = new TestWorkspace();
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("First");
+        map.AddAtCurrentNode("Second");
+        var filePath = workspace.SaveMap("workflow-map", map);
+
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+        var starResult = workflow.Execute(new ConsoleInput("star 2"));
+        workflow.Save(starResult.SyncCommitMessage!);
+        var starredMap = workspace.MapsStorage.OpenMap(filePath);
+
+        var unstarWorkflow = new EditWorkflow(filePath, workspace.AppContext);
+        var unstarResult = unstarWorkflow.Execute(new ConsoleInput("unstar 1"));
+        unstarWorkflow.Save(unstarResult.SyncCommitMessage!);
+        var unstarredMap = workspace.MapsStorage.OpenMap(filePath);
+
+        Assert.True(starResult.IsSuccess);
+        Assert.True(starResult.ShouldPersist);
+        Assert.Equal("Star node in workflow-map", starResult.SyncCommitMessage);
+        Assert.Equal("Second", starredMap.GetChildren()[1]);
+        Assert.True(starredMap.GetNode("1")!.Starred);
+        Assert.True(unstarResult.IsSuccess);
+        Assert.True(unstarResult.ShouldPersist);
+        Assert.Equal("Unstar node in workflow-map", unstarResult.SyncCommitMessage);
+        Assert.Equal("Second", unstarredMap.GetChildren()[1]);
+        Assert.False(unstarredMap.GetNode("1")!.Starred);
+    }
+
+    [Fact]
+    public void BuildScreen_ShowsStarredMarkerWithoutChangingNodeName()
+    {
+        using var workspace = new TestWorkspace();
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("Child");
+        var filePath = workspace.SaveMap("workflow-map", map);
+
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+        var result = workflow.Execute(new ConsoleInput("star 1"));
+        var screen = workflow.BuildScreen();
+        workflow.Save(result.SyncCommitMessage!);
+        var reopened = workspace.MapsStorage.OpenMap(filePath);
+
+        Assert.True(result.IsSuccess);
+        Assert.Contains("* Child", screen);
+        Assert.Equal("Child", reopened.RootNode.Children[0].Name);
+    }
+
+    [Fact]
+    public void Execute_StarAtRoot_ReturnsValidationError()
+    {
+        using var workspace = new TestWorkspace();
+        var filePath = workspace.SaveMap("workflow-map", new MindMap("Root"));
+
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+        var result = workflow.Execute(new ConsoleInput("star"));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("Can't change starred state for root node", result.ErrorString);
+    }
+
+    [Fact]
     public void Execute_AddBlock_CreatesMultilineTextBlockNode()
     {
         using var workspace = new TestWorkspace();
@@ -560,6 +623,8 @@ public class EditWorkflowTests
         Assert.Contains("edit 1", suggestions);
         Assert.Contains("todo 1", suggestions);
         Assert.Contains("td 1", suggestions);
+        Assert.Contains("star 1", suggestions);
+        Assert.Contains("unstar Child", suggestions);
         Assert.Contains("edit Child", suggestions);
         Assert.Contains("search Child", suggestions);
         Assert.DoesNotContain("clearideas 1", suggestions);

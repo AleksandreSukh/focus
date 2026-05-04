@@ -3,12 +3,14 @@ import { describe, it } from 'node:test';
 import {
   TASK_STATE,
   applyMapMutation,
+  getNodeBadges,
   getNodeHideDoneState,
   getVisibleTreeChildren,
   hasDoneDescendants,
   hasHideDoneAncestor,
   normalizeMindMapDocument,
   resolveVisibleNodeId,
+  serializeMindMapDocument,
 } from './model.js';
 
 function createDocument() {
@@ -58,6 +60,31 @@ describe('mind map model hide-done support', () => {
 
     assert.equal(document.rootNode.children[0].hideDoneTasks, true);
     assert.equal('HideDoneTasks' in document.rootNode.children[0], false);
+  });
+
+  it('normalizes starred nodes and exposes a non-mutating badge', () => {
+    const document = normalizeMindMapDocument({
+      RootNode: {
+        Name: 'Root',
+        Children: [
+          {
+            Name: 'Important',
+            Starred: true,
+            Children: [],
+          },
+        ],
+      },
+    }, {
+      fileTimestampIso: '2026-04-20T08:00:00Z',
+    });
+
+    const child = document.rootNode.children[0];
+    const serialized = serializeMindMapDocument(document);
+
+    assert.equal(child.starred, true);
+    assert.equal('Starred' in child, false);
+    assert.ok(getNodeBadges(child).includes('Starred'));
+    assert.ok(serialized.includes('"starred": true'));
   });
 
   it('applies setHideDoneTasks as a persisted node mutation', () => {

@@ -211,6 +211,78 @@ public class MindMapTests
     }
 
     [Fact]
+    public void StarNode_MovesChildToTopAndRenumbersSiblings()
+    {
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("First");
+        map.AddAtCurrentNode("Second");
+        var third = map.AddAtCurrentNode("Third");
+
+        var result = map.StarNode("3", out var errorMessage);
+        var children = map.GetChildren();
+
+        Assert.True(result);
+        Assert.Equal(string.Empty, errorMessage);
+        Assert.True(third.Starred);
+        Assert.Equal("Third", children[1]);
+        Assert.Equal("First", children[2]);
+        Assert.Equal("Second", children[3]);
+        Assert.Equal(new[] { 1, 2, 3 }, map.RootNode.Children.Select(child => child.Number));
+    }
+
+    [Fact]
+    public void StarNode_WhenAnotherSiblingIsStarred_MovesNewStarBeforeExistingStars()
+    {
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("First");
+        map.AddAtCurrentNode("Second");
+        map.AddAtCurrentNode("Third");
+
+        Assert.True(map.StarNode("Third", out _));
+        Assert.True(map.StarNode("Second", out _));
+        var children = map.GetChildren();
+
+        Assert.Equal("Second", children[1]);
+        Assert.Equal("Third", children[2]);
+        Assert.Equal("First", children[3]);
+        Assert.True(map.GetNode("1")!.Starred);
+        Assert.True(map.GetNode("2")!.Starred);
+    }
+
+    [Fact]
+    public void UnstarNode_MovesChildBelowRemainingStarredSiblings()
+    {
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("First");
+        map.AddAtCurrentNode("Second");
+        map.AddAtCurrentNode("Third");
+        Assert.True(map.StarNode("Third", out _));
+        Assert.True(map.StarNode("Second", out _));
+
+        var result = map.UnstarNode("Second", out var errorMessage);
+        var children = map.GetChildren();
+
+        Assert.True(result);
+        Assert.Equal(string.Empty, errorMessage);
+        Assert.Equal("Third", children[1]);
+        Assert.Equal("Second", children[2]);
+        Assert.Equal("First", children[3]);
+        Assert.True(map.GetNode("1")!.Starred);
+        Assert.False(map.GetNode("2")!.Starred);
+    }
+
+    [Fact]
+    public void StarNode_RejectsRootNode()
+    {
+        var map = new MindMap("Root");
+
+        var result = map.StarNode(out var errorMessage);
+
+        Assert.False(result);
+        Assert.Equal("Can't change starred state for root node", errorMessage);
+    }
+
+    [Fact]
     public void SetTaskState_RejectsRootAndIdeaTags()
     {
         var map = new MindMap("Root");

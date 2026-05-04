@@ -57,6 +57,7 @@ describe('mapConflictResolver', () => {
         number: 1,
         collapsed: false,
         hideDoneTasks: false,
+        starred: false,
         taskState: 1,
         metadata: {
           createdAtUtc: '2026-04-20T08:00:00Z',
@@ -72,6 +73,7 @@ describe('mapConflictResolver', () => {
       rootNode: {
         ...ours.rootNode,
         name: 'Newer name',
+        starred: true,
         taskState: 3,
         metadata: {
           ...ours.rootNode.metadata,
@@ -85,6 +87,7 @@ describe('mapConflictResolver', () => {
     assert.equal(resolved.ok, true);
     const document = JSON.parse(resolved.resolvedContent);
     assert.equal(document.rootNode.name, 'Newer name');
+    assert.equal(document.rootNode.starred, true);
     assert.equal(document.rootNode.taskState, 3);
   });
 

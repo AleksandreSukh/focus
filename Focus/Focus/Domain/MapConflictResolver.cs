@@ -151,6 +151,7 @@ public static class MapConflictResolver
                 case "collapsed":
                 case "hideDoneTasks":
                 case "hideDoneTasksExplicit":
+                case "starred":
                 case "taskState":
                     if (theirsIsNewerOrEqual)
                         ours[key] = theirsVal.DeepClone();

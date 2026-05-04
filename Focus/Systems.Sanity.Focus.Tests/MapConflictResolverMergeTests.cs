@@ -288,6 +288,20 @@ public class MapConflictResolverMergeTests
         Assert.Equal(3, Get(merged!, "rootNode.children[0].taskState").Value<int>());
     }
 
+    [Fact]
+    public void TryMergeResolve_StarredFlag_TakesNewerNodeValue()
+    {
+        var ours = AddChild(BaseMap(), ChildId, "Task", updatedAtUtc: "2026-04-20T08:00:00Z");
+        var theirs = AddChild(BaseMap(), ChildId, "Task", updatedAtUtc: "2026-04-20T10:00:00Z");
+        ours["rootNode"]!["children"]![0]!["starred"] = false;
+        theirs["rootNode"]!["children"]![0]!["starred"] = true;
+
+        var resolved = MapConflictResolver.TryMergeResolve(Json(ours), Json(theirs), out var merged);
+
+        Assert.True(resolved);
+        Assert.True(Get(merged!, "rootNode.children[0].starred").Value<bool>());
+    }
+
     // -------------------------------------------------------------------------
     // 7. name (newer node wins)
     // -------------------------------------------------------------------------

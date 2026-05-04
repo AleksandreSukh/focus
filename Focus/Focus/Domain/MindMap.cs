@@ -238,6 +238,48 @@ namespace Systems.Sanity.Focus.Domain
             return true;
         }
 
+        public bool StarNode(out string errorMessage)
+        {
+            var result = SetStarred(_currentNode, starred: true, out errorMessage);
+            if (result) TouchMapTimestamp();
+            return result;
+        }
+
+        public bool StarNode(string nodeIdentifier, out string errorMessage)
+        {
+            var node = FindNode(nodeIdentifier);
+            if (node == null)
+            {
+                errorMessage = $"Can't find \"{nodeIdentifier}\"";
+                return false;
+            }
+
+            var result = SetStarred(node, starred: true, out errorMessage);
+            if (result) TouchMapTimestamp();
+            return result;
+        }
+
+        public bool UnstarNode(out string errorMessage)
+        {
+            var result = SetStarred(_currentNode, starred: false, out errorMessage);
+            if (result) TouchMapTimestamp();
+            return result;
+        }
+
+        public bool UnstarNode(string nodeIdentifier, out string errorMessage)
+        {
+            var node = FindNode(nodeIdentifier);
+            if (node == null)
+            {
+                errorMessage = $"Can't find \"{nodeIdentifier}\"";
+                return false;
+            }
+
+            var result = SetStarred(node, starred: false, out errorMessage);
+            if (result) TouchMapTimestamp();
+            return result;
+        }
+
         public bool SetHideDoneTasks(bool hideDoneTasks, out string errorMessage)
         {
             var result = SetHideDoneTasks(_currentNode, hideDoneTasks, out errorMessage);
@@ -399,6 +441,57 @@ namespace Systems.Sanity.Focus.Domain
 
         private static bool ToggleTaskState(Node node, out string errorMessage) =>
             SetTaskState(node, node.TaskState.Toggle(), out errorMessage);
+
+        private static bool SetStarred(Node node, bool starred, out string errorMessage)
+        {
+            var parent = node.GetParent();
+            if (parent == null)
+            {
+                errorMessage = "Can't change starred state for root node";
+                return false;
+            }
+
+            if (node.NodeType == NodeType.IdeaBagItem)
+            {
+                errorMessage = "Starred state is not supported for idea tags";
+                return false;
+            }
+
+            node.Starred = starred;
+            ReorderStarredChild(parent, node, starred);
+            parent.RenumberChildNodes();
+            node.TouchMetadata();
+            parent.TouchMetadata();
+            errorMessage = string.Empty;
+            return true;
+        }
+
+        private static void ReorderStarredChild(Node parent, Node node, bool starred)
+        {
+            if (!parent.Children.Remove(node))
+                return;
+
+            var insertIndex = starred
+                ? GetFirstSelectableChildIndex(parent)
+                : GetUnstarredInsertionIndex(parent);
+            parent.Children.Insert(insertIndex, node);
+        }
+
+        private static int GetFirstSelectableChildIndex(Node parent)
+        {
+            var index = parent.Children.FindIndex(child => child.NodeType != NodeType.IdeaBagItem);
+            return index >= 0 ? index : parent.Children.Count;
+        }
+
+        private static int GetUnstarredInsertionIndex(Node parent)
+        {
+            var lastStarredIndex = parent.Children.FindLastIndex(child =>
+                child.NodeType != NodeType.IdeaBagItem && child.Starred);
+            if (lastStarredIndex >= 0)
+                return lastStarredIndex + 1;
+
+            return GetFirstSelectableChildIndex(parent);
+        }
 
         private static bool SetHideDoneTasks(Node node, bool hideDoneTasks, out string errorMessage)
         {

@@ -229,6 +229,7 @@ export function createMapDocument(rootName) {
       number: 1,
       collapsed: false,
       hideDoneTasks: false,
+      starred: false,
       taskState: TASK_STATE.NONE,
       metadata: createMetadata(timestamp, MANUAL_SOURCE, DEFAULT_DEVICE),
     },
@@ -275,6 +276,10 @@ export function getNodeBadges(node, hideDoneTasks = Boolean(getLocalHideDoneOver
 
   if (hideDoneTasks) {
     badges.push('Hide done');
+  }
+
+  if (node.starred) {
+    badges.push('Starred');
   }
 
   if (node.links && typeof node.links === 'object' && Object.keys(node.links).length > 0) {
@@ -427,6 +432,7 @@ function normalizeNode(node, context) {
   node.collapsed = takeCanonicalProperty(node, 'collapsed', 'Collapsed');
   node.hideDoneTasks = takeCanonicalProperty(node, 'hideDoneTasks', 'HideDoneTasks');
   node.hideDoneTasksExplicit = takeCanonicalProperty(node, 'hideDoneTasksExplicit', 'HideDoneTasksExplicit');
+  node.starred = takeCanonicalProperty(node, 'starred', 'Starred');
   node.taskState = takeCanonicalProperty(node, 'taskState', 'TaskState');
   node.metadata = takeCanonicalProperty(node, 'metadata', 'Metadata');
 
@@ -438,6 +444,7 @@ function normalizeNode(node, context) {
   node.number = Number.isInteger(node.number) && node.number > 0 ? node.number : context.number;
   node.collapsed = Boolean(node.collapsed);
   node.hideDoneTasks = Boolean(node.hideDoneTasks);
+  node.starred = Boolean(node.starred);
   if (node.hideDoneTasksExplicit === true) {
     node.hideDoneTasksExplicit = true;
   } else {
@@ -749,6 +756,7 @@ function createNode(name, taskState, options = {}) {
     number: options.number || 1,
     collapsed: false,
     hideDoneTasks: false,
+    starred: false,
     taskState,
     metadata: createMetadata(timestamp, options.source || MANUAL_SOURCE, options.device ?? DEFAULT_DEVICE),
   };

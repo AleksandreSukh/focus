@@ -144,6 +144,7 @@ function tryMergeNode(ours, theirs) {
       case 'collapsed':
       case 'hideDoneTasks':
       case 'hideDoneTasksExplicit':
+      case 'starred':
       case 'taskState':
         if (theirsIsNewerOrEqual) {
           ours[key] = deepClone(theirsValue);

@@ -23,6 +23,7 @@ class MindMapJsonTest {
                     "Children": [],
                     "Links": {},
                     "Number": 1,
+                    "Starred": true,
                     "TaskState": 1
                   }
                 ],
@@ -36,13 +37,15 @@ class MindMapJsonTest {
 
         assertEquals("Root", document.rootNode.name)
         assertEquals(TaskState.Todo, document.rootNode.children.single().taskState)
+        assertEquals(true, document.rootNode.children.single().starred)
     }
 
     @Test
     fun serializesCanonicalCamelCaseJson() {
-        val json = MindMapJson.serialize(MindMapDocument(rootNode = Node(name = "Root")))
+        val json = MindMapJson.serialize(MindMapDocument(rootNode = Node(name = "Root", starred = true)))
 
         assertTrue(json.contains("\"rootNode\""))
         assertTrue(json.contains("\"uniqueIdentifier\""))
+        assertTrue(json.contains("\"starred\": true"))
     }
 }

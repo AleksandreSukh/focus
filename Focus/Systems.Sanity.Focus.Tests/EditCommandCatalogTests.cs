@@ -58,6 +58,8 @@ public class EditCommandCatalogTests
             new[] { "Navigate", "Edit", "To Do", "Links", "Search/Export", "System" },
             groups.Select(group => group.Label));
         Assert.Contains(groups.Single(group => group.Label == "Edit").Entries, entry => entry == "addblock");
+        Assert.Contains(groups.Single(group => group.Label == "Edit").Entries, entry => entry == "star [child]");
+        Assert.Contains(groups.Single(group => group.Label == "Edit").Entries, entry => entry == "unstar [child]");
         Assert.Contains(groups.Single(group => group.Label == "To Do").Entries, entry => entry == "todo/td [child]");
         Assert.Contains(groups.Single(group => group.Label == "Search/Export").Entries, entry => entry == "attachments [attachment]");
     }
@@ -75,6 +77,8 @@ public class EditCommandCatalogTests
         Assert.Contains("cd 1", suggestions);
         Assert.Contains("edit Child", suggestions);
         Assert.Contains("td 1", suggestions);
+        Assert.Contains("star 1", suggestions);
+        Assert.Contains("unstar Child", suggestions);
         Assert.Contains("search Child", suggestions);
         Assert.Contains("tasks done", suggestions);
         Assert.Contains("ts all", suggestions);

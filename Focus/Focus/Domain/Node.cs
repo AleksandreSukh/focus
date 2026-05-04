@@ -39,6 +39,8 @@ public class Node
 
     public int Number { get; set; }
 
+    public bool Starred { get; set; }
+
     public bool Collapsed { get; set; }
 
     public bool HideDoneTasks { get; set; }
@@ -222,7 +224,6 @@ public class Node
     {
         var childNodes = Children
             .Where(childNode => GetNumberingGroup(childNode.NodeType) == numberingGroup)
-            .OrderBy(childNode => childNode.Number)
             .ToArray();
 
         for (var index = 0; index < childNodes.Length; index++)

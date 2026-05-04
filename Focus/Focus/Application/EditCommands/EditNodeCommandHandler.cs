@@ -24,6 +24,8 @@ internal sealed class EditNodeCommandHandler : IEditCommandFeatureHandler
         EditCommandId.Edit,
         EditCommandId.Hide,
         EditCommandId.Slice,
+        EditCommandId.Star,
+        EditCommandId.Unstar,
         EditCommandId.Unhide
     };
 
@@ -38,6 +40,8 @@ internal sealed class EditNodeCommandHandler : IEditCommandFeatureHandler
             EditCommandId.Edit => ProcessEdit(context),
             EditCommandId.Hide => ProcessHide(context, parameters),
             EditCommandId.Slice => ProcessSlice(context, parameters),
+            EditCommandId.Star => ProcessStar(context, parameters),
+            EditCommandId.Unstar => ProcessUnstar(context, parameters),
             EditCommandId.Unhide => ProcessUnhide(context, parameters),
             _ => CommandExecutionResult.Error($"Unsupported command \"{commandId}\"")
         };
@@ -213,5 +217,29 @@ internal sealed class EditNodeCommandHandler : IEditCommandFeatureHandler
         return context.Map.UnhideNode(parameters)
             ? context.PersistMapChange("Unhide node")
             : CommandExecutionResult.Error($"Can't find \"{parameters}\"");
+    }
+
+    private static CommandExecutionResult ProcessStar(EditCommandContext context, string parameters)
+    {
+        string errorMessage;
+        var success = string.IsNullOrWhiteSpace(parameters)
+            ? context.Map.StarNode(out errorMessage)
+            : context.Map.StarNode(parameters, out errorMessage);
+
+        return success
+            ? context.PersistMapChange("Star node")
+            : CommandExecutionResult.Error(errorMessage);
+    }
+
+    private static CommandExecutionResult ProcessUnstar(EditCommandContext context, string parameters)
+    {
+        string errorMessage;
+        var success = string.IsNullOrWhiteSpace(parameters)
+            ? context.Map.UnstarNode(out errorMessage)
+            : context.Map.UnstarNode(parameters, out errorMessage);
+
+        return success
+            ? context.PersistMapChange("Unstar node")
+            : CommandExecutionResult.Error(errorMessage);
     }
 }
