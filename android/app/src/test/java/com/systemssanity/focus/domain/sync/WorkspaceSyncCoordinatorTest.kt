@@ -20,6 +20,27 @@ import kotlin.test.assertTrue
 
 class WorkspaceSyncCoordinatorTest {
     @Test
+    fun clearScopeRemovesSnapshotsAndPendingOnlyForThatScope() = runBlocking {
+        val firstScope = "owner::repo::main::maps"
+        val secondScope = "owner::repo::main::other"
+        val firstSnapshot = snapshot("FocusMaps/First.json", "First")
+        val secondSnapshot = snapshot("OtherMaps/Second.json", "Second")
+        val firstPending = pendingEdit(firstScope, "first-pending", firstSnapshot, "First edit")
+        val secondPending = pendingEdit(secondScope, "second-pending", secondSnapshot, "Second edit")
+        val localStore = InMemoryFocusLocalStore()
+        localStore.saveWorkspace(firstScope, CachedWorkspace(snapshots = listOf(firstSnapshot), pendingOperations = listOf(firstPending)))
+        localStore.saveWorkspace(secondScope, CachedWorkspace(snapshots = listOf(secondSnapshot), pendingOperations = listOf(secondPending)))
+
+        localStore.clearScope(firstScope)
+
+        assertEquals(CachedWorkspace(), localStore.observeWorkspace(firstScope).first())
+        assertEquals(
+            CachedWorkspace(snapshots = listOf(secondSnapshot), pendingOperations = listOf(secondPending)),
+            localStore.observeWorkspace(secondScope).first(),
+        )
+    }
+
+    @Test
     fun loadWorkspaceCachesReadableMapsAndKeepsUnreadablePendingOperationsQueued() = runBlocking {
         val scope = "owner::repo::main::maps"
         val readable = snapshot("FocusMaps/Readable.json", "Readable")

@@ -1,6 +1,7 @@
 package com.systemssanity.focus.di
 
 import android.content.Context
+import com.systemssanity.focus.data.github.GitHubAccessValidation
 import com.systemssanity.focus.data.github.GitHubContentClient
 import com.systemssanity.focus.data.github.GitHubMindMapProvider
 import com.systemssanity.focus.data.local.FileFocusLocalStore
@@ -36,4 +37,7 @@ class AppContainer(context: Context) {
             localStore = localStore,
             service = createMindMapService(settings, token),
         )
+
+    suspend fun validateGitHubAccess(settings: RepoSettings, token: String): Result<Unit> =
+        GitHubAccessValidation.validate(settings, token)
 }

@@ -1,6 +1,14 @@
 package com.systemssanity.focus.ui
 
+import androidx.compose.ui.Alignment
+import com.systemssanity.focus.data.github.GitHubAccessValidation
+import com.systemssanity.focus.data.github.GitHubApiException
+import com.systemssanity.focus.data.local.FabSidePreference
 import com.systemssanity.focus.data.local.PendingMapOperation
+import com.systemssanity.focus.data.local.RepoSettings
+import com.systemssanity.focus.data.local.SyncMetadata
+import com.systemssanity.focus.data.local.ThemePreference
+import com.systemssanity.focus.data.local.UiPreferences
 import com.systemssanity.focus.domain.maps.RelatedNodeEntry
 import com.systemssanity.focus.domain.maps.AttachmentViewerKind
 import com.systemssanity.focus.domain.maps.BlockedPendingMaps
@@ -19,6 +27,7 @@ import com.systemssanity.focus.domain.model.NodeMetadata
 import com.systemssanity.focus.domain.model.NodeMetadataSources
 import com.systemssanity.focus.domain.model.NodeType
 import com.systemssanity.focus.domain.model.TaskState
+import java.time.ZoneOffset
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -116,6 +125,259 @@ class FocusedMapViewTest {
         assertTrue(conflictResolutionCanAccept(resolvedState))
         assertEquals(listOf(conflict), syncPendingConflictMaps(listOf(conflict), pending))
         assertEquals(emptyList(), syncPendingConflictMaps(listOf(conflict), pending.drop(1)))
+    }
+
+    @Test
+    fun syncStatusHelpersDeriveStateToneAndRetryAction() {
+        val pendingInfo = syncStatusPanelInfo(
+            FocusUiState(
+                pendingCount = 2,
+                statusMessage = "Queued changes.",
+            ),
+        )
+        assertEquals("pending", pendingInfo.state)
+        assertEquals(SyncStatusTone.Pending, pendingInfo.tone)
+        assertEquals("2 pending changes", pendingInfo.pendingText)
+        assertEquals(SyncStatusRetryAction.SyncPending, pendingInfo.retryAction)
+        assertEquals("Retry queued sync", syncStatusRetryLabel(pendingInfo.retryAction))
+        assertTrue(syncStatusIconDescription(pendingInfo).contains("Open sync status"))
+
+        val loadingInfo = syncStatusPanelInfo(FocusUiState(loading = true, statusMessage = "Loading maps..."))
+        assertEquals("syncing", loadingInfo.state)
+        assertEquals(SyncStatusTone.Pending, loadingInfo.tone)
+        assertEquals(SyncStatusRetryAction.None, loadingInfo.retryAction)
+
+        val conflictInfo = syncStatusPanelInfo(
+            FocusUiState(
+                pendingConflictMaps = listOf(PendingConflicts.build("FocusMaps/Map.json", "Map")),
+                statusMessage = "Resolve conflict.",
+            ),
+        )
+        assertEquals("conflict", conflictInfo.state)
+        assertEquals(SyncStatusTone.Warning, conflictInfo.tone)
+        assertEquals(SyncStatusRetryAction.ReloadWorkspace, conflictInfo.retryAction)
+
+        val blockedInfo = syncStatusPanelInfo(
+            FocusUiState(
+                unreadableMaps = listOf(
+                    UnreadableMapEntry(
+                        filePath = "FocusMaps/Broken.json",
+                        fileName = "Broken.json",
+                        mapName = "Broken",
+                        revision = "rev",
+                        reason = UnreadableMapReason.InvalidJson,
+                        message = "Invalid JSON.",
+                        rawText = "{}",
+                    ),
+                ),
+            ),
+        )
+        assertEquals("blocked", blockedInfo.state)
+        assertEquals(SyncStatusTone.Warning, blockedInfo.tone)
+
+        val successInfo = syncStatusPanelInfo(
+            FocusUiState(
+                syncMetadata = SyncMetadata(
+                    lastSyncState = "success",
+                    lastMessage = "Synced.",
+                ),
+                statusMessage = "",
+            ),
+        )
+        assertEquals("success", successInfo.state)
+        assertEquals(SyncStatusTone.Success, successInfo.tone)
+        assertEquals("Synced.", successInfo.message)
+        assertEquals(SyncStatusRetryAction.None, successInfo.retryAction)
+
+        val errorInfo = syncStatusPanelInfo(
+            FocusUiState(
+                syncMetadata = SyncMetadata(
+                    lastSyncState = "error",
+                    lastErrorSummary = "Network failed.",
+                ),
+            ),
+        )
+        assertEquals("error", errorInfo.state)
+        assertEquals(SyncStatusTone.Error, errorInfo.tone)
+        assertEquals("Network failed.", errorInfo.lastError)
+        assertEquals(SyncStatusRetryAction.ReloadWorkspace, errorInfo.retryAction)
+    }
+
+    @Test
+    fun syncStatusTimeFormatsWithFallbacks() {
+        assertEquals("Never synced", formatSyncStatusTime(null, ZoneOffset.UTC))
+        assertEquals("Never synced", formatSyncStatusTime("", ZoneOffset.UTC))
+        assertEquals("2026-05-04 10:05", formatSyncStatusTime("2026-05-04T10:05:30Z", ZoneOffset.UTC))
+        assertEquals("not-a-date", formatSyncStatusTime("not-a-date", ZoneOffset.UTC))
+    }
+
+    @Test
+    fun topBarRefreshHelpersReflectConnectionAndLoadingState() {
+        val settings = RepoSettings(
+            repoOwner = "systems",
+            repoName = "focus",
+            repoBranch = "main",
+            repoPath = "FocusMaps",
+        )
+        val ready = FocusUiState(repoSettings = settings, tokenPresent = true)
+        val loading = ready.copy(loading = true)
+        val missingToken = ready.copy(tokenPresent = false)
+        val incomplete = ready.copy(repoSettings = RepoSettings(repoOwner = "systems"))
+        val pendingStatus = syncStatusPanelInfo(ready.copy(pendingCount = 1, statusMessage = "Queued."))
+
+        assertTrue(topBarRefreshAvailable(ready))
+        assertTrue(topBarRefreshEnabled(ready))
+        assertEquals("Refresh from GitHub", topBarRefreshDescription(ready))
+        assertFalse(topBarRefreshAvailable(missingToken))
+        assertFalse(topBarRefreshAvailable(incomplete))
+        assertTrue(topBarRefreshAvailable(loading))
+        assertFalse(topBarRefreshEnabled(loading))
+        assertEquals("Refresh from GitHub unavailable", topBarRefreshDescription(loading))
+        assertTrue(syncStatusIconSelected(pendingStatus))
+        assertTrue(syncStatusIconDescription(pendingStatus).contains("Open sync status"))
+        assertFalse(syncStatusIconDescription(pendingStatus).contains("Refresh from GitHub"))
+        assertTrue(revalidateAccessAvailable(ready))
+        assertFalse(revalidateAccessAvailable(loading))
+        assertFalse(revalidateAccessAvailable(missingToken))
+        assertFalse(revalidateAccessAvailable(incomplete))
+        assertTrue(clearSavedTokenAvailable(ready))
+        assertFalse(clearSavedTokenAvailable(loading))
+        assertFalse(clearSavedTokenAvailable(missingToken))
+        assertTrue(hardResetAvailable(ready))
+        assertFalse(hardResetAvailable(loading))
+        assertFalse(hardResetAvailable(missingToken))
+        assertFalse(hardResetAvailable(incomplete))
+    }
+
+    @Test
+    fun refreshWorkspaceMessagesAreStable() {
+        assertEquals("Refreshed from GitHub. Pending operations: 0.", refreshWorkspaceSuccessMessage(0))
+        assertEquals("Refreshed from GitHub. Pending operations: 2.", refreshWorkspaceSuccessMessage(2))
+        assertEquals("Could not refresh from GitHub.", refreshWorkspaceFailureMessage(RuntimeException()))
+        assertEquals("Network failed.", refreshWorkspaceFailureMessage(RuntimeException("Network failed.")))
+        assertEquals("Saved token cleared. Enter a new token to reconnect.", clearSavedTokenStatusMessage())
+        assertEquals("Hard reset started. Reloading from GitHub...", hardResetStartingMessage())
+        assertEquals("Repository settings and a saved token are required before hard reset.", hardResetUnavailableMessage())
+    }
+
+    @Test
+    fun clearSavedTokenStateKeepsWorkspaceData() {
+        val snapshot = MapSnapshot(
+            filePath = "FocusMaps/Map.json",
+            fileName = "Map.json",
+            mapName = "Map",
+            document = MindMapDocument(rootNode = Node(uniqueIdentifier = "root", name = "Map")),
+            revision = "rev",
+            loadedAtMillis = 0,
+        )
+        val pending = listOf(pendingEdit("edit", "FocusMaps/Map.json"))
+        val before = FocusUiState(
+            tokenPresent = true,
+            loading = true,
+            snapshots = listOf(snapshot),
+            selectedMapFilePath = snapshot.filePath,
+            pendingCount = pending.size,
+            statusMessage = "Connected.",
+        )
+        val after = before.copy(
+            tokenPresent = false,
+            loading = false,
+            statusMessage = clearSavedTokenStatusMessage(),
+        )
+
+        assertEquals(before.snapshots, after.snapshots)
+        assertEquals(before.selectedMapFilePath, after.selectedMapFilePath)
+        assertEquals(before.pendingCount, after.pendingCount)
+        assertFalse(after.tokenPresent)
+        assertFalse(after.loading)
+    }
+
+    @Test
+    fun hardResetStateClearsLocalWorkspaceAndRecoveryUi() {
+        val snapshot = MapSnapshot(
+            filePath = "FocusMaps/Map.json",
+            fileName = "Map.json",
+            mapName = "Map",
+            document = MindMapDocument(rootNode = Node(uniqueIdentifier = "root", name = "Map")),
+            revision = "rev",
+            loadedAtMillis = 0,
+        )
+        val unreadable = UnreadableMapEntry(
+            filePath = "FocusMaps/Broken.json",
+            fileName = "Broken.json",
+            mapName = "Broken",
+            revision = "rev-broken",
+            reason = UnreadableMapReason.InvalidJson,
+            message = "Invalid JSON.",
+            rawText = "{}",
+        )
+        val before = FocusUiState(
+            snapshots = listOf(snapshot),
+            selectedMapFilePath = snapshot.filePath,
+            pendingCount = 2,
+            unreadableMaps = listOf(unreadable),
+            unreadablePendingCounts = mapOf(unreadable.filePath to 1),
+            blockedPendingMaps = listOf(BlockedPendingMaps.build("FocusMaps/Blocked.json", "Blocked")),
+            blockedPendingCounts = mapOf("FocusMaps/Blocked.json" to 1),
+            pendingConflictMaps = listOf(PendingConflicts.build("FocusMaps/Conflict.json", "Conflict")),
+            pendingConflictCounts = mapOf("FocusMaps/Conflict.json" to 1),
+            localMapRepairState = LocalMapRepairUiState(targetPath = unreadable.filePath, draftText = "{}"),
+            conflictResolutionState = ConflictResolutionUiState(
+                targetPath = "FocusMaps/Conflict.json",
+                mapName = "Conflict",
+                items = listOf(ConflictResolutionUiItem("pending", "text change")),
+            ),
+            tokenPresent = true,
+            statusMessage = "Before",
+        )
+
+        val after = before.withHardResetLocalState()
+
+        assertEquals(emptyList(), after.snapshots)
+        assertNull(after.selectedMapFilePath)
+        assertEquals(0, after.pendingCount)
+        assertEquals(emptyList(), after.unreadableMaps)
+        assertEquals(emptyMap(), after.unreadablePendingCounts)
+        assertEquals(emptyList(), after.blockedPendingMaps)
+        assertEquals(emptyMap(), after.blockedPendingCounts)
+        assertEquals(emptyList(), after.pendingConflictMaps)
+        assertEquals(emptyMap(), after.pendingConflictCounts)
+        assertEquals(LocalMapRepairUiState(), after.localMapRepairState)
+        assertEquals(ConflictResolutionUiState(), after.conflictResolutionState)
+        assertTrue(after.tokenPresent)
+        assertEquals("Before", after.statusMessage)
+    }
+
+    @Test
+    fun gitHubValidationHelpersClassifyFailures() {
+        val unauthorized = validationError(GitHubApiException.Code.Unauthorized, 401)
+        val forbidden = validationError(GitHubApiException.Code.Forbidden, 403)
+        val notFound = validationError(GitHubApiException.Code.NotFound, 404)
+        val rateLimit = validationError(GitHubApiException.Code.RateLimit, 403)
+        val network = validationError(GitHubApiException.Code.Network, null)
+        val branchNotFound = validationError(
+            code = GitHubApiException.Code.NotFound,
+            status = 404,
+            contextLabel = "validating branch \"main\"",
+        )
+
+        assertTrue(GitHubAccessValidation.shouldClearTokenAfterValidationFailure(unauthorized))
+        assertTrue(GitHubAccessValidation.shouldClearTokenAfterValidationFailure(forbidden))
+        assertFalse(GitHubAccessValidation.shouldClearTokenAfterValidationFailure(notFound))
+        assertFalse(GitHubAccessValidation.shouldClearTokenAfterValidationFailure(rateLimit))
+        assertFalse(GitHubAccessValidation.shouldClearTokenAfterValidationFailure(network))
+        assertEquals("warning", GitHubAccessValidation.failureState(rateLimit))
+        assertEquals("error", GitHubAccessValidation.failureState(network))
+        assertEquals(
+            "Token was rejected (401 Unauthorized) while validating repository access. Please generate a new token.",
+            GitHubAccessValidation.failureMessage(unauthorized),
+        )
+        assertEquals(
+            "Configured branch was not found (404 Not Found) while validating branch \"main\". Check the branch name.",
+            GitHubAccessValidation.failureMessage(branchNotFound),
+        )
+        assertEquals("GitHub access validated.", GitHubAccessValidation.SuccessMessage)
+        assertEquals("Could not validate GitHub access.", GitHubAccessValidation.failureMessage(RuntimeException()))
     }
 
     @Test
@@ -272,6 +534,57 @@ class FocusedMapViewTest {
         assertEquals("root", focusedAddTargetNode(document, "missing")?.uniqueIdentifier)
         assertEquals("Add task under Editable", addChildActionLabel(editable, asTask = true))
         assertEquals("Add note under Editable", addChildActionLabel(editable, asTask = false))
+    }
+
+    @Test
+    fun fabSideHelpersLabelPositionAndPreserveOtherPreferences() {
+        val current = UiPreferences(theme = ThemePreference.Dark, fabSide = FabSidePreference.Right)
+        val updated = uiPreferencesWithFabSide(current, FabSidePreference.Left)
+
+        assertEquals(ThemePreference.Dark, updated.theme)
+        assertEquals(FabSidePreference.Left, updated.fabSide)
+        assertEquals("Left", fabSideLabel(FabSidePreference.Left))
+        assertEquals("Right", fabSideLabel(FabSidePreference.Right))
+        assertEquals("Floating buttons on left, selected", fabSideContentDescription(FabSidePreference.Left, selected = true))
+        assertEquals("Floating buttons on right", fabSideContentDescription(FabSidePreference.Right, selected = false))
+        assertEquals(Alignment.BottomStart, fabAlignment(FabSidePreference.Left))
+        assertEquals(Alignment.BottomEnd, fabAlignment(FabSidePreference.Right))
+    }
+
+    @Test
+    fun mapEditorFabOrderingMirrorsForSelectedSide() {
+        assertEquals(
+            listOf(MapEditorFabAction.HideDone, MapEditorFabAction.AddTask, MapEditorFabAction.AddNote),
+            mapEditorFabActionsForSide(
+                side = FabSidePreference.Right,
+                showHideDone = true,
+                showAddActions = true,
+            ),
+        )
+        assertEquals(
+            listOf(MapEditorFabAction.AddNote, MapEditorFabAction.AddTask, MapEditorFabAction.HideDone),
+            mapEditorFabActionsForSide(
+                side = FabSidePreference.Left,
+                showHideDone = true,
+                showAddActions = true,
+            ),
+        )
+        assertEquals(
+            listOf(MapEditorFabAction.HideDone),
+            mapEditorFabActionsForSide(
+                side = FabSidePreference.Right,
+                showHideDone = true,
+                showAddActions = false,
+            ),
+        )
+        assertEquals(
+            listOf(MapEditorFabAction.AddNote, MapEditorFabAction.AddTask),
+            mapEditorFabActionsForSide(
+                side = FabSidePreference.Left,
+                showHideDone = false,
+                showAddActions = true,
+            ),
+        )
     }
 
     @Test
@@ -620,4 +933,16 @@ private fun pendingEdit(id: String, filePath: String): PendingMapOperation =
             commitMessage = "map:edit",
         ),
         enqueuedAtMillis = 1,
+    )
+
+private fun validationError(
+    code: GitHubApiException.Code,
+    status: Int?,
+    contextLabel: String = "validating repository access",
+): GitHubApiException =
+    GitHubApiException(
+        code = code,
+        status = status,
+        contextLabel = contextLabel,
+        message = "raw",
     )

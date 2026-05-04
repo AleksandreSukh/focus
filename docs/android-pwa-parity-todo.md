@@ -25,13 +25,13 @@ Compared against the active PWA map runtime in `pwa/src/main.js`, `pwa/src/maps/
 - [x] Reset local broken map state from GitHub.
 - [x] Discard queued pending operations for blocked maps.
 - [x] Manual conflict resolution modal with JSON diff and per-operation local/remote choice.
-- [ ] Detailed sync status panel with last sync time, state, message, error, and retry affordances.
-- [ ] Top-bar refresh from GitHub even when there are no pending local changes.
-- [ ] Explicit GitHub access validation/revalidation flow.
-- [ ] Clear saved token without clearing cached maps.
-- [ ] Hard reset that discards local cache and queued changes, then reloads from GitHub.
-- [ ] FAB side preference, using the existing Android `fabSide` preference.
-- [ ] Native equivalent for PWA hash/deep-link map routes, selected-node routes, and history behavior.
+- [x] Detailed sync status panel with last sync time, state, message, error, and retry affordances.
+- [x] Top-bar refresh from GitHub even when there are no pending local changes.
+- [x] Explicit GitHub access validation/revalidation flow.
+- [x] Clear saved token without clearing cached maps.
+- [x] Hard reset that discards local cache and queued changes, then reloads from GitHub.
+- [x] FAB side preference, using the existing Android `fabSide` preference.
+- [x] Native equivalent for PWA hash/deep-link map routes, selected-node routes, and history behavior.
 - [ ] Native equivalent for PWA update-available notification.
 
 ## PWA-Specific Notes

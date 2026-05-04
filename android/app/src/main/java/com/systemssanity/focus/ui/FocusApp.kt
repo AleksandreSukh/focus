@@ -42,6 +42,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.NoteAdd
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddTask
@@ -107,6 +108,7 @@ import androidx.core.content.FileProvider
 import com.systemssanity.focus.domain.maps.AttachmentExports
 import com.systemssanity.focus.domain.maps.AttachmentViewerKind
 import com.systemssanity.focus.domain.maps.AttachmentViewers
+import com.systemssanity.focus.data.local.FabSidePreference
 import com.systemssanity.focus.data.local.RepoSettings
 import com.systemssanity.focus.data.local.ThemePreference
 import com.systemssanity.focus.domain.maps.AttachmentUploads
@@ -141,13 +143,15 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 @Composable
-fun FocusApp(viewModel: FocusViewModel = viewModel()) {
+internal fun FocusApp(
+    viewModel: FocusViewModel = viewModel(),
+    routeRequest: NativeRouteRequest? = null,
+) {
     val uiState = viewModel.uiState
-    val selectedSnapshot = uiState.selectedMapFilePath
-        ?.let { filePath -> uiState.snapshots.firstOrNull { it.filePath == filePath } }
-        ?: uiState.snapshots.firstOrNull()
 
     FocusTheme(themePreference = uiState.uiPreferences.theme) {
         val palette = LocalFocusPalette.current
@@ -156,10 +160,47 @@ fun FocusApp(viewModel: FocusViewModel = viewModel()) {
             color = palette.pageBackground,
             contentColor = palette.text,
         ) {
-            var screen by remember { mutableStateOf(AppScreen.Connection) }
+            var routeHistory by remember { mutableStateOf(NativeRouteHistory()) }
+            var showConnection by remember { mutableStateOf(true) }
             var closeConnectionAfterLoad by remember { mutableStateOf(false) }
             var initialScreenResolved by remember { mutableStateOf(false) }
-            var mapFocusRequest by remember { mutableStateOf<MapFocusRequest?>(null) }
+            var appliedRouteRequestVersion by remember { mutableStateOf(0L) }
+            var showSyncStatus by remember { mutableStateOf(false) }
+            val currentRoute = routeHistory.current
+            val selectedSnapshot = (currentRoute as? FocusRoute.Map)
+                ?.let { route -> uiState.snapshots.firstOrNull { it.filePath == route.filePath } }
+                ?: uiState.selectedMapFilePath?.let { filePath -> uiState.snapshots.firstOrNull { it.filePath == filePath } }
+            val currentMapDocument = (currentRoute as? FocusRoute.Map)?.let { selectedSnapshot?.document }
+            val screen = if (showConnection) AppScreen.Connection else currentRoute.toAppScreen()
+            val showWorkspaceTabs = !showConnection && shouldShowWorkspaceTabs(currentRoute, currentMapDocument)
+            val syncStatusInfo = syncStatusPanelInfo(uiState)
+
+            fun applyRoute(route: FocusRoute, replace: Boolean = false) {
+                val resolution = resolveFocusRoute(route, uiState.snapshots, uiState.unreadableMaps)
+                routeHistory = if (replace || resolution.canonicalized) {
+                    routeHistory.replace(resolution.route)
+                } else {
+                    routeHistory.push(resolution.route)
+                }
+                showConnection = false
+                (resolution.route as? FocusRoute.Map)?.let { mapRoute ->
+                    uiState.snapshots.firstOrNull { it.filePath == mapRoute.filePath }?.let(viewModel::openMap)
+                }
+                if (resolution.statusMessage.isNotBlank()) {
+                    viewModel.showStatusMessage(resolution.statusMessage)
+                }
+            }
+
+            fun goBack() {
+                routeHistory = routeHistory.goBack()
+                showConnection = false
+            }
+
+            fun goForward() {
+                routeHistory = routeHistory.goForward()
+                showConnection = false
+            }
+
             LaunchedEffect(uiState.connectionStateLoaded, uiState.repoSettings.isComplete, uiState.tokenPresent) {
                 if (!initialScreenResolved) {
                     resolveInitialAppScreen(
@@ -167,9 +208,40 @@ fun FocusApp(viewModel: FocusViewModel = viewModel()) {
                         repoConfigured = uiState.repoSettings.isComplete,
                         tokenPresent = uiState.tokenPresent,
                     )?.let { initialScreen ->
-                        screen = initialScreen
+                        showConnection = initialScreen == AppScreen.Connection
+                        if (initialScreen != AppScreen.Connection) {
+                            routeHistory = routeHistory.replace(FocusRoute.Maps)
+                        }
                         initialScreenResolved = true
                     }
+                }
+            }
+            LaunchedEffect(showConnection, currentRoute, uiState.loading, uiState.snapshots, uiState.unreadableMaps) {
+                if (!showConnection && !uiState.loading) {
+                    val resolution = resolveFocusRoute(currentRoute, uiState.snapshots, uiState.unreadableMaps)
+                    if (resolution.route != currentRoute) {
+                        routeHistory = routeHistory.replace(resolution.route)
+                    }
+                    (resolution.route as? FocusRoute.Map)?.let { mapRoute ->
+                        val snapshot = uiState.snapshots.firstOrNull { it.filePath == mapRoute.filePath }
+                        if (snapshot != null && uiState.selectedMapFilePath != snapshot.filePath) {
+                            viewModel.openMap(snapshot)
+                        }
+                    }
+                    if (resolution.statusMessage.isNotBlank()) {
+                        viewModel.showStatusMessage(resolution.statusMessage)
+                    }
+                }
+            }
+            LaunchedEffect(routeRequest?.version, uiState.connectionStateLoaded, uiState.loading, uiState.snapshots, uiState.unreadableMaps) {
+                val request = routeRequest ?: return@LaunchedEffect
+                if (
+                    request.version != appliedRouteRequestVersion &&
+                    uiState.connectionStateLoaded &&
+                    !uiState.loading
+                ) {
+                    appliedRouteRequestVersion = request.version
+                    applyRoute(request.route)
                 }
             }
             LaunchedEffect(uiState.workspaceLoadResultVersion) {
@@ -179,12 +251,28 @@ fun FocusApp(viewModel: FocusViewModel = viewModel()) {
                         workspaceLoadResultVersion = uiState.workspaceLoadResultVersion,
                         workspaceLoadSucceeded = uiState.workspaceLoadSucceeded,
                     ) &&
-                    screen == AppScreen.Connection
+                    showConnection
                 ) {
-                    screen = AppScreen.Maps
+                    applyRoute(FocusRoute.Maps, replace = true)
                 }
                 if (uiState.workspaceLoadResultVersion > 0 && closeConnectionAfterLoad) {
                     closeConnectionAfterLoad = false
+                }
+            }
+            val focusedRecordForBack = (currentRoute as? FocusRoute.Map)
+                ?.let { route -> selectedSnapshot?.document?.let { resolveFocusedNodeRecord(it, route.nodeId) } }
+            BackHandler(
+                enabled = !showConnection &&
+                    currentRoute is FocusRoute.Map &&
+                    (routeHistory.canGoBack || focusedRecordForBack?.parent != null),
+            ) {
+                if (routeHistory.canGoBack) {
+                    goBack()
+                } else {
+                    val mapRoute = currentRoute as FocusRoute.Map
+                    focusedRecordForBack?.parent?.let { parent ->
+                        applyRoute(FocusRoute.Map(mapRoute.filePath, parent.uniqueIdentifier), replace = true)
+                    }
                 }
             }
             Scaffold(
@@ -193,9 +281,16 @@ fun FocusApp(viewModel: FocusViewModel = viewModel()) {
                     FocusTopBar(
                         screen = screen,
                         themePreference = uiState.uiPreferences.theme,
-                        statusMessage = uiState.statusMessage,
-                        pendingCount = uiState.pendingCount,
-                        onSyncRequested = viewModel::syncPendingNow,
+                        syncStatusInfo = syncStatusInfo,
+                        refreshAvailable = topBarRefreshAvailable(uiState),
+                        refreshEnabled = topBarRefreshEnabled(uiState),
+                        refreshDescription = topBarRefreshDescription(uiState),
+                        onRefreshFromGitHub = viewModel::refreshWorkspaceFromGitHub,
+                        onSyncStatusRequested = { showSyncStatus = true },
+                        canGoBack = routeHistory.canGoBack,
+                        canGoForward = routeHistory.canGoForward,
+                        onGoBack = ::goBack,
+                        onGoForward = ::goForward,
                         onThemeToggle = {
                             viewModel.setThemePreference(
                                 if (uiState.uiPreferences.theme == ThemePreference.Dark) {
@@ -205,7 +300,15 @@ fun FocusApp(viewModel: FocusViewModel = viewModel()) {
                                 },
                             )
                         },
-                        onScreenChanged = { screen = it },
+                        showWorkspaceTabs = showWorkspaceTabs,
+                        onScreenChanged = { nextScreen ->
+                            when (nextScreen) {
+                                AppScreen.Connection -> showConnection = true
+                                AppScreen.Maps -> applyRoute(FocusRoute.Maps)
+                                AppScreen.Tasks -> applyRoute(FocusRoute.Tasks)
+                                AppScreen.Map -> Unit
+                            }
+                        },
                     )
                 },
             ) { padding ->
@@ -217,6 +320,7 @@ fun FocusApp(viewModel: FocusViewModel = viewModel()) {
                     when (screen) {
                         AppScreen.Connection -> ConnectionScreen(
                             uiState = uiState,
+                            onFabSideChange = viewModel::setFabSidePreference,
                             onSave = { settings, token ->
                                 closeConnectionAfterLoad = true
                                 viewModel.saveConnection(settings, token)
@@ -224,6 +328,12 @@ fun FocusApp(viewModel: FocusViewModel = viewModel()) {
                             onLoad = {
                                 closeConnectionAfterLoad = true
                                 viewModel.loadWorkspace(forceRefresh = true)
+                            },
+                            onRevalidate = viewModel::revalidateGitHubAccess,
+                            onClearSavedToken = viewModel::clearSavedToken,
+                            onHardReset = {
+                                closeConnectionAfterLoad = true
+                                viewModel.hardResetAndReloadFromGitHub()
                             },
                         )
                         AppScreen.Maps -> MapsScreen(
@@ -235,10 +345,15 @@ fun FocusApp(viewModel: FocusViewModel = viewModel()) {
                             pendingConflictMaps = uiState.pendingConflictMaps,
                             pendingConflictCounts = uiState.pendingConflictCounts,
                             localMapRepairState = uiState.localMapRepairState,
+                            fabSide = uiState.uiPreferences.fabSide,
                             loading = uiState.loading,
                             onOpenMap = { snapshot ->
-                                viewModel.openMap(snapshot)
-                                screen = AppScreen.Map
+                                applyRoute(
+                                    FocusRoute.Map(
+                                        filePath = snapshot.filePath,
+                                        nodeId = snapshot.document.rootNode.uniqueIdentifier,
+                                    ),
+                                )
                             },
                             onCreateMap = viewModel::createMap,
                             onDeleteMap = viewModel::deleteMap,
@@ -259,20 +374,19 @@ fun FocusApp(viewModel: FocusViewModel = viewModel()) {
                             filter = uiState.taskFilter,
                             onFilterChanged = viewModel::setTaskFilter,
                             onOpenTask = { entry ->
-                                uiState.snapshots.firstOrNull { it.filePath == entry.filePath }?.let { snapshot ->
-                                    viewModel.openMap(snapshot)
-                                    screen = AppScreen.Map
-                                }
+                                applyRoute(FocusRoute.Map(entry.filePath, entry.nodeId))
                             },
                             onSetTaskState = { entry, taskState ->
                                 viewModel.setTaskState(entry.filePath, entry.nodeId, taskState)
                             },
                         )
                         AppScreen.Map -> selectedSnapshot?.let { snapshot ->
+                            val mapRoute = currentRoute as? FocusRoute.Map
                             MapEditorScreen(
                                 snapshot = snapshot,
                                 allSnapshots = uiState.snapshots,
-                                focusRequest = mapFocusRequest,
+                                focusedNodeId = mapRoute?.nodeId ?: snapshot.document.rootNode.uniqueIdentifier,
+                                fabSide = uiState.uiPreferences.fabSide,
                                 attachmentUploadState = uiState.attachmentUploadState,
                                 attachmentDeleteState = uiState.attachmentDeleteState,
                                 onSetTaskState = viewModel::setTaskState,
@@ -285,16 +399,11 @@ fun FocusApp(viewModel: FocusViewModel = viewModel()) {
                                 onDeleteNode = viewModel::deleteNode,
                                 onToggleHideDone = viewModel::toggleHideDone,
                                 onToggleStarred = viewModel::toggleStarred,
+                                onFocusNode = { nodeId ->
+                                    applyRoute(FocusRoute.Map(snapshot.filePath, nodeId))
+                                },
                                 onOpenRelatedNode = { entry ->
-                                    uiState.snapshots.firstOrNull { it.filePath == entry.mapPath }?.let { targetSnapshot ->
-                                        viewModel.openMap(targetSnapshot)
-                                        mapFocusRequest = MapFocusRequest(
-                                            filePath = entry.mapPath,
-                                            nodeId = entry.nodeId,
-                                            version = (mapFocusRequest?.version ?: 0L) + 1L,
-                                        )
-                                        screen = AppScreen.Map
-                                    }
+                                    applyRoute(FocusRoute.Map(entry.mapPath, entry.nodeId))
                                 },
                             )
                         } ?: EmptyPanel("No map is loaded.")
@@ -314,17 +423,30 @@ fun FocusApp(viewModel: FocusViewModel = viewModel()) {
                 onChoice = viewModel::setConflictResolutionChoice,
                 onAccept = viewModel::acceptConflictResolution,
             )
+            SyncStatusDialog(
+                visible = showSyncStatus,
+                info = syncStatusInfo,
+                onDismiss = { showSyncStatus = false },
+                onRetry = { action ->
+                    when (action) {
+                        SyncStatusRetryAction.SyncPending -> viewModel.syncPendingNow()
+                        SyncStatusRetryAction.ReloadWorkspace -> viewModel.loadWorkspace(forceRefresh = true)
+                        SyncStatusRetryAction.None -> Unit
+                    }
+                },
+            )
         }
     }
 }
 
 internal enum class AppScreen { Connection, Maps, Tasks, Map }
 
-internal data class MapFocusRequest(
-    val filePath: String,
-    val nodeId: String,
-    val version: Long,
-)
+private fun FocusRoute.toAppScreen(): AppScreen =
+    when (this) {
+        FocusRoute.Maps -> AppScreen.Maps
+        FocusRoute.Tasks -> AppScreen.Tasks
+        is FocusRoute.Map -> AppScreen.Map
+    }
 
 internal fun resolveInitialAppScreen(
     connectionStateLoaded: Boolean,
@@ -344,14 +466,202 @@ internal fun shouldCloseConnectionAfterWorkspaceLoad(
         workspaceLoadResultVersion > 0 &&
         workspaceLoadSucceeded
 
+internal enum class SyncStatusTone {
+    Idle,
+    Pending,
+    Success,
+    Warning,
+    Error,
+}
+
+internal enum class SyncStatusRetryAction {
+    None,
+    SyncPending,
+    ReloadWorkspace,
+}
+
+internal data class SyncStatusPanelInfo(
+    val state: String,
+    val message: String,
+    val detail: String,
+    val tone: SyncStatusTone,
+    val pendingCount: Int,
+    val pendingText: String,
+    val lastSyncText: String,
+    val lastMessage: String,
+    val lastError: String,
+    val repository: String,
+    val retryAction: SyncStatusRetryAction,
+) {
+    val canRetry: Boolean get() = retryAction != SyncStatusRetryAction.None
+}
+
+internal fun syncStatusPanelInfo(uiState: FocusUiState): SyncStatusPanelInfo {
+    val currentState = currentSyncStatusState(uiState)
+    val retryAction = syncStatusRetryAction(
+        loading = uiState.loading,
+        pendingCount = uiState.pendingCount,
+        state = currentState,
+    )
+    return SyncStatusPanelInfo(
+        state = currentState,
+        message = uiState.statusMessage.ifBlank { uiState.syncMetadata.lastMessage ?: "Ready" },
+        detail = uiState.repoSettings.describe(),
+        tone = syncStatusTone(currentState),
+        pendingCount = uiState.pendingCount,
+        pendingText = pendingChangesText(uiState.pendingCount),
+        lastSyncText = formatSyncStatusTime(uiState.syncMetadata.lastSyncAt),
+        lastMessage = uiState.syncMetadata.lastMessage?.takeIf { it.isNotBlank() } ?: "None",
+        lastError = uiState.syncMetadata.lastErrorSummary?.takeIf { it.isNotBlank() } ?: "None",
+        repository = uiState.repoSettings.describe(),
+        retryAction = retryAction,
+    )
+}
+
+internal fun currentSyncStatusState(uiState: FocusUiState): String =
+    when {
+        uiState.loading -> "syncing"
+        uiState.pendingConflictMaps.isNotEmpty() -> "conflict"
+        uiState.unreadableMaps.isNotEmpty() || uiState.blockedPendingMaps.isNotEmpty() -> "blocked"
+        uiState.pendingCount > 0 -> "pending"
+        !uiState.syncMetadata.lastSyncState.isNullOrBlank() -> uiState.syncMetadata.lastSyncState.orEmpty()
+        else -> "idle"
+    }
+
+internal fun syncStatusTone(state: String): SyncStatusTone =
+    when (state.lowercase()) {
+        "syncing",
+        "loadingremote",
+        "pending" -> SyncStatusTone.Pending
+        "success" -> SyncStatusTone.Success
+        "blocked",
+        "conflict",
+        "warning" -> SyncStatusTone.Warning
+        "error" -> SyncStatusTone.Error
+        else -> SyncStatusTone.Idle
+    }
+
+internal fun pendingChangesText(pendingCount: Int): String =
+    "$pendingCount pending change${if (pendingCount == 1) "" else "s"}"
+
+internal fun syncStatusRetryAction(
+    loading: Boolean,
+    pendingCount: Int,
+    state: String,
+): SyncStatusRetryAction =
+    when {
+        loading -> SyncStatusRetryAction.None
+        pendingCount > 0 -> SyncStatusRetryAction.SyncPending
+        state.lowercase() in setOf("error", "blocked", "conflict", "warning") -> SyncStatusRetryAction.ReloadWorkspace
+        else -> SyncStatusRetryAction.None
+    }
+
+internal fun syncStatusRetryLabel(action: SyncStatusRetryAction): String =
+    when (action) {
+        SyncStatusRetryAction.SyncPending -> "Retry queued sync"
+        SyncStatusRetryAction.ReloadWorkspace -> "Retry sync"
+        SyncStatusRetryAction.None -> "Retry sync"
+    }
+
+internal fun syncStatusIconDescription(info: SyncStatusPanelInfo): String =
+    "Open sync status, ${info.state}, ${info.message}"
+
+internal fun formatSyncStatusTime(
+    value: String?,
+    zoneId: ZoneId = ZoneId.systemDefault(),
+): String {
+    if (value.isNullOrBlank()) return "Never synced"
+    return runCatching {
+        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+            .withZone(zoneId)
+            .format(Instant.parse(value))
+    }.getOrElse { value }
+}
+
+internal fun topBarRefreshAvailable(uiState: FocusUiState): Boolean =
+    uiState.repoSettings.isComplete && uiState.tokenPresent
+
+internal fun topBarRefreshEnabled(uiState: FocusUiState): Boolean =
+    topBarRefreshAvailable(uiState) && !uiState.loading
+
+internal fun topBarRefreshDescription(uiState: FocusUiState): String =
+    if (topBarRefreshEnabled(uiState)) "Refresh from GitHub" else "Refresh from GitHub unavailable"
+
+internal fun syncStatusIconSelected(info: SyncStatusPanelInfo): Boolean =
+    info.pendingCount > 0
+
+internal fun revalidateAccessAvailable(uiState: FocusUiState): Boolean =
+    uiState.repoSettings.isComplete && uiState.tokenPresent && !uiState.loading
+
+internal fun clearSavedTokenAvailable(uiState: FocusUiState): Boolean =
+    uiState.tokenPresent && !uiState.loading
+
+internal fun hardResetAvailable(uiState: FocusUiState): Boolean =
+    uiState.repoSettings.isComplete && uiState.tokenPresent && !uiState.loading
+
+internal enum class MapEditorFabAction {
+    HideDone,
+    AddTask,
+    AddNote,
+}
+
+internal fun fabAlignment(side: FabSidePreference): Alignment =
+    when (side) {
+        FabSidePreference.Left -> Alignment.BottomStart
+        FabSidePreference.Right -> Alignment.BottomEnd
+    }
+
+internal fun fabSideLabel(side: FabSidePreference): String =
+    when (side) {
+        FabSidePreference.Left -> "Left"
+        FabSidePreference.Right -> "Right"
+    }
+
+internal fun fabSideContentDescription(side: FabSidePreference, selected: Boolean): String =
+    "Floating buttons on ${fabSideLabel(side).lowercase()}${if (selected) ", selected" else ""}"
+
+internal fun mapEditorFabActionsForSide(
+    side: FabSidePreference,
+    showHideDone: Boolean,
+    showAddActions: Boolean,
+): List<MapEditorFabAction> {
+    val actions = when (side) {
+        FabSidePreference.Left -> listOf(
+            MapEditorFabAction.AddNote,
+            MapEditorFabAction.AddTask,
+            MapEditorFabAction.HideDone,
+        )
+        FabSidePreference.Right -> listOf(
+            MapEditorFabAction.HideDone,
+            MapEditorFabAction.AddTask,
+            MapEditorFabAction.AddNote,
+        )
+    }
+    return actions.filter { action ->
+        when (action) {
+            MapEditorFabAction.HideDone -> showHideDone
+            MapEditorFabAction.AddTask,
+            MapEditorFabAction.AddNote -> showAddActions
+        }
+    }
+}
+
 @Composable
 private fun FocusTopBar(
     screen: AppScreen,
     themePreference: ThemePreference,
-    statusMessage: String,
-    pendingCount: Int,
-    onSyncRequested: () -> Unit,
+    syncStatusInfo: SyncStatusPanelInfo,
+    refreshAvailable: Boolean,
+    refreshEnabled: Boolean,
+    refreshDescription: String,
+    onRefreshFromGitHub: () -> Unit,
+    onSyncStatusRequested: () -> Unit,
+    canGoBack: Boolean,
+    canGoForward: Boolean,
+    onGoBack: () -> Unit,
+    onGoForward: () -> Unit,
     onThemeToggle: () -> Unit,
+    showWorkspaceTabs: Boolean,
     onScreenChanged: (AppScreen) -> Unit,
 ) {
     val palette = LocalFocusPalette.current
@@ -375,19 +685,38 @@ private fun FocusTopBar(
                         color = palette.text,
                     )
                     Text(
-                        text = if (pendingCount > 0) "$pendingCount pending change${if (pendingCount == 1) "" else "s"}" else statusMessage.ifBlank { "Ready" },
+                        text = if (syncStatusInfo.pendingCount > 0) syncStatusInfo.pendingText else syncStatusInfo.message,
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (pendingCount > 0) palette.accentStrong else palette.muted,
+                        color = if (syncStatusInfo.pendingCount > 0) palette.accentStrong else palette.muted,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
                 FocusIconButton(
-                    imageVector = if (pendingCount > 0) Icons.Filled.Sync else Icons.Filled.Refresh,
-                    contentDescription = if (pendingCount > 0) "Sync pending changes" else "Sync status",
-                    onClick = { if (pendingCount > 0) onSyncRequested() },
-                    enabled = pendingCount > 0,
-                    selected = pendingCount > 0,
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = nativeRouteBackLabel(canGoBack),
+                    onClick = onGoBack,
+                    enabled = canGoBack,
+                )
+                FocusIconButton(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = nativeRouteForwardLabel(canGoForward),
+                    onClick = onGoForward,
+                    enabled = canGoForward,
+                )
+                if (refreshAvailable) {
+                    FocusIconButton(
+                        imageVector = Icons.Filled.Refresh,
+                        contentDescription = refreshDescription,
+                        onClick = onRefreshFromGitHub,
+                        enabled = refreshEnabled,
+                    )
+                }
+                FocusIconButton(
+                    imageVector = Icons.Filled.Sync,
+                    contentDescription = syncStatusIconDescription(syncStatusInfo),
+                    onClick = onSyncStatusRequested,
+                    selected = syncStatusIconSelected(syncStatusInfo),
                 )
                 FocusIconButton(
                     imageVector = if (themePreference == ThemePreference.Dark) Icons.Filled.LightMode else Icons.Filled.DarkMode,
@@ -402,22 +731,24 @@ private fun FocusTopBar(
                 )
             }
 
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                FocusNavTab(
-                    label = "Maps",
-                    imageVector = Icons.Filled.Map,
-                    selected = screen == AppScreen.Maps || screen == AppScreen.Map,
-                    onClick = { onScreenChanged(AppScreen.Maps) },
-                )
-                FocusNavTab(
-                    label = "Tasks",
-                    imageVector = Icons.Filled.AddTask,
-                    selected = screen == AppScreen.Tasks,
-                    onClick = { onScreenChanged(AppScreen.Tasks) },
-                )
+            if (showWorkspaceTabs) {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    FocusNavTab(
+                        label = "Maps",
+                        imageVector = Icons.Filled.Map,
+                        selected = screen == AppScreen.Maps || screen == AppScreen.Map,
+                        onClick = { onScreenChanged(AppScreen.Maps) },
+                    )
+                    FocusNavTab(
+                        label = "Tasks",
+                        imageVector = Icons.Filled.AddTask,
+                        selected = screen == AppScreen.Tasks,
+                        onClick = { onScreenChanged(AppScreen.Tasks) },
+                    )
+                }
             }
         }
     }
@@ -464,8 +795,12 @@ private fun FocusNavTab(
 @Composable
 private fun ConnectionScreen(
     uiState: FocusUiState,
+    onFabSideChange: (FabSidePreference) -> Unit,
     onSave: (RepoSettings, String) -> Unit,
     onLoad: () -> Unit,
+    onRevalidate: () -> Unit,
+    onClearSavedToken: () -> Unit,
+    onHardReset: () -> Unit,
 ) {
     var owner by remember(uiState.repoSettings.repoOwner) { mutableStateOf(uiState.repoSettings.repoOwner) }
     var repo by remember(uiState.repoSettings.repoName) { mutableStateOf(uiState.repoSettings.repoName) }
@@ -503,8 +838,13 @@ private fun ConnectionScreen(
                     onValueChange = { token = it },
                     label = if (uiState.tokenPresent) "Personal access token (saved)" else "Personal access token",
                 )
+                FabSidePreferenceSelector(
+                    selectedSide = uiState.uiPreferences.fabSide,
+                    enabled = !uiState.loading,
+                    onSideChange = onFabSideChange,
+                )
                 PrimaryActionButton(
-                    label = "Save connection and load",
+                    label = "Save, validate, and load",
                     imageVector = Icons.Filled.Settings,
                     enabled = !uiState.loading,
                     onClick = {
@@ -518,6 +858,20 @@ private fun ConnectionScreen(
                             token,
                         )
                     },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                SecondaryActionButton(
+                    label = "Revalidate access",
+                    imageVector = Icons.Filled.Sync,
+                    enabled = revalidateAccessAvailable(uiState),
+                    onClick = onRevalidate,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                DangerActionButton(
+                    label = "Clear saved token",
+                    imageVector = Icons.Filled.Delete,
+                    enabled = clearSavedTokenAvailable(uiState),
+                    onClick = onClearSavedToken,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 SecondaryActionButton(
@@ -537,6 +891,81 @@ private fun ConnectionScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = palette.muted,
                 )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Danger zone",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = palette.text,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        "Hard reset discards queued local changes and cached map data for this repository, then reloads everything from GitHub.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = palette.muted,
+                    )
+                    DangerActionButton(
+                        label = "Hard reset - discard local changes and reload from GitHub",
+                        imageVector = Icons.Filled.Delete,
+                        enabled = hardResetAvailable(uiState),
+                        onClick = onHardReset,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FabSidePreferenceSelector(
+    selectedSide: FabSidePreference,
+    enabled: Boolean,
+    onSideChange: (FabSidePreference) -> Unit,
+) {
+    val palette = LocalFocusPalette.current
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = "Floating buttons",
+            style = MaterialTheme.typography.labelLarge,
+            color = palette.text,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            listOf(FabSidePreference.Left, FabSidePreference.Right).forEach { side ->
+                val selected = selectedSide == side
+                val modifier = Modifier
+                    .weight(1f)
+                    .semantics {
+                        contentDescription = fabSideContentDescription(side, selected)
+                        stateDescription = if (selected) "Selected" else "Not selected"
+                    }
+                if (selected) {
+                    Button(
+                        onClick = { onSideChange(side) },
+                        enabled = enabled,
+                        modifier = modifier,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = palette.accent,
+                            contentColor = Color.White,
+                        ),
+                    ) {
+                        Text(fabSideLabel(side))
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = { onSideChange(side) },
+                        enabled = enabled,
+                        modifier = modifier,
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = palette.accentStrong,
+                        ),
+                    ) {
+                        Text(fabSideLabel(side))
+                    }
+                }
             }
         }
     }
@@ -552,6 +981,7 @@ private fun MapsScreen(
     pendingConflictMaps: List<PendingConflictMapEntry>,
     pendingConflictCounts: Map<String, Int>,
     localMapRepairState: LocalMapRepairUiState,
+    fabSide: FabSidePreference,
     loading: Boolean,
     onOpenMap: (MapSnapshot) -> Unit,
     onCreateMap: (String) -> Unit,
@@ -623,7 +1053,7 @@ private fun MapsScreen(
             contentDescription = "New map",
             onClick = { showCreateDialog = true },
             modifier = Modifier
-                .align(Alignment.BottomEnd)
+                .align(fabAlignment(fabSide))
                 .padding(20.dp),
         )
     }
@@ -1381,6 +1811,133 @@ private fun PendingConflictResolutionDialog(
 }
 
 @Composable
+private fun SyncStatusDialog(
+    visible: Boolean,
+    info: SyncStatusPanelInfo,
+    onDismiss: () -> Unit,
+    onRetry: (SyncStatusRetryAction) -> Unit,
+) {
+    if (!visible) return
+    val palette = LocalFocusPalette.current
+    FocusDialog(
+        title = "Sync status",
+        onDismiss = onDismiss,
+        confirmButton = {
+            Button(
+                enabled = info.canRetry,
+                onClick = { onRetry(info.retryAction) },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = palette.accent,
+                    contentColor = Color.White,
+                    disabledContainerColor = palette.panelMuted,
+                    disabledContentColor = palette.muted,
+                ),
+            ) {
+                Text(syncStatusRetryLabel(info.retryAction))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, colors = focusTextButtonColors()) {
+                Text("Close")
+            }
+        },
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 520.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .border(BorderStroke(1.dp, palette.border), RoundedCornerShape(12.dp))
+                    .background(palette.inputBackground)
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = info.message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = syncStatusToneColor(info.tone, palette),
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = info.detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = palette.muted,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Diagnostics",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = palette.text,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                SyncStatusDiagnosticRow("State", info.state)
+                SyncStatusDiagnosticRow("Pending changes", info.pendingText)
+                SyncStatusDiagnosticRow("Last sync time", info.lastSyncText)
+                SyncStatusDiagnosticRow("Last message", info.lastMessage)
+                SyncStatusDiagnosticRow("Last error", info.lastError)
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = "Repository",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = palette.text,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = info.repository,
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    color = palette.muted,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SyncStatusDiagnosticRow(label: String, value: String) {
+    val palette = LocalFocusPalette.current
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.widthIn(min = 112.dp, max = 132.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color = palette.muted,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            text = value,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.bodySmall,
+            color = palette.text,
+        )
+    }
+}
+
+private fun syncStatusToneColor(tone: SyncStatusTone, palette: FocusPalette): Color =
+    when (tone) {
+        SyncStatusTone.Pending -> palette.warning
+        SyncStatusTone.Success -> palette.success
+        SyncStatusTone.Warning -> palette.warning
+        SyncStatusTone.Error -> palette.danger
+        SyncStatusTone.Idle -> palette.accentStrong
+    }
+
+@Composable
 private fun ConflictResolutionItemRow(
     item: ConflictResolutionUiItem,
     enabled: Boolean,
@@ -1752,7 +2309,8 @@ private fun EmptyCard(message: String) {
 private fun MapEditorScreen(
     snapshot: MapSnapshot,
     allSnapshots: List<MapSnapshot>,
-    focusRequest: MapFocusRequest?,
+    focusedNodeId: String,
+    fabSide: FabSidePreference,
     attachmentUploadState: AttachmentUploadUiState,
     attachmentDeleteState: AttachmentDeleteUiState,
     onSetTaskState: (String, String, TaskState) -> Unit,
@@ -1765,39 +2323,28 @@ private fun MapEditorScreen(
     onDeleteNode: (String, String) -> Unit,
     onToggleHideDone: (String, String) -> Unit,
     onToggleStarred: (String, String) -> Unit,
+    onFocusNode: (String) -> Unit,
     onOpenRelatedNode: (RelatedNodeEntry) -> Unit,
 ) {
     var editingNodeId by remember(snapshot.filePath) { mutableStateOf<String?>(null) }
     var addingChild by remember(snapshot.filePath) { mutableStateOf<AddChildTarget?>(null) }
     var deleteCandidate by remember(snapshot.filePath) { mutableStateOf<Node?>(null) }
     var attachmentDeleteCandidate by remember(snapshot.filePath) { mutableStateOf<AttachmentDeleteTarget?>(null) }
-    var focusedNodeId by remember(snapshot.filePath) {
-        mutableStateOf(snapshot.document.rootNode.uniqueIdentifier)
-    }
     var collapsedOverrides by remember(snapshot.filePath) {
         mutableStateOf<Map<String, Boolean>>(emptyMap())
     }
     var expandedRelatedNodeGroupKey by remember(snapshot.filePath) { mutableStateOf("") }
-    var appliedFocusRequestVersion by remember(snapshot.filePath) { mutableStateOf(0L) }
     val focusedRecord = resolveFocusedNodeRecord(snapshot.document, focusedNodeId)
-    LaunchedEffect(snapshot.filePath, focusRequest?.version) {
-        val request = focusRequest ?: return@LaunchedEffect
-        if (request.filePath == snapshot.filePath && request.version != appliedFocusRequestVersion) {
-            focusedNodeId = resolveFocusRequestNodeId(snapshot.document, request.nodeId)
-            expandedRelatedNodeGroupKey = ""
-            appliedFocusRequestVersion = request.version
-        }
-    }
-    LaunchedEffect(snapshot.document, focusedRecord.node.uniqueIdentifier) {
-        if (focusedRecord.node.uniqueIdentifier != focusedNodeId) {
-            focusedNodeId = focusedRecord.node.uniqueIdentifier
-        }
-    }
     val focusedNode = focusedRecord.node
     val focusedAddTarget = focusedAddTargetNode(snapshot.document, focusedNode.uniqueIdentifier)
     val focusedNodeHideDone = MapQueries.getNodeHideDoneState(snapshot.document, focusedNode.uniqueIdentifier)
     val showHideDoneFab = shouldShowFocusedHideDoneAction(snapshot.document, focusedNode.uniqueIdentifier)
     val focusedAttachments = nodeAttachments(focusedNode)
+    val mapEditorFabActions = mapEditorFabActionsForSide(
+        side = fabSide,
+        showHideDone = showHideDoneFab,
+        showAddActions = focusedAddTarget != null,
+    )
     val relatedGroups = remember(focusedNode, allSnapshots) {
         relatedNodeGroups(
             outgoing = RelatedNodes.collectOutgoing(focusedNode, allSnapshots),
@@ -1830,10 +2377,6 @@ private fun MapEditorScreen(
             editingNodeId = null
         }
     }
-    BackHandler(enabled = focusedRecord.parent != null) {
-        focusedRecord.parent?.let { focusedNodeId = it.uniqueIdentifier }
-    }
-
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -1844,7 +2387,7 @@ private fun MapEditorScreen(
                 MapHeader(
                     snapshot = snapshot,
                     focusedRecord = focusedRecord,
-                    onFocusParent = { focusedRecord.parent?.let { focusedNodeId = it.uniqueIdentifier } },
+                    onFocusParent = { focusedRecord.parent?.let { onFocusNode(it.uniqueIdentifier) } },
                 )
             }
             items(visibleNodes, key = { it.node.uniqueIdentifier }) { item ->
@@ -1872,7 +2415,7 @@ private fun MapEditorScreen(
                                     editingNodeId = item.node.uniqueIdentifier
                                 }
                                 FocusedNodeClickAction.FocusNode -> {
-                                    focusedNodeId = item.node.uniqueIdentifier
+                                    onFocusNode(item.node.uniqueIdentifier)
                                     expandedRelatedNodeGroupKey = ""
                                 }
                             }
@@ -1937,30 +2480,40 @@ private fun MapEditorScreen(
         }
         Row(
             modifier = Modifier
-                .align(Alignment.BottomEnd)
+                .align(fabAlignment(fabSide))
                 .padding(20.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (showHideDoneFab) {
-                FocusIconButton(
-                    imageVector = if (focusedNodeHideDone) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
-                    contentDescription = if (focusedNodeHideDone) "Show done items" else "Hide done items",
-                    onClick = { onToggleHideDone(snapshot.filePath, focusedNode.uniqueIdentifier) },
-                    selected = focusedNodeHideDone,
-                )
-            }
-            if (focusedAddTarget != null) {
-                FocusFab(
-                    imageVector = Icons.Filled.AddTask,
-                    contentDescription = addChildActionLabel(focusedAddTarget, asTask = true),
-                    onClick = { addingChild = AddChildTarget(focusedAddTarget, asTask = true) },
-                )
-                FocusFab(
-                    imageVector = Icons.AutoMirrored.Filled.NoteAdd,
-                    contentDescription = addChildActionLabel(focusedAddTarget, asTask = false),
-                    onClick = { addingChild = AddChildTarget(focusedAddTarget, asTask = false) },
-                )
+            mapEditorFabActions.forEach { action ->
+                when (action) {
+                    MapEditorFabAction.HideDone -> {
+                        FocusIconButton(
+                            imageVector = if (focusedNodeHideDone) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+                            contentDescription = if (focusedNodeHideDone) "Show done items" else "Hide done items",
+                            onClick = { onToggleHideDone(snapshot.filePath, focusedNode.uniqueIdentifier) },
+                            selected = focusedNodeHideDone,
+                        )
+                    }
+                    MapEditorFabAction.AddTask -> {
+                        focusedAddTarget?.let { target ->
+                            FocusFab(
+                                imageVector = Icons.Filled.AddTask,
+                                contentDescription = addChildActionLabel(target, asTask = true),
+                                onClick = { addingChild = AddChildTarget(target, asTask = true) },
+                            )
+                        }
+                    }
+                    MapEditorFabAction.AddNote -> {
+                        focusedAddTarget?.let { target ->
+                            FocusFab(
+                                imageVector = Icons.AutoMirrored.Filled.NoteAdd,
+                                contentDescription = addChildActionLabel(target, asTask = false),
+                                onClick = { addingChild = AddChildTarget(target, asTask = false) },
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -2011,7 +2564,7 @@ private fun MapEditorScreen(
             onConfirm = {
                 val fallbackFocusId = focusAfterDeletingNode(snapshot.document, focusedNode.uniqueIdentifier, node.uniqueIdentifier)
                 deleteCandidate = null
-                focusedNodeId = fallbackFocusId
+                onFocusNode(fallbackFocusId)
                 onDeleteNode(snapshot.filePath, node.uniqueIdentifier)
             },
         )
@@ -3617,6 +4170,33 @@ private fun SecondaryActionButton(
         colors = ButtonDefaults.outlinedButtonColors(
             containerColor = Color.Transparent,
             contentColor = palette.accentStrong,
+            disabledContentColor = palette.muted.copy(alpha = 0.45f),
+        ),
+    ) {
+        Icon(imageVector = imageVector, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(label)
+    }
+}
+
+@Composable
+private fun DangerActionButton(
+    label: String,
+    imageVector: ImageVector,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val palette = LocalFocusPalette.current
+    OutlinedButton(
+        enabled = enabled,
+        onClick = onClick,
+        modifier = modifier.heightIn(min = 46.dp),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, palette.danger.copy(alpha = 0.45f)),
+        colors = ButtonDefaults.outlinedButtonColors(
+            containerColor = Color.Transparent,
+            contentColor = palette.danger,
             disabledContentColor = palette.muted.copy(alpha = 0.45f),
         ),
     ) {

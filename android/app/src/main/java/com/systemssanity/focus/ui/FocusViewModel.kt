@@ -10,8 +10,11 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.systemssanity.focus.FocusApplication
+import com.systemssanity.focus.data.github.GitHubAccessValidation
+import com.systemssanity.focus.data.local.FabSidePreference
 import com.systemssanity.focus.data.local.PendingMapOperation
 import com.systemssanity.focus.data.local.RepoSettings
+import com.systemssanity.focus.data.local.SyncMetadata
 import com.systemssanity.focus.data.local.ThemePreference
 import com.systemssanity.focus.data.local.UiPreferences
 import com.systemssanity.focus.domain.maps.AttachmentUploads
@@ -65,6 +68,7 @@ data class FocusUiState(
     val pendingConflictCounts: Map<String, Int> = emptyMap(),
     val taskFilter: TaskFilter = TaskFilter.Open,
     val uiPreferences: UiPreferences = UiPreferences(),
+    val syncMetadata: SyncMetadata = SyncMetadata(),
     val statusMessage: String = "Connection required.",
     val loading: Boolean = false,
     val workspaceLoadResultVersion: Long = 0,
@@ -75,6 +79,12 @@ data class FocusUiState(
     val localMapRepairState: LocalMapRepairUiState = LocalMapRepairUiState(),
     val conflictResolutionState: ConflictResolutionUiState = ConflictResolutionUiState(),
 )
+
+internal fun uiPreferencesWithFabSide(
+    preferences: UiPreferences,
+    fabSide: FabSidePreference,
+): UiPreferences =
+    preferences.copy(fabSide = fabSide)
 
 data class ConflictResolutionUiState(
     val targetPath: String = "",
@@ -304,6 +314,11 @@ class FocusViewModel(application: Application) : AndroidViewModel(application) {
                 uiState = uiState.copy(uiPreferences = preferences)
             }
         }
+        viewModelScope.launch {
+            container.preferencesStore.syncMetadata.collect { metadata ->
+                uiState = uiState.copy(syncMetadata = metadata)
+            }
+        }
     }
 
     fun saveConnection(settings: RepoSettings, token: String) {
@@ -313,34 +328,157 @@ class FocusViewModel(application: Application) : AndroidViewModel(application) {
             if (token.isNotBlank()) {
                 container.tokenStore.saveToken(settings.scope, token)
             }
+            val savedToken = container.tokenStore.getToken(settings.scope)
             uiState = uiState.copy(
                 repoSettings = settings,
-                tokenPresent = container.tokenStore.getToken(settings.scope) != null,
-                loading = false,
-                statusMessage = "Connection saved.",
+                tokenPresent = savedToken != null,
+                statusMessage = "Validating GitHub access...",
             )
+            if (validateGitHubAccess(settings, savedToken)) {
+                uiState = uiState.copy(
+                    tokenPresent = true,
+                    loading = false,
+                    statusMessage = GitHubAccessValidation.SuccessMessage,
+                )
+                loadWorkspace(forceRefresh = true)
+            }
+        }
+    }
+
+    fun revalidateGitHubAccess() {
+        val settings = uiState.repoSettings
+        val token = container.tokenStore.getToken(settings.scope)
+        viewModelScope.launch {
+            uiState = uiState.copy(loading = true, statusMessage = "Validating GitHub access...")
+            if (validateGitHubAccess(settings, token)) {
+                uiState = uiState.copy(
+                    loading = false,
+                    tokenPresent = true,
+                    statusMessage = GitHubAccessValidation.SuccessMessage,
+                )
+            }
+        }
+    }
+
+    fun clearSavedToken() {
+        container.tokenStore.clearToken(uiState.repoSettings.scope)
+        uiState = uiState.copy(
+            tokenPresent = false,
+            loading = false,
+            statusMessage = clearSavedTokenStatusMessage(),
+        )
+    }
+
+    fun hardResetAndReloadFromGitHub() {
+        val settings = uiState.repoSettings
+        val token = container.tokenStore.getToken(settings.scope)
+        if (!settings.isComplete || token.isNullOrBlank()) {
+            uiState = uiState.copy(
+                loading = false,
+                statusMessage = hardResetUnavailableMessage(),
+                tokenPresent = !token.isNullOrBlank(),
+            )
+            return
+        }
+
+        viewModelScope.launch {
+            uiState = uiState.copy(loading = true, statusMessage = hardResetStartingMessage())
+            container.localStore.clearScope(settings.scope)
+            uiState = uiState.withHardResetLocalState()
             loadWorkspace(forceRefresh = true)
         }
     }
 
     fun loadWorkspace(forceRefresh: Boolean = true) {
+        loadWorkspaceInternal(forceRefresh = forceRefresh, recordRefreshMetadata = false)
+    }
+
+    fun refreshWorkspaceFromGitHub() {
+        loadWorkspaceInternal(forceRefresh = true, recordRefreshMetadata = true)
+    }
+
+    private suspend fun validateGitHubAccess(settings: RepoSettings, token: String?): Boolean {
+        if (!settings.isComplete) {
+            container.preferencesStore.recordSyncFailure(GitHubAccessValidation.MissingSettingsMessage, state = "blocked")
+            uiState = uiState
+                .copy(
+                    loading = false,
+                    statusMessage = GitHubAccessValidation.MissingSettingsMessage,
+                    tokenPresent = container.tokenStore.getToken(settings.scope) != null,
+                )
+                .withWorkspaceLoadResult(succeeded = false)
+            return false
+        }
+        if (token.isNullOrBlank()) {
+            container.preferencesStore.recordSyncFailure(GitHubAccessValidation.MissingTokenMessage, state = "blocked")
+            uiState = uiState
+                .copy(
+                    loading = false,
+                    statusMessage = GitHubAccessValidation.MissingTokenMessage,
+                    tokenPresent = false,
+                )
+                .withWorkspaceLoadResult(succeeded = false)
+            return false
+        }
+
+        return container.validateGitHubAccess(settings, token)
+            .onSuccess {
+                container.preferencesStore.recordSyncSuccess(GitHubAccessValidation.SuccessMessage)
+            }
+            .onFailure { error ->
+                val message = GitHubAccessValidation.failureMessage(error)
+                val shouldClearToken = GitHubAccessValidation.shouldClearTokenAfterValidationFailure(error)
+                if (shouldClearToken) {
+                    container.tokenStore.clearToken(settings.scope)
+                }
+                container.preferencesStore.recordSyncFailure(
+                    summary = message,
+                    state = GitHubAccessValidation.failureState(error),
+                )
+                uiState = uiState
+                    .copy(
+                        loading = false,
+                        statusMessage = message,
+                        tokenPresent = !shouldClearToken && container.tokenStore.getToken(settings.scope) != null,
+                    )
+                    .withWorkspaceLoadResult(succeeded = false)
+            }
+            .isSuccess
+    }
+
+    private fun loadWorkspaceInternal(forceRefresh: Boolean, recordRefreshMetadata: Boolean) {
         val settings = uiState.repoSettings
         val token = container.tokenStore.getToken(settings.scope)
         if (!settings.isComplete) {
+            val message = "Repository owner, repository name, and branch are required."
             uiState = uiState
-                .copy(statusMessage = "Repository owner, repository name, and branch are required.")
+                .copy(statusMessage = message)
                 .withWorkspaceLoadResult(succeeded = false)
+            if (recordRefreshMetadata) {
+                viewModelScope.launch {
+                    container.preferencesStore.recordSyncFailure(message)
+                }
+            }
             return
         }
         if (token == null) {
+            val message = "A GitHub personal access token is required."
             uiState = uiState
-                .copy(statusMessage = "A GitHub personal access token is required.")
+                .copy(statusMessage = message)
                 .withWorkspaceLoadResult(succeeded = false)
+            if (recordRefreshMetadata) {
+                viewModelScope.launch {
+                    container.preferencesStore.recordSyncFailure(message)
+                }
+            }
             return
         }
 
         viewModelScope.launch {
-            uiState = uiState.copy(loading = true, statusMessage = "Loading maps from GitHub...")
+            uiState = uiState.copy(
+                loading = true,
+                statusMessage = if (recordRefreshMetadata) "Refreshing maps from GitHub..." else "Loading maps from GitHub...",
+            )
             val coordinator = container.createWorkspaceSyncCoordinator(settings, token)
             coordinator.loadWorkspace(forceRefresh)
                 .onSuccess { result ->
@@ -356,6 +494,9 @@ class FocusViewModel(application: Application) : AndroidViewModel(application) {
                         existing = result.pendingConflictMaps,
                         pendingOperations = workspace.pendingOperations,
                     )
+                    if (recordRefreshMetadata) {
+                        container.preferencesStore.recordSyncSuccess(refreshWorkspaceSuccessMessage(workspace.pendingOperations.size))
+                    }
                     uiState = uiState.copy(
                         snapshots = workspace.snapshots,
                         selectedMapFilePath = selectedFilePath,
@@ -368,13 +509,25 @@ class FocusViewModel(application: Application) : AndroidViewModel(application) {
                         pendingConflictCounts = pendingConflictCounts(pendingConflictMaps, workspace.pendingOperations),
                         tokenPresent = true,
                         loading = false,
-                        statusMessage = workspaceLoadedMessage(workspace.snapshots.size, result.unreadableMaps.size),
+                        statusMessage = if (recordRefreshMetadata) {
+                            refreshWorkspaceSuccessMessage(workspace.pendingOperations.size)
+                        } else {
+                            workspaceLoadedMessage(workspace.snapshots.size, result.unreadableMaps.size)
+                        },
                     ).withWorkspaceLoadResult(succeeded = true)
                 }
                 .onFailure { error ->
+                    val message = if (recordRefreshMetadata) {
+                        refreshWorkspaceFailureMessage(error)
+                    } else {
+                        error.message ?: "Could not load maps."
+                    }
+                    if (recordRefreshMetadata) {
+                        container.preferencesStore.recordSyncFailure(message)
+                    }
                     uiState = uiState.copy(
                         loading = false,
-                        statusMessage = error.message ?: "Could not load maps.",
+                        statusMessage = message,
                     ).withWorkspaceLoadResult(succeeded = false)
                 }
         }
@@ -384,9 +537,23 @@ class FocusViewModel(application: Application) : AndroidViewModel(application) {
         uiState = uiState.copy(taskFilter = filter)
     }
 
+    fun showStatusMessage(message: String) {
+        if (message.isNotBlank()) {
+            uiState = uiState.copy(statusMessage = message)
+        }
+    }
+
     fun setThemePreference(theme: ThemePreference) {
         viewModelScope.launch {
             val preferences = uiState.uiPreferences.copy(theme = theme)
+            uiState = uiState.copy(uiPreferences = preferences)
+            container.preferencesStore.saveUiPreferences(preferences)
+        }
+    }
+
+    fun setFabSidePreference(fabSide: FabSidePreference) {
+        viewModelScope.launch {
+            val preferences = uiPreferencesWithFabSide(uiState.uiPreferences, fabSide)
             uiState = uiState.copy(uiPreferences = preferences)
             container.preferencesStore.saveUiPreferences(preferences)
         }
@@ -1595,4 +1762,37 @@ private fun FocusUiState.withWorkspaceLoadResult(succeeded: Boolean): FocusUiSta
     copy(
         workspaceLoadResultVersion = workspaceLoadResultVersion + 1,
         workspaceLoadSucceeded = succeeded,
+    )
+
+internal fun refreshWorkspaceSuccessMessage(pendingCount: Int): String =
+    "Refreshed from GitHub. Pending operations: $pendingCount."
+
+internal fun refreshWorkspaceFailureMessage(error: Throwable): String =
+    error.message ?: "Could not refresh from GitHub."
+
+internal fun clearSavedTokenStatusMessage(): String =
+    "Saved token cleared. Enter a new token to reconnect."
+
+internal fun hardResetStartingMessage(): String =
+    "Hard reset started. Reloading from GitHub..."
+
+internal fun hardResetUnavailableMessage(): String =
+    "Repository settings and a saved token are required before hard reset."
+
+internal fun FocusUiState.withHardResetLocalState(): FocusUiState =
+    copy(
+        snapshots = emptyList(),
+        selectedMapFilePath = null,
+        pendingCount = 0,
+        unreadableMaps = emptyList(),
+        unreadablePendingCounts = emptyMap(),
+        blockedPendingMaps = emptyList(),
+        blockedPendingCounts = emptyMap(),
+        pendingConflictMaps = emptyList(),
+        pendingConflictCounts = emptyMap(),
+        attachmentUploadState = AttachmentUploadUiState(),
+        attachmentDeleteState = AttachmentDeleteUiState(),
+        attachmentViewerState = AttachmentViewerUiState(),
+        localMapRepairState = LocalMapRepairUiState(),
+        conflictResolutionState = ConflictResolutionUiState(),
     )
