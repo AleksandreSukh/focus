@@ -8,6 +8,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.systemssanity.focus.FocusApplication
 import com.systemssanity.focus.data.local.RepoSettings
+import com.systemssanity.focus.data.local.ThemePreference
+import com.systemssanity.focus.data.local.UiPreferences
 import com.systemssanity.focus.domain.maps.CommitMessages
 import com.systemssanity.focus.domain.maps.MapMutation
 import com.systemssanity.focus.domain.maps.MapQueries
@@ -29,6 +31,7 @@ data class FocusUiState(
     val selectedMapFilePath: String? = null,
     val pendingCount: Int = 0,
     val taskFilter: TaskFilter = TaskFilter.Open,
+    val uiPreferences: UiPreferences = UiPreferences(),
     val statusMessage: String = "Connection required.",
     val loading: Boolean = false,
 )
@@ -50,6 +53,11 @@ class FocusViewModel(application: Application) : AndroidViewModel(application) {
                     statusMessage = if (settings.isComplete) "Ready to load workspace." else "Connection required.",
                 )
                 bindWorkspace(settings.scope)
+            }
+        }
+        viewModelScope.launch {
+            container.preferencesStore.uiPreferences.collect { preferences ->
+                uiState = uiState.copy(uiPreferences = preferences)
             }
         }
     }
@@ -111,6 +119,14 @@ class FocusViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setTaskFilter(filter: TaskFilter) {
         uiState = uiState.copy(taskFilter = filter)
+    }
+
+    fun setThemePreference(theme: ThemePreference) {
+        viewModelScope.launch {
+            val preferences = uiState.uiPreferences.copy(theme = theme)
+            uiState = uiState.copy(uiPreferences = preferences)
+            container.preferencesStore.saveUiPreferences(preferences)
+        }
     }
 
     fun openMap(snapshot: MapSnapshot) {
