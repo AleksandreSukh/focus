@@ -80,6 +80,18 @@ import {
   resolveViewportNodeId,
   shouldShowWorkspaceTabs,
 } from './maps/routes.js';
+import {
+  canGoBack,
+  canGoForward,
+  createNavigationHistory,
+  goBack,
+  goForward,
+  navigationEntriesEqual,
+  normalizeNavigationEntry,
+  normalizeNavigationHistory,
+  pushNavigationEntry,
+  replaceNavigationEntry,
+} from './navigation/history.js';
 import { renderInlineHtml, toPlainText } from './formatting/inlineFormatter.js';
 
 const THEME_STORAGE_KEY = 'focus.pwa.theme';
@@ -88,7 +100,7 @@ const THEME_META_COLORS = {
   light: '#ffffff',
   dark: '#000000',
 };
-const MODAL_HISTORY_STATE_KEY = 'focusModal';
+const NAVIGATION_HISTORY_STATE_KEY = 'focusNavigation';
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
 const state = {
@@ -116,6 +128,7 @@ const state = {
   taskFilter: 'open',
   selectedMapPath: '',
   selectedNodeId: '',
+  navigationHistory: createNavigationHistory({ view: 'maps' }),
   mapsByPath: {},
   unreadableMaps: [],
   blockedPendingMaps: [],
@@ -143,8 +156,8 @@ const renderCache = {
   workspaceOpenCardMenu: '',
 };
 let globalUiListenersBound = false;
-let hashRoutingBound = false;
-let pendingModalHistoryClose = null;
+let navigationRoutingBound = false;
+let applyingNavigationEntry = false;
 let activeVoiceRecording = null;
 
 export async function bootstrapApp() {
@@ -157,7 +170,7 @@ export async function bootstrapApp() {
   state.runtimeConfig = resolveRuntimeConfig();
   switchRepoContext(getEffectiveRepoSettings(state.runtimeConfig));
   updateInstallState();
-  initializeHashRouting();
+  initializeNavigationRouting();
 
   if (!isRepoSettingsComplete(state.repoSettings)) {
     state.authState = 'missingConfig';
@@ -208,39 +221,25 @@ function wireUi() {
   ui.statusToggle?.addEventListener('click', () => {
     const openingStatus = !state.showStatus;
     if (openingStatus) {
-      discardActiveVoiceRecording();
-      state.activeModal = null;
-      state.showSettings = false;
-      state.pendingFocusRequest = {
-        type: 'modalAutofocus',
-      };
+      navigateTo({
+        ...getCurrentBaseNavigationEntry(),
+        overlay: { kind: 'status' },
+      });
     } else {
-      state.pendingFocusRequest = {
-        type: 'focusKey',
-        value: 'status-toggle',
-      };
+      navigateTo(getCurrentBaseNavigationEntry());
     }
-    state.showStatus = openingStatus;
-    render();
   });
 
   ui.settingsToggle?.addEventListener('click', () => {
     const openingSettings = !state.showSettings;
     if (openingSettings) {
-      discardActiveVoiceRecording();
-      state.activeModal = null;
-      state.showStatus = false;
-      state.pendingFocusRequest = {
-        type: 'modalAutofocus',
-      };
+      navigateTo({
+        ...getCurrentBaseNavigationEntry(),
+        overlay: { kind: 'settings' },
+      });
     } else {
-      state.pendingFocusRequest = {
-        type: 'focusKey',
-        value: 'settings-toggle',
-      };
+      navigateTo(getCurrentBaseNavigationEntry());
     }
-    state.showSettings = openingSettings;
-    render();
   });
 
   ui.installButton?.addEventListener('click', async () => {
@@ -266,127 +265,191 @@ function wireUi() {
   });
 }
 
-function initializeHashRouting() {
+function initializeNavigationRouting() {
   ensureDefaultHashRoute();
+  state.navigationHistory = createNavigationHistory(navigationEntryFromHash(window.location.hash));
+  writeBrowserNavigationState('replace');
 
-  if (hashRoutingBound) {
+  if (navigationRoutingBound) {
     return;
   }
 
-  window.addEventListener('hashchange', () => {
-    if (state.authState !== 'authenticated') {
-      return;
-    }
-
-    applyRouteFromHash({ replaceInvalid: true });
-  });
-
-  window.addEventListener('popstate', handleWindowPopState);
-
-  hashRoutingBound = true;
+  window.addEventListener('popstate', handleBrowserPopState);
+  navigationRoutingBound = true;
 }
 
 function ensureDefaultHashRoute() {
   if (!window.location.hash || window.location.hash === '#') {
-    replaceHashRoute(HASH_ROUTE.maps);
+    const currentPath = `${window.location.pathname}${window.location.search}`;
+    window.history.replaceState(window.history.state, '', `${currentPath}${HASH_ROUTE.maps}`);
   }
 }
 
-function replaceHashRoute(nextHash) {
-  const currentPath = `${window.location.pathname}${window.location.search}`;
-  window.history.replaceState(window.history.state, '', `${currentPath}${nextHash}`);
-}
-
-function applyRouteFromHash(options = {}) {
-  if (state.authState !== 'authenticated') {
-    return false;
+function navigationEntryFromHash(hashValue) {
+  const route = parseHashRoute(hashValue);
+  if (route.view === 'tasks') {
+    return { view: 'tasks' };
   }
-
-  const { replaceInvalid = false } = options;
-  const route = parseHashRoute(window.location.hash);
-
-  state.activeModal = null;
-  pendingModalHistoryClose = null;
-  state.showStatus = false;
-  state.showSettings = false;
 
   if (route.view === 'map') {
-    const snapshot = state.mapsByPath[route.mapPath];
-    if (!snapshot) {
-      if (hasRepairEntryForFilePath(route.mapPath)) {
-        state.currentView = 'maps';
-        state.selectedMapPath = '';
-        state.selectedNodeId = '';
-        state.pendingFocusRequest = {
-          type: 'focusKey',
-          value: buildRepairFocusKey(route.mapPath),
-        };
-        if (replaceInvalid) {
-          replaceHashRoute(HASH_ROUTE.maps);
-        }
-        render();
-        return false;
-      }
-
-      if (replaceInvalid) {
-        replaceHashRoute(HASH_ROUTE.maps);
-      }
-      state.currentView = 'maps';
-      render();
-      return false;
-    }
-
-    state.currentView = 'map';
-    const rootNodeId = snapshot.document.rootNode?.uniqueIdentifier || '';
-    const nextSelectedNodeId = resolveViewportNodeId(snapshot.document, route.nodeId || rootNodeId) || rootNodeId;
-    if (
-      state.selectedMapPath !== route.mapPath ||
-      state.selectedNodeId !== nextSelectedNodeId
-    ) {
-      state.expandedRelatedNodeKey = '';
-    }
-    state.selectedMapPath = route.mapPath;
-    state.selectedNodeId = nextSelectedNodeId;
-    const canonicalHash = buildHashRoute('map', route.mapPath, state.selectedNodeId, rootNodeId);
-    if (window.location.hash !== canonicalHash) {
-      replaceHashRoute(canonicalHash);
-    }
-    render();
-    return true;
+    return {
+      view: 'map',
+      mapPath: route.mapPath || '',
+      nodeId: route.nodeId || '',
+    };
   }
 
-  if (route.isInvalid && replaceInvalid) {
-    replaceHashRoute(HASH_ROUTE.maps);
-  }
-
-  state.expandedRelatedNodeKey = '';
-  state.currentView = route.view === 'tasks' ? 'tasks' : 'maps';
-  render();
-  return true;
+  return { view: 'maps' };
 }
 
-function navigateToHashRoute(nextHash, options = {}) {
+function buildNavigationHash(entry) {
+  const normalized = normalizeNavigationEntry(entry);
+  if (normalized.view === 'tasks') {
+    return HASH_ROUTE.tasks;
+  }
+
+  if (normalized.view === 'map' && normalized.mapPath) {
+    const snapshot = state.mapsByPath[normalized.mapPath];
+    const rootNodeId = snapshot?.document?.rootNode?.uniqueIdentifier || '';
+    return buildHashRoute('map', normalized.mapPath, normalized.nodeId, rootNodeId);
+  }
+
+  return HASH_ROUTE.maps;
+}
+
+function buildNavigationUrl(entry) {
+  const currentPath = `${window.location.pathname}${window.location.search}`;
+  return `${currentPath}${buildNavigationHash(entry)}`;
+}
+
+function getBrowserNavigationState(historyState) {
+  if (!historyState || typeof historyState !== 'object' || Array.isArray(historyState)) {
+    return null;
+  }
+
+  return historyState[NAVIGATION_HISTORY_STATE_KEY] || null;
+}
+
+function writeBrowserNavigationState(mode = 'replace') {
+  const currentState =
+    window.history.state && typeof window.history.state === 'object' && !Array.isArray(window.history.state)
+      ? window.history.state
+      : {};
+  const nextState = {
+    ...currentState,
+    [NAVIGATION_HISTORY_STATE_KEY]: normalizeNavigationHistory(state.navigationHistory),
+  };
+  const nextUrl = buildNavigationUrl(state.navigationHistory.current);
+  if (mode === 'push') {
+    window.history.pushState(nextState, '', nextUrl);
+    return;
+  }
+
+  window.history.replaceState(nextState, '', nextUrl);
+}
+
+function getCurrentBaseNavigationEntry() {
+  if (state.currentView === 'tasks') {
+    return { view: 'tasks' };
+  }
+
+  if (state.currentView === 'map' && state.selectedMapPath) {
+    return {
+      view: 'map',
+      mapPath: state.selectedMapPath,
+      nodeId: state.selectedNodeId,
+    };
+  }
+
+  return { view: 'maps' };
+}
+
+function getCurrentNavigationEntry() {
+  return normalizeNavigationEntry({
+    ...getCurrentBaseNavigationEntry(),
+    overlay: navigationOverlayFromCurrentUi(),
+  });
+}
+
+function recordCurrentNavigationEntry(options = {}) {
+  if (applyingNavigationEntry || state.authState !== 'authenticated') {
+    return;
+  }
+
   const { replace = false } = options;
-  if (window.location.hash === nextHash) {
-    applyRouteFromHash({ replaceInvalid: false });
+  const nextEntry = resolveNavigationEntry(getCurrentNavigationEntry());
+  const currentEntry = state.navigationHistory.current;
+  const shouldPush = !replace && !navigationEntriesEqual(currentEntry, nextEntry);
+  state.navigationHistory = shouldPush
+    ? pushNavigationEntry(state.navigationHistory, nextEntry)
+    : replaceNavigationEntry(state.navigationHistory, nextEntry);
+  writeBrowserNavigationState(shouldPush ? 'push' : 'replace');
+}
+
+function resolveNavigationEntry(entry) {
+  const normalized = normalizeNavigationEntry(entry);
+  let resolved = normalized;
+
+  if (normalized.view === 'map') {
+    const snapshot = state.mapsByPath[normalized.mapPath];
+    if (!snapshot) {
+      if (hasRepairEntryForFilePath(normalized.mapPath)) {
+        state.pendingFocusRequest = {
+          type: 'focusKey',
+          value: buildRepairFocusKey(normalized.mapPath),
+        };
+      }
+      resolved = { view: 'maps', mapPath: '', nodeId: '', overlay: null };
+    } else {
+      const rootNodeId = snapshot.document.rootNode?.uniqueIdentifier || '';
+      const nodeId = resolveViewportNodeId(snapshot.document, normalized.nodeId || rootNodeId) || rootNodeId;
+      resolved = {
+        ...normalized,
+        mapPath: normalized.mapPath,
+        nodeId,
+      };
+    }
+  }
+
+  if (resolved.overlay && !canApplyNavigationOverlay(resolved.overlay, resolved)) {
+    resolved = {
+      ...resolved,
+      overlay: null,
+    };
+  }
+
+  return normalizeNavigationEntry(resolved);
+}
+
+function navigateTo(entry, options = {}) {
+  if (state.authState !== 'authenticated') {
     return;
   }
 
-  if (replace) {
-    replaceHashRoute(nextHash);
-    applyRouteFromHash({ replaceInvalid: false });
-    return;
-  }
+  const { replace = false } = options;
+  const nextEntry = resolveNavigationEntry(entry);
+  const shouldPush = !replace && !navigationEntriesEqual(state.navigationHistory.current, nextEntry);
+  state.navigationHistory = shouldPush
+    ? pushNavigationEntry(state.navigationHistory, nextEntry)
+    : replaceNavigationEntry(state.navigationHistory, nextEntry);
+  applyNavigationEntry(nextEntry);
+  writeBrowserNavigationState(shouldPush ? 'push' : 'replace');
+  render();
+}
 
-  window.location.hash = nextHash;
+function replaceCurrentNavigationEntry(entry = getCurrentNavigationEntry()) {
+  const nextEntry = resolveNavigationEntry(entry);
+  state.navigationHistory = replaceNavigationEntry(state.navigationHistory, nextEntry);
+  applyNavigationEntry(nextEntry);
+  writeBrowserNavigationState('replace');
 }
 
 function navigateToMapsRoute(options = {}) {
-  navigateToHashRoute(HASH_ROUTE.maps, options);
+  navigateTo({ view: 'maps' }, options);
 }
 
 function navigateToTasksRoute(options = {}) {
-  navigateToHashRoute(HASH_ROUTE.tasks, options);
+  navigateTo({ view: 'tasks' }, options);
 }
 
 function navigateToMapRoute(mapPath, options = {}) {
@@ -398,71 +461,418 @@ function navigateToMapRoute(mapPath, options = {}) {
   const { replace = false, preferredNodeId = '' } = options;
   const rootNodeId = snapshot.document.rootNode?.uniqueIdentifier || '';
   const nextNodeId = resolveViewportNodeId(snapshot.document, preferredNodeId || rootNodeId) || rootNodeId;
-  const nextHash = buildHashRoute('map', mapPath, nextNodeId, rootNodeId);
-
-  navigateToHashRoute(nextHash, { replace });
+  navigateTo({
+    view: 'map',
+    mapPath,
+    nodeId: nextNodeId,
+  }, { replace });
 }
 
-function getModalHistoryState(historyState) {
-  if (!historyState || typeof historyState !== 'object' || Array.isArray(historyState)) {
-    return null;
+function navigateBack() {
+  if (!canGoBack(state.navigationHistory)) {
+    return;
   }
 
-  const modalState = historyState[MODAL_HISTORY_STATE_KEY];
-  if (
-    !modalState ||
-    typeof modalState !== 'object' ||
-    modalState.kind !== 'addChildNote' ||
-    typeof modalState.token !== 'string' ||
-    !modalState.token
-  ) {
-    return null;
+  window.history.back();
+}
+
+function navigateForward() {
+  if (!canGoForward(state.navigationHistory)) {
+    return;
   }
 
-  return modalState;
+  window.history.forward();
 }
 
-function pushAddChildNoteHistoryEntry() {
-  const token = createClientNodeId();
-  const currentState =
-    window.history.state && typeof window.history.state === 'object' && !Array.isArray(window.history.state)
-      ? window.history.state
-      : {};
-  const nextState = {
-    ...currentState,
-    [MODAL_HISTORY_STATE_KEY]: {
-      kind: 'addChildNote',
-      token,
-    },
-  };
-  const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-  window.history.pushState(nextState, '', currentUrl);
-  return token;
-}
-
-function handleWindowPopState(event) {
+function handleBrowserPopState(event) {
   if (state.authState !== 'authenticated') {
     return;
   }
 
-  if (state.activeModal?.kind !== 'addChildNote') {
+  const browserNavigation = getBrowserNavigationState(event.state);
+  const targetEntry = browserNavigation?.current
+    ? normalizeNavigationEntry(browserNavigation.current)
+    : navigationEntryFromHash(window.location.hash);
+  const backTarget = state.navigationHistory.backStack[state.navigationHistory.backStack.length - 1];
+  const forwardTarget = state.navigationHistory.forwardStack[0];
+
+  if (backTarget && navigationEntriesEqual(backTarget, targetEntry)) {
+    state.navigationHistory = goBack(state.navigationHistory);
+  } else if (forwardTarget && navigationEntriesEqual(forwardTarget, targetEntry)) {
+    state.navigationHistory = goForward(state.navigationHistory);
+  } else if (browserNavigation) {
+    state.navigationHistory = normalizeNavigationHistory(browserNavigation, targetEntry);
+  } else {
+    state.navigationHistory = createNavigationHistory(targetEntry);
+  }
+
+  const resolvedEntry = resolveNavigationEntry(state.navigationHistory.current);
+  state.navigationHistory = replaceNavigationEntry(state.navigationHistory, resolvedEntry);
+  applyNavigationEntry(resolvedEntry);
+  writeBrowserNavigationState('replace');
+  render();
+}
+
+function navigationOverlayFromCurrentUi() {
+  if (state.showStatus) {
+    return { kind: 'status' };
+  }
+
+  if (state.showSettings) {
+    return { kind: 'settings' };
+  }
+
+  return navigationOverlayFromActiveModal(state.activeModal);
+}
+
+function navigationOverlayFromActiveModal(modal) {
+  if (!modal?.kind) {
+    return null;
+  }
+
+  if (modal.kind === 'textViewer' && modal.attachmentRelativePath === '__raw-map__') {
+    return {
+      kind: 'textViewer',
+      source: 'unreadableMap',
+      mapPath: modal.mapPath || '',
+    };
+  }
+
+  if (modal.kind === 'imageViewer' || modal.kind === 'textViewer' || modal.kind === 'audioViewer') {
+    return {
+      kind: modal.kind,
+      mapPath: modal.mapPath || '',
+      nodeId: modal.nodeId || '',
+      attachmentId: modal.attachmentId || '',
+      attachmentRelativePath: modal.attachmentRelativePath || '',
+    };
+  }
+
+  if (modal.kind === 'deleteAttachment') {
+    return {
+      kind: 'deleteAttachment',
+      mapPath: modal.mapPath || '',
+      nodeId: modal.nodeId || '',
+      attachmentId: modal.attachmentId || '',
+      attachmentRelativePath: modal.attachmentRelativePath || '',
+      displayName: modal.displayName || '',
+      returnNodeId: modal.returnNodeId || '',
+      previousOverlay: navigationOverlayFromActiveModal(modal.previousModal),
+    };
+  }
+
+  if (modal.kind === 'resolveConflict') {
+    return {
+      kind: 'resolveConflict',
+      filePath: modal.filePath || '',
+    };
+  }
+
+  if (modal.kind === 'createMap') {
+    return { kind: 'createMap' };
+  }
+
+  return {
+    kind: modal.kind,
+    mapPath: modal.mapPath || '',
+    nodeId: modal.fixedParentNodeId || modal.nodeId || '',
+  };
+}
+
+function findAttachmentForNavigationOverlay(overlay) {
+  const snapshot = state.mapsByPath[overlay?.mapPath || ''];
+  if (!snapshot) {
+    return null;
+  }
+
+  const record = findNodeRecord(snapshot.document, overlay.nodeId || '');
+  if (!record) {
+    return null;
+  }
+
+  const attachmentId = overlay.attachmentId || '';
+  const relativePath = overlay.attachmentRelativePath || '';
+  return getNodeAttachments(record.node).find((attachment) =>
+    (attachmentId && attachment.id === attachmentId) ||
+    (relativePath && attachment.relativePath === relativePath)
+  ) || null;
+}
+
+function canApplyNavigationOverlay(overlay, baseEntry) {
+  if (!overlay?.kind) {
+    return false;
+  }
+
+  switch (overlay.kind) {
+    case 'status':
+    case 'settings':
+    case 'createMap':
+      return true;
+    case 'resolveConflict':
+      return state.pendingOperations.length > 0 && state.syncState.kind === 'conflict';
+    case 'deleteMap':
+      return Boolean(state.mapsByPath[overlay.mapPath || '']);
+    case 'repairMap':
+      return Boolean(buildLocalRepairDraft(overlay.mapPath || ''));
+    case 'textViewer':
+      if (overlay.source === 'unreadableMap') {
+        return Boolean(getUnreadableMapByPath(overlay.mapPath || ''));
+      }
+      return Boolean(findAttachmentForNavigationOverlay(overlay));
+    case 'imageViewer':
+    case 'audioViewer':
+      return Boolean(findAttachmentForNavigationOverlay(overlay));
+    case 'deleteAttachment':
+      return Boolean(findAttachmentForNavigationOverlay(overlay));
+    case 'editNode':
+    case 'addChildNote':
+    case 'deleteNode': {
+      const mapPath = overlay.mapPath || baseEntry.mapPath || '';
+      const nodeId = overlay.nodeId || baseEntry.nodeId || '';
+      const snapshot = state.mapsByPath[mapPath];
+      return Boolean(snapshot && getNodeUiState(snapshot.document, nodeId));
+    }
+    default:
+      return false;
+  }
+}
+
+function applyNavigationEntry(entry) {
+  const normalized = normalizeNavigationEntry(entry);
+  const previousBase = getCurrentBaseNavigationEntry();
+  const previousModal = state.activeModal;
+  applyingNavigationEntry = true;
+  try {
+    if (activeVoiceRecording) {
+      discardActiveVoiceRecording();
+    }
+    if (previousModal) {
+      revokeModalObjectUrls(previousModal);
+    }
+
+    state.showStatus = false;
+    state.showSettings = false;
+    state.activeModal = null;
+    state.openCardMenu = '';
+
+    if (normalized.view === 'map') {
+      const snapshot = state.mapsByPath[normalized.mapPath];
+      if (snapshot) {
+        state.currentView = 'map';
+        state.selectedMapPath = normalized.mapPath;
+        state.selectedNodeId = normalized.nodeId || snapshot.document.rootNode?.uniqueIdentifier || '';
+      } else {
+        state.currentView = 'maps';
+        state.selectedMapPath = '';
+        state.selectedNodeId = '';
+      }
+    } else if (normalized.view === 'tasks') {
+      state.currentView = 'tasks';
+    } else {
+      state.currentView = 'maps';
+      state.selectedMapPath = '';
+      state.selectedNodeId = '';
+    }
+
+    if (
+      previousBase.view !== state.currentView ||
+      previousBase.mapPath !== state.selectedMapPath ||
+      previousBase.nodeId !== state.selectedNodeId
+    ) {
+      state.expandedRelatedNodeKey = '';
+    }
+
+    applyNavigationOverlay(normalized.overlay, normalized);
+  } finally {
+    applyingNavigationEntry = false;
+  }
+}
+
+function modalStateFromNavigationOverlay(overlay) {
+  if (!overlay?.kind) {
+    return null;
+  }
+
+  if (overlay.kind === 'imageViewer' || overlay.kind === 'textViewer' || overlay.kind === 'audioViewer') {
+    const attachment = findAttachmentForNavigationOverlay(overlay);
+    if (!attachment) {
+      return null;
+    }
+
+    return {
+      kind: overlay.kind,
+      mapPath: overlay.mapPath || '',
+      nodeId: overlay.nodeId || '',
+      attachmentId: attachment.id,
+      draftText: '',
+      errorMessage: '',
+      returnFocusKey: buildNodeFocusKey(overlay.mapPath || '', overlay.nodeId || ''),
+      attachmentRelativePath: attachment.relativePath,
+      displayName: attachment.displayName || attachment.relativePath,
+      imageUrl: null,
+      audioUrl: null,
+      downloadUrl: null,
+      textContent: '',
+      loading: true,
+      zoom: 1,
+      panX: 0,
+      panY: 0,
+    };
+  }
+
+  return null;
+}
+
+function applyNavigationOverlay(overlay, baseEntry) {
+  if (!overlay?.kind) {
     return;
   }
 
-  const currentToken = state.activeModal.historyToken || '';
-  const nextToken = getModalHistoryState(event.state)?.token || '';
-  if (!currentToken || currentToken === nextToken) {
+  if (overlay.kind === 'status') {
+    state.showStatus = true;
+    state.pendingFocusRequest = { type: 'modalAutofocus' };
     return;
   }
 
-  const pendingClose = pendingModalHistoryClose?.token === currentToken
-    ? pendingModalHistoryClose
-    : null;
-  pendingModalHistoryClose = null;
-  closeActiveModal({
-    fromHistory: true,
-    focusKey: pendingClose?.focusKey || state.activeModal.returnFocusKey || '',
-  });
+  if (overlay.kind === 'settings') {
+    state.showSettings = true;
+    state.pendingFocusRequest = { type: 'modalAutofocus' };
+    return;
+  }
+
+  if (overlay.kind === 'createMap') {
+    state.activeModal = {
+      kind: 'createMap',
+      mapPath: '',
+      nodeId: '',
+      draftText: '',
+      errorMessage: '',
+      returnFocusKey: 'create-map-trigger',
+    };
+    state.pendingFocusRequest = { type: 'modalAutofocus' };
+    return;
+  }
+
+  if (overlay.kind === 'deleteMap') {
+    const snapshot = state.mapsByPath[overlay.mapPath || ''];
+    if (!snapshot) {
+      return;
+    }
+    state.activeModal = {
+      kind: 'deleteMap',
+      mapPath: snapshot.filePath,
+      nodeId: '',
+      draftText: '',
+      errorMessage: '',
+      returnFocusKey: 'maps-list',
+    };
+    state.pendingFocusRequest = { type: 'modalAutofocus' };
+    return;
+  }
+
+  if (overlay.kind === 'repairMap') {
+    const draftText = buildLocalRepairDraft(overlay.mapPath || '');
+    if (!draftText) {
+      return;
+    }
+    state.activeModal = {
+      kind: 'repairMap',
+      mapPath: overlay.mapPath || '',
+      nodeId: '',
+      draftText,
+      errorMessage: '',
+      returnFocusKey: buildRepairFocusKey(overlay.mapPath || ''),
+      displayName: getRepairFileName(overlay.mapPath || ''),
+    };
+    state.pendingFocusRequest = { type: 'modalAutofocus' };
+    return;
+  }
+
+  if (overlay.kind === 'textViewer' && overlay.source === 'unreadableMap') {
+    const unreadableMap = getUnreadableMapByPath(overlay.mapPath || '');
+    if (!unreadableMap) {
+      return;
+    }
+    const downloadUrl = createTextDownloadUrl(unreadableMap.rawText, 'application/json');
+    state.activeModal = {
+      kind: 'textViewer',
+      mapPath: unreadableMap.filePath,
+      nodeId: '',
+      draftText: '',
+      errorMessage: '',
+      returnFocusKey: buildRepairFocusKey(unreadableMap.filePath),
+      attachmentRelativePath: '__raw-map__',
+      displayName: unreadableMap.fileName,
+      textContent: unreadableMap.rawText,
+      downloadUrl,
+      loading: false,
+    };
+    state.pendingFocusRequest = { type: 'modalAutofocus' };
+    return;
+  }
+
+  if (overlay.kind === 'imageViewer' || overlay.kind === 'textViewer' || overlay.kind === 'audioViewer') {
+    const attachment = findAttachmentForNavigationOverlay(overlay);
+    if (!attachment) {
+      return;
+    }
+    void openAttachmentViewerForAttachment(
+      overlay.mapPath || '',
+      overlay.nodeId || '',
+      attachment,
+      buildNodeFocusKey(overlay.mapPath || '', overlay.nodeId || ''),
+    );
+    return;
+  }
+
+  if (overlay.kind === 'deleteAttachment') {
+    const attachment = findAttachmentForNavigationOverlay(overlay);
+    if (!attachment) {
+      return;
+    }
+    state.activeModal = {
+      kind: 'deleteAttachment',
+      mapPath: overlay.mapPath || '',
+      nodeId: overlay.nodeId || '',
+      attachmentId: attachment.id,
+      attachmentRelativePath: attachment.relativePath,
+      displayName: overlay.displayName || attachment.displayName || attachment.relativePath,
+      returnNodeId: overlay.returnNodeId || getDeleteAttachmentReturnNodeId(overlay.mapPath || '', overlay.nodeId || ''),
+      errorMessage: '',
+      returnFocusKey: buildNodeFocusKey(overlay.mapPath || '', overlay.nodeId || ''),
+      previousModal: modalStateFromNavigationOverlay(overlay.previousOverlay),
+    };
+    state.pendingFocusRequest = { type: 'modalAutofocus' };
+    return;
+  }
+
+  if (overlay.kind === 'resolveConflict') {
+    void openConflictModal();
+    return;
+  }
+
+  const mapPath = overlay.mapPath || baseEntry.mapPath || '';
+  const nodeId = overlay.nodeId || baseEntry.nodeId || '';
+  const snapshot = state.mapsByPath[mapPath];
+  const nodeUiState = snapshot ? getNodeUiState(snapshot.document, nodeId) : null;
+  if (!nodeUiState) {
+    return;
+  }
+
+  state.currentView = 'map';
+  state.selectedMapPath = mapPath;
+  state.selectedNodeId = nodeUiState.node.uniqueIdentifier;
+  state.activeModal = {
+    kind: overlay.kind,
+    mapPath,
+    nodeId: nodeUiState.node.uniqueIdentifier,
+    draftText: overlay.kind === 'editNode' ? nodeUiState.node.name || '' : '',
+    hideDoneTasks: overlay.kind === 'editNode' ? Boolean(nodeUiState.effectiveHideDoneTasks) : false,
+    errorMessage: '',
+    returnFocusKey: buildNodeFocusKey(mapPath, nodeUiState.node.uniqueIdentifier),
+    fixedParentNodeId: overlay.kind === 'addChildNote' ? nodeUiState.node.uniqueIdentifier : '',
+  };
+  state.pendingFocusRequest = { type: 'modalAutofocus' };
 }
 
 function bindGlobalUiListeners() {
@@ -598,10 +1008,10 @@ function handleDocumentClick(event) {
       navigateToMapsRoute();
       return;
     case 'history-back':
-      window.history.back();
+      navigateBack();
       return;
     case 'history-forward':
-      window.history.forward();
+      navigateForward();
       return;
     case 'refresh-maps':
       void loadWorkspace(true);
@@ -946,23 +1356,13 @@ function handleDocumentKeydown(event) {
 
   if (event.key === 'Escape' && state.showSettings) {
     event.preventDefault();
-    state.pendingFocusRequest = {
-      type: 'focusKey',
-      value: 'settings-toggle',
-    };
-    state.showSettings = false;
-    render();
+    navigateTo(getCurrentBaseNavigationEntry());
     return;
   }
 
   if (event.key === 'Escape' && state.showStatus) {
     event.preventDefault();
-    state.pendingFocusRequest = {
-      type: 'focusKey',
-      value: 'status-toggle',
-    };
-    state.showStatus = false;
-    render();
+    navigateTo(getCurrentBaseNavigationEntry());
     return;
   }
 
@@ -1100,7 +1500,7 @@ function switchRepoContext(repoSettings) {
   state.pendingFocusRequest = null;
   state.expandedRelatedNodeKey = '';
   state.pendingRepairFocusPath = '';
-  pendingModalHistoryClose = null;
+  state.navigationHistory = createNavigationHistory(navigationEntryFromHash(window.location.hash));
 }
 
 async function authenticateAndLoad() {
@@ -1221,7 +1621,8 @@ async function loadWorkspace(forceRefresh) {
   }
   state.pendingRepairFocusPath = '';
 
-  applyRouteFromHash({ replaceInvalid: true });
+  replaceCurrentNavigationEntry(state.navigationHistory.current);
+  render();
 
   if (state.pendingOperations.length > 0) {
     void processPendingOperations();
@@ -1276,6 +1677,7 @@ function enqueueOperation(operation, options = {}) {
       detail: buildStatusDetail(),
       canRetry: false,
     };
+    recordCurrentNavigationEntry({ replace: true });
     render();
     void processPendingOperations();
     return {
@@ -1315,6 +1717,7 @@ function enqueueOperation(operation, options = {}) {
     detail: buildStatusDetail(),
     canRetry: false,
   };
+  recordCurrentNavigationEntry({ replace: true });
   render();
   void processPendingOperations();
   return {
@@ -1918,6 +2321,7 @@ function openDeleteMapModal(mapPath, returnFocusKey = '') {
   state.pendingFocusRequest = {
     type: 'modalAutofocus',
   };
+  recordCurrentNavigationEntry();
   render();
 }
 
@@ -1953,8 +2357,7 @@ async function handleDeleteMapConfirm() {
     canRetry: false,
   };
   state.activeModal = null;
-  state.currentView = 'maps';
-  render();
+  navigateToMapsRoute({ replace: true });
 }
 
 function getNodeAttachments(node) {
@@ -2048,6 +2451,7 @@ function openDeleteAttachmentModal() {
   state.pendingFocusRequest = {
     type: 'modalAutofocus',
   };
+  recordCurrentNavigationEntry();
   render();
 }
 
@@ -2072,6 +2476,7 @@ async function openImageViewerForAttachment(mapPath, nodeId, attachment, returnF
     panX: 0,
     panY: 0,
   };
+  recordCurrentNavigationEntry();
   render();
 
   const result = await state.service.loadAttachment(
@@ -2152,6 +2557,7 @@ async function openTextViewerForAttachment(mapPath, nodeId, attachment, returnFo
     downloadUrl: null,
     loading: true,
   };
+  recordCurrentNavigationEntry();
   render();
 
   const result = await state.service.loadAttachment(
@@ -2218,6 +2624,7 @@ async function openAudioViewerForAttachment(mapPath, nodeId, attachment, returnF
     downloadUrl: null,
     loading: true,
   };
+  recordCurrentNavigationEntry();
   render();
 
   const result = await state.service.loadAttachment(
@@ -2783,6 +3190,7 @@ function openUnreadableMapViewer(filePath) {
   state.pendingFocusRequest = {
     type: 'modalAutofocus',
   };
+  recordCurrentNavigationEntry();
   render();
 }
 
@@ -2825,6 +3233,7 @@ function openLocalMapRepairModal(filePath) {
   state.pendingFocusRequest = {
     type: 'modalAutofocus',
   };
+  recordCurrentNavigationEntry();
   render();
 }
 
@@ -3159,6 +3568,7 @@ async function openConflictModal() {
   };
   state.showStatus = false;
   state.pendingFocusRequest = { type: 'modalAutofocus' };
+  recordCurrentNavigationEntry();
   render();
 
   const loaded = await state.service.loadMap(filePath, true);
@@ -3449,6 +3859,7 @@ function openCreateMapModal(returnFocusKey = '') {
   state.pendingFocusRequest = {
     type: 'modalAutofocus',
   };
+  recordCurrentNavigationEntry();
   render();
 }
 
@@ -3481,7 +3892,6 @@ function openNodeModal(kind, mapPath, nodeId, returnFocusKey = '') {
     }
   }
 
-  const historyToken = kind === 'addChildNote' ? pushAddChildNoteHistoryEntry() : '';
   state.activeModal = {
     kind,
     mapPath,
@@ -3491,11 +3901,11 @@ function openNodeModal(kind, mapPath, nodeId, returnFocusKey = '') {
     errorMessage: '',
     returnFocusKey: focusKey,
     fixedParentNodeId: kind === 'addChildNote' ? nodeUiState.node.uniqueIdentifier : '',
-    historyToken,
   };
   state.pendingFocusRequest = {
     type: 'modalAutofocus',
   };
+  recordCurrentNavigationEntry();
   render();
 }
 
@@ -3539,6 +3949,7 @@ function closeDeleteAttachmentModal(options = {}) {
         value: nextFocusKey,
       };
     }
+    recordCurrentNavigationEntry();
     render();
   });
 }
@@ -3557,22 +3968,8 @@ function closeActiveModal(options = {}) {
     return;
   }
 
-  const { fromHistory = false } = options;
-  if (state.activeModal.kind === 'addChildNote' && state.activeModal.historyToken && !fromHistory) {
-    if (pendingModalHistoryClose?.token === state.activeModal.historyToken) {
-      return;
-    }
-    pendingModalHistoryClose = {
-      token: state.activeModal.historyToken,
-      focusKey: options.focusKey || state.activeModal.returnFocusKey || '',
-    };
-    window.history.back();
-    return;
-  }
-
   revokeModalObjectUrls(state.activeModal);
 
-  pendingModalHistoryClose = null;
   const focusKey = options.focusKey || state.activeModal.returnFocusKey || '';
   animateActiveModalClose(() => {
     state.activeModal = null;
@@ -3582,6 +3979,7 @@ function closeActiveModal(options = {}) {
         value: focusKey,
       };
     }
+    recordCurrentNavigationEntry();
     render();
   });
 }
@@ -4065,6 +4463,20 @@ function renderHeaderHistoryControls() {
   }
 
   ui.historyControls.hidden = state.authState !== 'authenticated';
+  const backButton = document.getElementById('history-back-button');
+  const forwardButton = document.getElementById('history-forward-button');
+  if (backButton instanceof HTMLButtonElement) {
+    const enabled = state.authState === 'authenticated' && canGoBack(state.navigationHistory);
+    backButton.disabled = !enabled;
+    backButton.setAttribute('aria-label', enabled ? 'Go back' : 'Go back unavailable');
+    backButton.title = enabled ? 'Go back' : 'Go back unavailable';
+  }
+  if (forwardButton instanceof HTMLButtonElement) {
+    const enabled = state.authState === 'authenticated' && canGoForward(state.navigationHistory);
+    forwardButton.disabled = !enabled;
+    forwardButton.setAttribute('aria-label', enabled ? 'Go forward' : 'Go forward unavailable');
+    forwardButton.title = enabled ? 'Go forward' : 'Go forward unavailable';
+  }
 }
 
 function renderStatusPanel() {
@@ -4162,12 +4574,7 @@ function renderStatusPanel() {
   `;
 
   const closeStatus = () => {
-    state.pendingFocusRequest = {
-      type: 'focusKey',
-      value: 'status-toggle',
-    };
-    state.showStatus = false;
-    render();
+    navigateTo(getCurrentBaseNavigationEntry());
   };
 
   ui.statusRoot.querySelector('#status-backdrop')?.addEventListener('click', closeStatus);
@@ -4597,15 +5004,12 @@ function renderMapViewRegion() {
 
   const snapshot = getSelectedSnapshot();
   if (!snapshot) {
-    state.currentView = 'maps';
-    if (window.location.hash !== HASH_ROUTE.maps) {
-      replaceHashRoute(HASH_ROUTE.maps);
-    }
+    replaceCurrentNavigationEntry({ view: 'maps' });
     renderMapsViewRegion();
     return;
   }
 
-  syncCurrentMapHashRoute(snapshot);
+  syncCurrentMapNavigationEntry(snapshot);
   const nextViewKey = buildMapViewKey(snapshot);
   const nextSelectionKey = buildMapSelectionKey(snapshot);
 
@@ -4731,7 +5135,6 @@ function getWorkspaceOverlayState() {
         kind: state.activeModal.kind,
         mapPath: state.activeModal.mapPath || '',
         nodeId: state.activeModal.fixedParentNodeId || state.activeModal.nodeId || '',
-        historyToken: state.activeModal.historyToken || '',
       }),
     };
   }
@@ -5142,12 +5545,7 @@ function renderSettingsPanel() {
       void authenticateAndLoad();
     },
     onClose: () => {
-      state.pendingFocusRequest = {
-        type: 'focusKey',
-        value: 'settings-toggle',
-      };
-      state.showSettings = false;
-      render();
+      navigateTo(getCurrentBaseNavigationEntry());
     },
   });
   renderCache.settingsKey = nextKey;
@@ -5334,10 +5732,7 @@ function renderMapTaskCounts(summary) {
 function renderMapView() {
   const snapshot = getSelectedSnapshot();
   if (!snapshot) {
-    state.currentView = 'maps';
-    if (window.location.hash !== HASH_ROUTE.maps) {
-      replaceHashRoute(HASH_ROUTE.maps);
-    }
+    replaceCurrentNavigationEntry({ view: 'maps' });
     return renderMapsView(buildMapSummariesForView());
   }
 
@@ -6322,7 +6717,7 @@ function renderThemeModeControl() {
   `;
 }
 
-function syncCurrentMapHashRoute(snapshot = getSelectedSnapshot()) {
+function syncCurrentMapNavigationEntry(snapshot = getSelectedSnapshot()) {
   if (state.currentView !== 'map' || !snapshot) {
     return;
   }
@@ -6332,16 +6727,7 @@ function syncCurrentMapHashRoute(snapshot = getSelectedSnapshot()) {
     return;
   }
 
-  const rootNodeId = snapshot.document.rootNode?.uniqueIdentifier || '';
-  const nextHash = buildHashRoute(
-    'map',
-    snapshot.filePath,
-    selectedNodeState.node.uniqueIdentifier,
-    rootNodeId,
-  );
-  if (window.location.hash !== nextHash) {
-    replaceHashRoute(nextHash);
-  }
+  recordCurrentNavigationEntry({ replace: true });
 }
 
 function renderNodeTextMarkup(rawText, wrapperClass) {
@@ -6859,10 +7245,7 @@ function focusRepairEntry(filePath, switchToMapsView = false) {
   }
 
   if (switchToMapsView) {
-    state.currentView = 'maps';
-    if (window.location.hash !== HASH_ROUTE.maps) {
-      replaceHashRoute(HASH_ROUTE.maps);
-    }
+    replaceCurrentNavigationEntry({ view: 'maps' });
   }
 
   state.pendingFocusRequest = {

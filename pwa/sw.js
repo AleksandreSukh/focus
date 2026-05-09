@@ -1,4 +1,4 @@
-const CACHE_NAME = 'focus-pwa-shell-v15';
+const CACHE_NAME = 'focus-pwa-shell-v16';
 const APP_SHELL_ASSETS = [
   './',
   './index.html',
@@ -15,6 +15,7 @@ const APP_SHELL_ASSETS = [
   './src/auth/tokenValidation.js',
   './src/auth/TokenEntryScreen.js',
   './src/formatting/inlineFormatter.js',
+  './src/navigation/history.js',
   './src/attachments/attachmentTypes.js',
   './src/attachments/imagePreview.js',
   './src/attachments/voiceRecorder.js',
