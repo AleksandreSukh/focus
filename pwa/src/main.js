@@ -6271,27 +6271,32 @@ function renderTasksView(entries = null) {
         `
         : `
           <div class="compact-list task-entry-list">
-            ${resolvedEntries.map((entry) => `
-              <article
-                class="card compact-row task-row clickable-card"
-                role="button"
-                tabindex="0"
-                data-action="open-task-node"
-                data-map-path="${escapeHtml(entry.filePath)}"
-                data-node-id="${escapeHtml(entry.nodeId)}"
-                aria-label="Open task ${escapeHtml(entry.nodeName)}"
-                title="Open task ${escapeHtml(entry.nodeName)}"
-              >
-                <div class="compact-row-main task-row-main">
-                  ${renderPassiveTaskDot(entry.taskState)}
-                  <div class="compact-title-block">
-                    <h3>${renderInlineHtml(entry.nodeName, { theme: state.theme, wrapperClass: 'formatted-inline task-title-inline' })}</h3>
-                    <p class="task-entry-map">${escapeHtml(entry.mapName)}</p>
-                    <p class="task-entry-path">${renderInlinePath(entry.nodePathSegments || entry.nodePath.split(' > '), 'formatted-path task-path-inline')}</p>
+            ${resolvedEntries.map((entry) => {
+              const pathSegments = Array.isArray(entry.nodePathSegments)
+                ? entry.nodePathSegments
+                : String(entry.nodePath || '').split(' > ');
+              const ancestorPathSegments = pathSegments.slice(0, -1);
+              return `
+                <article
+                  class="card compact-row task-row clickable-card"
+                  role="button"
+                  tabindex="0"
+                  data-action="open-task-node"
+                  data-map-path="${escapeHtml(entry.filePath)}"
+                  data-node-id="${escapeHtml(entry.nodeId)}"
+                  aria-label="Open task ${escapeHtml(entry.nodeName)}"
+                  title="Open task ${escapeHtml(entry.nodeName)}"
+                >
+                  <div class="compact-row-main task-row-main">
+                    ${renderPassiveTaskDot(entry.taskState)}
+                    <div class="compact-title-block">
+                      <h3>${renderInlineHtml(entry.nodeName, { theme: state.theme, wrapperClass: 'formatted-inline task-title-inline' })}</h3>
+                      <p class="task-entry-path">${renderInlinePath(ancestorPathSegments, 'formatted-path task-path-inline')}</p>
+                    </div>
                   </div>
-                </div>
-              </article>
-            `).join('')}
+                </article>
+              `;
+            }).join('')}
           </div>
         `}
     </section>

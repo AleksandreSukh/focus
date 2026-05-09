@@ -1,6 +1,10 @@
 package com.systemssanity.focus.ui
 
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.systemssanity.focus.data.github.GitHubAccessValidation
 import com.systemssanity.focus.data.github.GitHubApiException
 import com.systemssanity.focus.data.local.FabSidePreference
@@ -488,6 +492,24 @@ class FocusedMapViewTest {
     }
 
     @Test
+    fun mapHeaderPathShowsAncestorsOnlyAndHidesRootHeader() {
+        val grandchild = Node(uniqueIdentifier = "grandchild", name = "Grandchild")
+        val child = Node(uniqueIdentifier = "child", name = "Child", children = listOf(grandchild))
+        val document = MindMapDocument(rootNode = Node(uniqueIdentifier = "root", name = "Root", children = listOf(child)))
+
+        val rootRecord = resolveFocusedNodeRecord(document, "root")
+        val childRecord = resolveFocusedNodeRecord(document, "child")
+        val grandchildRecord = resolveFocusedNodeRecord(document, "grandchild")
+
+        assertEquals(emptyList(), mapHeaderPathSegments(rootRecord))
+        assertFalse(shouldShowMapHeader(rootRecord))
+        assertEquals(listOf("Root"), mapHeaderPathSegments(childRecord))
+        assertTrue(shouldShowMapHeader(childRecord))
+        assertEquals(listOf("Root", "Child"), mapHeaderPathSegments(grandchildRecord))
+        assertTrue(shouldShowMapHeader(grandchildRecord))
+    }
+
+    @Test
     fun focusAfterDeletingFocusedNodeMovesToParentOtherwiseStaysPut() {
         val child = Node(uniqueIdentifier = "child", name = "Child")
         val sibling = Node(uniqueIdentifier = "sibling", name = "Sibling")
@@ -585,6 +607,40 @@ class FocusedMapViewTest {
                 showAddActions = true,
             ),
         )
+    }
+
+    @Test
+    fun mapNodeTreeStyleUsesCompactReadableSizing() {
+        val rootStyle = mapNodeTitleStyle(isRoot = true)
+        val childStyle = mapNodeTitleStyle(isRoot = false)
+
+        assertEquals(0.dp, mapNodeIndent(0))
+        assertEquals(10.dp, mapNodeIndent(1))
+        assertEquals(30.dp, mapNodeIndent(3))
+        assertEquals(56.dp, mapNodeIndent(9))
+        assertEquals(0.dp, mapNodeIndent(-1))
+
+        assertEquals(18.sp, rootStyle.fontSize)
+        assertEquals(24.sp, rootStyle.lineHeight)
+        assertEquals(FontWeight.SemiBold, rootStyle.fontWeight)
+        assertEquals(16.sp, childStyle.fontSize)
+        assertEquals(22.sp, childStyle.lineHeight)
+        assertEquals(FontWeight.Medium, childStyle.fontWeight)
+        assertEquals(12.sp, mapNodeMetaStyle().fontSize)
+
+        assertEquals(30.dp, MapNodeCompactActionSize)
+        assertEquals(18.dp, MapNodeCompactIconSize)
+        assertEquals(24.dp, MapNodeCollapseToggleSize)
+        assertEquals(14.dp, MapNodeCollapseIconSize)
+        assertEquals(28.dp, MapNodeTaskStateButtonSize)
+    }
+
+    @Test
+    fun focusedMapNodeTitleUsesOnlySubtleBackground() {
+        val palette = focusPalette(isDark = false)
+
+        assertEquals(palette.accentSoft, mapNodeTitleBackground(isFocused = true, palette))
+        assertEquals(Color.Transparent, mapNodeTitleBackground(isFocused = false, palette))
     }
 
     @Test

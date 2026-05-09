@@ -15,6 +15,8 @@ namespace Systems.Sanity.Focus.Application.WorkflowInteractions;
 
 internal sealed class ConsoleWorkflowInteractions : IWorkflowInteractions
 {
+    private const int VoiceRecordingProgressBarWidth = 24;
+
     public bool Confirm(string message) =>
         new Confirmation(message).Confirmed();
 
@@ -123,6 +125,7 @@ internal sealed class ConsoleWorkflowInteractions : IWorkflowInteractions
         TimeSpan maxDuration)
     {
         var lastDisplayedSecond = -1;
+        var lastStatusLength = 0;
         while (true)
         {
             var elapsed = DateTimeOffset.UtcNow - startedAtUtc;
@@ -131,14 +134,14 @@ internal sealed class ConsoleWorkflowInteractions : IWorkflowInteractions
 
             if (elapsed >= maxDuration)
             {
-                WriteVoiceRecordingStatus(maxDuration, reachedLimit: true);
+                WriteVoiceRecordingStatus(maxDuration, maxDuration, reachedLimit: true, ref lastStatusLength);
                 return WorkflowVoiceRecordingDecision.TimeLimitReached;
             }
 
             var elapsedSecond = (int)elapsed.TotalSeconds;
             if (elapsedSecond != lastDisplayedSecond)
             {
-                WriteVoiceRecordingStatus(elapsed, reachedLimit: false);
+                WriteVoiceRecordingStatus(elapsed, maxDuration, reachedLimit: false, ref lastStatusLength);
                 lastDisplayedSecond = elapsedSecond;
             }
 
@@ -162,12 +165,56 @@ internal sealed class ConsoleWorkflowInteractions : IWorkflowInteractions
         }
     }
 
-    private static void WriteVoiceRecordingStatus(TimeSpan elapsed, bool reachedLimit)
+    internal static string FormatVoiceRecordingStatus(TimeSpan elapsed, TimeSpan maxDuration, bool reachedLimit)
     {
-        var elapsedText = $"{(int)elapsed.TotalMinutes:00}:{elapsed.Seconds:00}";
+        var boundedElapsed = ClampElapsed(elapsed, maxDuration);
+        var progress = maxDuration > TimeSpan.Zero
+            ? boundedElapsed.TotalMilliseconds / maxDuration.TotalMilliseconds
+            : 1;
+        progress = Math.Clamp(progress, 0, 1);
+
+        var filledWidth = (int)Math.Round(
+            progress * VoiceRecordingProgressBarWidth,
+            MidpointRounding.AwayFromZero);
+        filledWidth = Math.Clamp(filledWidth, 0, VoiceRecordingProgressBarWidth);
+        var emptyWidth = VoiceRecordingProgressBarWidth - filledWidth;
+        var elapsedText = FormatVoiceRecordingTime(boundedElapsed);
+        var maxDurationText = FormatVoiceRecordingTime(maxDuration > TimeSpan.Zero
+            ? maxDuration
+            : TimeSpan.Zero);
+        var percentage = (int)Math.Round(progress * 100, MidpointRounding.AwayFromZero);
         var suffix = reachedLimit
             ? "5 minute limit reached. Saving..."
             : "Press Enter to save or Esc to cancel.";
-        AppConsole.Current.Write($"\rRecording voice note {elapsedText}. {suffix}   ");
+
+        return $"Recording voice note [{new string('#', filledWidth)}{new string('-', emptyWidth)}] {elapsedText} / {maxDurationText} {percentage}%. {suffix}";
     }
+
+    private static void WriteVoiceRecordingStatus(
+        TimeSpan elapsed,
+        TimeSpan maxDuration,
+        bool reachedLimit,
+        ref int lastStatusLength)
+    {
+        var status = FormatVoiceRecordingStatus(elapsed, maxDuration, reachedLimit);
+        var clearSuffix = new string(' ', Math.Max(0, lastStatusLength - status.Length));
+        AppConsole.Current.Write($"\r{status}{clearSuffix}");
+        lastStatusLength = status.Length;
+    }
+
+    private static TimeSpan ClampElapsed(TimeSpan elapsed, TimeSpan maxDuration)
+    {
+        if (elapsed < TimeSpan.Zero)
+            return TimeSpan.Zero;
+
+        if (maxDuration <= TimeSpan.Zero)
+            return TimeSpan.Zero;
+
+        return elapsed > maxDuration
+            ? maxDuration
+            : elapsed;
+    }
+
+    private static string FormatVoiceRecordingTime(TimeSpan value) =>
+        $"{(int)value.TotalMinutes:00}:{value.Seconds:00}";
 }

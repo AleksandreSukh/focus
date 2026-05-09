@@ -322,7 +322,6 @@ h3 {
 .security-note,
 .map-file-name,
 .map-updated,
-.task-entry-map,
 .task-entry-path,
 .map-reader-file,
 .compact-meta,
@@ -1132,7 +1131,6 @@ h3 {
 
 .compact-meta,
 .map-updated,
-.task-entry-map,
 .task-entry-path {
   font-size: 0.9rem;
 }

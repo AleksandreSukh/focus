@@ -98,11 +98,17 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.systemssanity.focus.domain.maps.AttachmentExports
@@ -111,6 +117,7 @@ import com.systemssanity.focus.domain.maps.AttachmentViewers
 import com.systemssanity.focus.data.local.FabSidePreference
 import com.systemssanity.focus.data.local.RepoSettings
 import com.systemssanity.focus.data.local.ThemePreference
+import com.systemssanity.focus.domain.appupdates.AppUpdates
 import com.systemssanity.focus.domain.maps.AttachmentUploads
 import com.systemssanity.focus.domain.maps.BlockedPendingMapEntry
 import com.systemssanity.focus.domain.maps.BlockedPendingMaps
@@ -155,6 +162,8 @@ internal fun FocusApp(
 
     FocusTheme(themePreference = uiState.uiPreferences.theme) {
         val palette = LocalFocusPalette.current
+        val context = LocalContext.current
+        val lifecycleOwner = LocalLifecycleOwner.current
         Surface(
             modifier = Modifier.fillMaxSize(),
             color = palette.pageBackground,
@@ -201,6 +210,32 @@ internal fun FocusApp(
                 showConnection = false
             }
 
+            fun openAppUpdate(url: String) {
+                runCatching {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                }.onFailure {
+                    viewModel.showStatusMessage(appUpdateOpenFailedMessage())
+                }
+            }
+
+            LaunchedEffect(Unit) {
+                viewModel.checkForAppUpdate(force = true)
+                while (true) {
+                    delay(AppUpdates.CheckIntervalMillis)
+                    viewModel.checkForAppUpdate()
+                }
+            }
+            DisposableEffect(lifecycleOwner) {
+                val observer = LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_RESUME) {
+                        viewModel.checkForAppUpdate()
+                    }
+                }
+                lifecycleOwner.lifecycle.addObserver(observer)
+                onDispose {
+                    lifecycleOwner.lifecycle.removeObserver(observer)
+                }
+            }
             LaunchedEffect(uiState.connectionStateLoaded, uiState.repoSettings.isComplete, uiState.tokenPresent) {
                 if (!initialScreenResolved) {
                     resolveInitialAppScreen(
@@ -312,101 +347,111 @@ internal fun FocusApp(
                     )
                 },
             ) { padding ->
-                Box(
+                Column(
                     modifier = Modifier
                         .padding(padding)
                         .fillMaxSize(),
                 ) {
-                    when (screen) {
-                        AppScreen.Connection -> ConnectionScreen(
-                            uiState = uiState,
-                            onFabSideChange = viewModel::setFabSidePreference,
-                            onSave = { settings, token ->
-                                closeConnectionAfterLoad = true
-                                viewModel.saveConnection(settings, token)
-                            },
-                            onLoad = {
-                                closeConnectionAfterLoad = true
-                                viewModel.loadWorkspace(forceRefresh = true)
-                            },
-                            onRevalidate = viewModel::revalidateGitHubAccess,
-                            onClearSavedToken = viewModel::clearSavedToken,
-                            onHardReset = {
-                                closeConnectionAfterLoad = true
-                                viewModel.hardResetAndReloadFromGitHub()
-                            },
-                        )
-                        AppScreen.Maps -> MapsScreen(
-                            snapshots = uiState.snapshots,
-                            unreadableMaps = uiState.unreadableMaps,
-                            unreadablePendingCounts = uiState.unreadablePendingCounts,
-                            blockedPendingMaps = uiState.blockedPendingMaps,
-                            blockedPendingCounts = uiState.blockedPendingCounts,
-                            pendingConflictMaps = uiState.pendingConflictMaps,
-                            pendingConflictCounts = uiState.pendingConflictCounts,
-                            localMapRepairState = uiState.localMapRepairState,
-                            fabSide = uiState.uiPreferences.fabSide,
-                            loading = uiState.loading,
-                            onOpenMap = { snapshot ->
-                                applyRoute(
-                                    FocusRoute.Map(
-                                        filePath = snapshot.filePath,
-                                        nodeId = snapshot.document.rootNode.uniqueIdentifier,
-                                    ),
-                                )
-                            },
-                            onCreateMap = viewModel::createMap,
-                            onDeleteMap = viewModel::deleteMap,
-                            onOpenLocalRepair = { entry -> viewModel.openLocalMapRepair(entry.filePath) },
-                            onSaveLocalRepair = viewModel::saveLocalMapRepair,
-                            onCloseLocalRepair = viewModel::closeLocalMapRepair,
-                            onResetUnreadableMap = { entry -> viewModel.resetUnreadableMapFromGitHub(entry.filePath) },
-                            onResetBlockedMap = { entry -> viewModel.resetUnreadableMapFromGitHub(entry.filePath) },
-                            onOpenRawUnreadableMap = { entry -> viewModel.openUnreadableMapViewer(entry.filePath) },
-                            onRetryUnreadableMap = { viewModel.loadWorkspace(forceRefresh = true) },
-                            onRetryBlockedMap = { viewModel.loadWorkspace(forceRefresh = true) },
-                            onDiscardBlockedMap = { entry -> viewModel.discardPendingOperationsForBlockedMap(entry.filePath) },
-                            onResolveConflictMap = { entry -> viewModel.openPendingConflictResolver(entry.filePath) },
-                            onRetryConflictMap = { viewModel.syncPendingNow() },
-                        )
-                        AppScreen.Tasks -> TasksScreen(
-                            snapshots = uiState.snapshots,
-                            filter = uiState.taskFilter,
-                            onFilterChanged = viewModel::setTaskFilter,
-                            onOpenTask = { entry ->
-                                applyRoute(FocusRoute.Map(entry.filePath, entry.nodeId))
-                            },
-                            onSetTaskState = { entry, taskState ->
-                                viewModel.setTaskState(entry.filePath, entry.nodeId, taskState)
-                            },
-                        )
-                        AppScreen.Map -> selectedSnapshot?.let { snapshot ->
-                            val mapRoute = currentRoute as? FocusRoute.Map
-                            MapEditorScreen(
-                                snapshot = snapshot,
-                                allSnapshots = uiState.snapshots,
-                                focusedNodeId = mapRoute?.nodeId ?: snapshot.document.rootNode.uniqueIdentifier,
-                                fabSide = uiState.uiPreferences.fabSide,
-                                attachmentUploadState = uiState.attachmentUploadState,
-                                attachmentDeleteState = uiState.attachmentDeleteState,
-                                onSetTaskState = viewModel::setTaskState,
-                                onEditNode = viewModel::editNodeText,
-                                onAddChild = viewModel::addChild,
-                                onUploadAttachment = viewModel::uploadAttachment,
-                                onUploadVoiceAttachment = viewModel::uploadPreparedAttachment,
-                                onOpenAttachment = viewModel::openAttachmentViewer,
-                                onDeleteAttachment = viewModel::deleteAttachment,
-                                onDeleteNode = viewModel::deleteNode,
-                                onToggleHideDone = viewModel::toggleHideDone,
-                                onToggleStarred = viewModel::toggleStarred,
-                                onFocusNode = { nodeId ->
-                                    applyRoute(FocusRoute.Map(snapshot.filePath, nodeId))
+                    AppUpdateBanner(
+                        state = uiState.appUpdateState,
+                        onOpenUpdate = ::openAppUpdate,
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                    ) {
+                        when (screen) {
+                            AppScreen.Connection -> ConnectionScreen(
+                                uiState = uiState,
+                                onFabSideChange = viewModel::setFabSidePreference,
+                                onSave = { settings, token ->
+                                    closeConnectionAfterLoad = true
+                                    viewModel.saveConnection(settings, token)
                                 },
-                                onOpenRelatedNode = { entry ->
-                                    applyRoute(FocusRoute.Map(entry.mapPath, entry.nodeId))
+                                onLoad = {
+                                    closeConnectionAfterLoad = true
+                                    viewModel.loadWorkspace(forceRefresh = true)
+                                },
+                                onRevalidate = viewModel::revalidateGitHubAccess,
+                                onClearSavedToken = viewModel::clearSavedToken,
+                                onHardReset = {
+                                    closeConnectionAfterLoad = true
+                                    viewModel.hardResetAndReloadFromGitHub()
                                 },
                             )
-                        } ?: EmptyPanel("No map is loaded.")
+                            AppScreen.Maps -> MapsScreen(
+                                snapshots = uiState.snapshots,
+                                unreadableMaps = uiState.unreadableMaps,
+                                unreadablePendingCounts = uiState.unreadablePendingCounts,
+                                blockedPendingMaps = uiState.blockedPendingMaps,
+                                blockedPendingCounts = uiState.blockedPendingCounts,
+                                pendingConflictMaps = uiState.pendingConflictMaps,
+                                pendingConflictCounts = uiState.pendingConflictCounts,
+                                localMapRepairState = uiState.localMapRepairState,
+                                fabSide = uiState.uiPreferences.fabSide,
+                                loading = uiState.loading,
+                                onOpenMap = { snapshot ->
+                                    applyRoute(
+                                        FocusRoute.Map(
+                                            filePath = snapshot.filePath,
+                                            nodeId = snapshot.document.rootNode.uniqueIdentifier,
+                                        ),
+                                    )
+                                },
+                                onCreateMap = viewModel::createMap,
+                                onDeleteMap = viewModel::deleteMap,
+                                onOpenLocalRepair = { entry -> viewModel.openLocalMapRepair(entry.filePath) },
+                                onSaveLocalRepair = viewModel::saveLocalMapRepair,
+                                onCloseLocalRepair = viewModel::closeLocalMapRepair,
+                                onResetUnreadableMap = { entry -> viewModel.resetUnreadableMapFromGitHub(entry.filePath) },
+                                onResetBlockedMap = { entry -> viewModel.resetUnreadableMapFromGitHub(entry.filePath) },
+                                onOpenRawUnreadableMap = { entry -> viewModel.openUnreadableMapViewer(entry.filePath) },
+                                onRetryUnreadableMap = { viewModel.loadWorkspace(forceRefresh = true) },
+                                onRetryBlockedMap = { viewModel.loadWorkspace(forceRefresh = true) },
+                                onDiscardBlockedMap = { entry -> viewModel.discardPendingOperationsForBlockedMap(entry.filePath) },
+                                onResolveConflictMap = { entry -> viewModel.openPendingConflictResolver(entry.filePath) },
+                                onRetryConflictMap = { viewModel.syncPendingNow() },
+                            )
+                            AppScreen.Tasks -> TasksScreen(
+                                snapshots = uiState.snapshots,
+                                filter = uiState.taskFilter,
+                                onFilterChanged = viewModel::setTaskFilter,
+                                onOpenTask = { entry ->
+                                    applyRoute(FocusRoute.Map(entry.filePath, entry.nodeId))
+                                },
+                                onSetTaskState = { entry, taskState ->
+                                    viewModel.setTaskState(entry.filePath, entry.nodeId, taskState)
+                                },
+                            )
+                            AppScreen.Map -> selectedSnapshot?.let { snapshot ->
+                                val mapRoute = currentRoute as? FocusRoute.Map
+                                MapEditorScreen(
+                                    snapshot = snapshot,
+                                    allSnapshots = uiState.snapshots,
+                                    focusedNodeId = mapRoute?.nodeId ?: snapshot.document.rootNode.uniqueIdentifier,
+                                    fabSide = uiState.uiPreferences.fabSide,
+                                    attachmentUploadState = uiState.attachmentUploadState,
+                                    attachmentDeleteState = uiState.attachmentDeleteState,
+                                    onSetTaskState = viewModel::setTaskState,
+                                    onEditNode = viewModel::editNodeText,
+                                    onAddChild = viewModel::addChild,
+                                    onUploadAttachment = viewModel::uploadAttachment,
+                                    onUploadVoiceAttachment = viewModel::uploadPreparedAttachment,
+                                    onOpenAttachment = viewModel::openAttachmentViewer,
+                                    onDeleteAttachment = viewModel::deleteAttachment,
+                                    onDeleteNode = viewModel::deleteNode,
+                                    onToggleHideDone = viewModel::toggleHideDone,
+                                    onToggleStarred = viewModel::toggleStarred,
+                                    onFocusNode = { nodeId ->
+                                        applyRoute(FocusRoute.Map(snapshot.filePath, nodeId))
+                                    },
+                                    onOpenRelatedNode = { entry ->
+                                        applyRoute(FocusRoute.Map(entry.mapPath, entry.nodeId))
+                                    },
+                                )
+                            } ?: EmptyPanel("No map is loaded.")
+                        }
                     }
                 }
             }
@@ -647,6 +692,44 @@ internal fun mapEditorFabActionsForSide(
 }
 
 @Composable
+private fun AppUpdateBanner(
+    state: AppUpdateUiState,
+    onOpenUpdate: (String) -> Unit,
+) {
+    if (!appUpdateBannerVisible(state)) return
+
+    val palette = LocalFocusPalette.current
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = palette.warning.copy(alpha = if (palette.isDark) 0.18f else 0.12f),
+        contentColor = palette.text,
+        border = BorderStroke(1.dp, palette.warning.copy(alpha = 0.42f)),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = appUpdateBannerMessage(state),
+                style = MaterialTheme.typography.bodyMedium,
+                color = palette.text,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(
+                onClick = { onOpenUpdate(state.updateUrl) },
+                colors = focusTextButtonColors(),
+            ) {
+                Text(appUpdateOpenActionLabel(state))
+            }
+        }
+    }
+}
+
+@Composable
 private fun FocusTopBar(
     screen: AppScreen,
     themePreference: ThemePreference,
@@ -674,24 +757,9 @@ private fun FocusTopBar(
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Focus",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = palette.text,
-                    )
-                    Text(
-                        text = if (syncStatusInfo.pendingCount > 0) syncStatusInfo.pendingText else syncStatusInfo.message,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (syncStatusInfo.pendingCount > 0) palette.accentStrong else palette.muted,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
                 FocusIconButton(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = nativeRouteBackLabel(canGoBack),
@@ -2269,9 +2337,8 @@ private fun TaskEntryCard(
                         overflow = TextOverflow.Ellipsis,
                         onPlainClick = onOpenTask,
                     )
-                    Text(entry.mapName, style = MaterialTheme.typography.bodyMedium, color = palette.accentStrong)
                     FocusInlinePath(
-                        pathSegments = entry.nodePathSegments,
+                        pathSegments = entry.nodePathSegments.dropLast(1),
                         style = MaterialTheme.typography.bodySmall,
                         color = palette.muted,
                         maxLines = 2,
@@ -2380,18 +2447,18 @@ private fun MapEditorScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 96.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 96.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            item {
-                MapHeader(
-                    snapshot = snapshot,
-                    focusedRecord = focusedRecord,
-                    onFocusParent = { focusedRecord.parent?.let { onFocusNode(it.uniqueIdentifier) } },
-                )
+            if (shouldShowMapHeader(focusedRecord)) {
+                item {
+                    MapHeader(
+                        focusedRecord = focusedRecord,
+                    )
+                }
             }
             items(visibleNodes, key = { it.node.uniqueIdentifier }) { item ->
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     NodeRow(
                         item = item,
                         isMapRoot = item.node.uniqueIdentifier == snapshot.document.rootNode.uniqueIdentifier,
@@ -2584,11 +2651,10 @@ private fun MapEditorScreen(
 
 @Composable
 private fun MapHeader(
-    snapshot: MapSnapshot,
     focusedRecord: NodeRecord,
-    onFocusParent: () -> Unit,
 ) {
     val palette = LocalFocusPalette.current
+    val pathSegments = mapHeaderPathSegments(focusedRecord)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -2596,35 +2662,24 @@ private fun MapHeader(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.Top,
     ) {
-        if (focusedRecord.parent != null) {
-            FocusIconButton(
-                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "Focus parent node",
-                onClick = onFocusParent,
-            )
-        }
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            Text(snapshot.mapName, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+        if (pathSegments.isNotEmpty()) {
             FocusInlinePath(
-                pathSegments = focusedRecord.pathSegments,
+                pathSegments = pathSegments,
+                modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodySmall,
                 color = palette.accentStrong,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                snapshot.filePath,
-                style = MaterialTheme.typography.bodySmall,
-                color = palette.muted,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
     }
 }
+
+internal fun mapHeaderPathSegments(focusedRecord: NodeRecord): List<String> =
+    focusedRecord.pathSegments.dropLast(1)
+
+internal fun shouldShowMapHeader(focusedRecord: NodeRecord): Boolean =
+    focusedRecord.parent != null || mapHeaderPathSegments(focusedRecord).isNotEmpty()
 
 @Composable
 private fun AttachmentListSection(
@@ -3351,6 +3406,32 @@ private fun RelatedNodeRow(
     }
 }
 
+internal val MapNodeCompactActionSize: Dp = 30.dp
+internal val MapNodeCompactIconSize: Dp = 18.dp
+internal val MapNodeCollapseToggleSize: Dp = 24.dp
+internal val MapNodeCollapseIconSize: Dp = 14.dp
+internal val MapNodeTaskStateButtonSize: Dp = 28.dp
+
+internal fun mapNodeIndent(depth: Int): Dp =
+    (depth.coerceAtLeast(0) * 10).coerceAtMost(56).dp
+
+internal fun mapNodeTitleStyle(isRoot: Boolean): TextStyle =
+    TextStyle(
+        fontSize = if (isRoot) 18.sp else 16.sp,
+        lineHeight = if (isRoot) 24.sp else 22.sp,
+        fontWeight = if (isRoot) FontWeight.SemiBold else FontWeight.Medium,
+    )
+
+internal fun mapNodeMetaStyle(): TextStyle =
+    TextStyle(
+        fontSize = 12.sp,
+        lineHeight = 16.sp,
+        fontWeight = FontWeight.Medium,
+    )
+
+internal fun mapNodeTitleBackground(isFocused: Boolean, palette: FocusPalette): Color =
+    if (isFocused) palette.accentSoft else Color.Transparent
+
 @Composable
 private fun NodeRow(
     item: VisibleNode,
@@ -3367,80 +3448,123 @@ private fun NodeRow(
     val palette = LocalFocusPalette.current
     val nodeName = MapQueries.normalizeNodeDisplayText(node.name)
     val plainNodeName = plainInlineDisplayText(nodeName)
-    FocusCard(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = (item.depth * 14).coerceAtMost(72).dp),
-        onClick = onNodeClick,
+            .padding(start = mapNodeIndent(item.depth))
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onNodeClick)
+            .padding(horizontal = 6.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(9.dp),
-        ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
-                CollapseToggleButton(
-                    node = node,
-                    collapsed = item.collapsed,
-                    hasVisibleChildren = item.hasVisibleChildren,
-                    onToggle = onToggleCollapsed,
-                    modifier = Modifier.padding(top = 1.dp),
-                )
-                TaskMarkerButton(
-                    taskState = node.taskState,
-                    enabled = canQuickMarkTodo(isRoot = isRoot, node = node),
-                    onMarkTodo = { onSetTaskState(TaskState.Todo) },
-                    modifier = Modifier.padding(top = 1.dp),
-                )
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.Top,
-                    ) {
-                        FocusInlineText(
-                            text = nodeName,
-                            style = (if (isRoot) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium)
-                                .copy(fontWeight = if (isRoot) FontWeight.Bold else FontWeight.SemiBold),
-                            maxLines = 3,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
-                            color = if (isFocusedNode) palette.accentStrong else palette.text,
-                            onPlainClick = onNodeClick,
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.Top) {
+            CollapseToggleButton(
+                node = node,
+                collapsed = item.collapsed,
+                hasVisibleChildren = item.hasVisibleChildren,
+                onToggle = onToggleCollapsed,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+            TaskMarkerButton(
+                taskState = node.taskState,
+                enabled = canQuickMarkTodo(isRoot = isRoot, node = node),
+                onMarkTodo = { onSetTaskState(TaskState.Todo) },
+                modifier = Modifier.padding(top = 3.dp),
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    FocusInlineText(
+                        text = nodeName,
+                        style = mapNodeTitleStyle(isRoot),
+                        maxLines = 4,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(mapNodeTitleBackground(isFocusedNode, palette))
+                            .padding(horizontal = 6.dp, vertical = 1.dp),
+                        color = if (isFocusedNode) palette.accentStrong else palette.text,
+                        onPlainClick = onNodeClick,
+                    )
+                    if (canToggleStar(isRoot = isRoot, node = node)) {
+                        CompactNodeIconButton(
+                            imageVector = if (node.starred) Icons.Filled.Star else Icons.Filled.StarBorder,
+                            contentDescription = starActionLabel(node),
+                            onClick = onToggleStarred,
+                            selected = node.starred,
+                            modifier = Modifier.semantics {
+                                stateDescription = if (node.starred) "Starred" else "Not starred"
+                            },
                         )
-                        if (canToggleStar(isRoot = isRoot, node = node)) {
-                            FocusIconButton(
-                                imageVector = if (node.starred) Icons.Filled.Star else Icons.Filled.StarBorder,
-                                contentDescription = starActionLabel(node),
-                                onClick = onToggleStarred,
-                                selected = node.starred,
-                                modifier = Modifier.semantics {
-                                    stateDescription = if (node.starred) "Starred" else "Not starred"
-                                },
-                            )
-                        } else if (node.starred) {
-                            Icon(
-                                imageVector = Icons.Filled.Star,
-                                contentDescription = "Starred",
-                                tint = palette.accentStrong,
-                                modifier = Modifier.size(19.dp),
-                            )
-                        }
-                        if (!isRoot && !node.isIdeaTag) {
-                            DeleteOverflowMenu(
-                                targetLabel = plainNodeName,
-                                onDelete = onDelete,
-                            )
-                        }
+                    } else if (node.starred) {
+                        Icon(
+                            imageVector = Icons.Filled.Star,
+                            contentDescription = "Starred",
+                            tint = palette.accentStrong,
+                            modifier = Modifier.size(MapNodeCompactIconSize),
+                        )
                     }
-                    if (node.isIdeaTag) {
-                        Text("Idea", style = MaterialTheme.typography.bodySmall, color = palette.muted)
+                    if (!isRoot && !node.isIdeaTag) {
+                        DeleteOverflowMenu(
+                            targetLabel = plainNodeName,
+                            onDelete = onDelete,
+                        )
                     }
                 }
-            }
-            if (shouldShowTaskStateModifiers(isRoot = isRoot, node = node, isFocusedNode = isFocusedNode)) {
-                TaskStateButtons(currentState = node.taskState, onSetTaskState = onSetTaskState)
+                if (node.isIdeaTag) {
+                    Text("Idea", style = mapNodeMetaStyle(), color = palette.muted)
+                }
             }
         }
+        if (shouldShowTaskStateModifiers(isRoot = isRoot, node = node, isFocusedNode = isFocusedNode)) {
+            TaskStateButtons(currentState = node.taskState, onSetTaskState = onSetTaskState)
+        }
+    }
+}
+
+@Composable
+private fun CompactNodeIconButton(
+    imageVector: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    selected: Boolean = false,
+    destructive: Boolean = false,
+) {
+    val palette = LocalFocusPalette.current
+    val iconColor = when {
+        !enabled -> palette.muted.copy(alpha = 0.45f)
+        destructive -> palette.danger
+        selected -> palette.accentStrong
+        else -> palette.muted
+    }
+    Box(
+        modifier = modifier
+            .size(MapNodeCompactActionSize)
+            .clip(CircleShape)
+            .background(if (selected) palette.accentSoft else Color.Transparent)
+            .semantics {
+                this.contentDescription = contentDescription
+            }
+            .clickable(
+                enabled = enabled,
+                onClickLabel = contentDescription,
+                role = Role.Button,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = imageVector,
+            contentDescription = null,
+            tint = iconColor,
+            modifier = Modifier.size(MapNodeCompactIconSize),
+        )
     }
 }
 
@@ -3455,14 +3579,14 @@ private fun CollapseToggleButton(
     val palette = LocalFocusPalette.current
     val shape = CircleShape
     if (!hasVisibleChildren) {
-        Spacer(modifier = modifier.size(30.dp))
+        Spacer(modifier = modifier.size(MapNodeCollapseToggleSize))
         return
     }
 
     val label = collapseActionLabel(node, collapsed)
     Box(
         modifier = modifier
-            .size(30.dp)
+            .size(MapNodeCollapseToggleSize)
             .clip(shape)
             .background(if (collapsed) Color.Transparent else palette.accentSoft)
             .border(BorderStroke(1.dp, if (collapsed) palette.accentBorder else palette.accentBorderStrong), shape)
@@ -3481,7 +3605,7 @@ private fun CollapseToggleButton(
             imageVector = if (collapsed) Icons.Filled.Add else Icons.Filled.Remove,
             contentDescription = null,
             tint = palette.accentStrong,
-            modifier = Modifier.size(16.dp),
+            modifier = Modifier.size(MapNodeCollapseIconSize),
         )
     }
 }
@@ -3495,13 +3619,13 @@ private fun TaskMarkerButton(
 ) {
     val shape = CircleShape
     if (!enabled) {
-        TaskDot(taskState = taskState, modifier = modifier.padding(top = 5.dp))
+        TaskDot(taskState = taskState, modifier = modifier.padding(top = 4.dp))
         return
     }
 
     Box(
         modifier = modifier
-            .size(24.dp)
+            .size(20.dp)
             .clip(shape)
             .semantics {
                 contentDescription = "Mark as Todo"
@@ -3527,7 +3651,7 @@ private fun DeleteOverflowMenu(
     var expanded by remember { mutableStateOf(false) }
     val palette = LocalFocusPalette.current
     Box {
-        FocusIconButton(
+        CompactNodeIconButton(
             imageVector = Icons.Filled.MoreVert,
             contentDescription = "More actions for $targetLabel",
             onClick = { expanded = true },
@@ -3564,7 +3688,7 @@ private fun TaskStateButtons(
 ) {
     Row(
         modifier = Modifier.horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(9.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         listOf(TaskState.None, TaskState.Todo, TaskState.Doing, TaskState.Done).forEach { state ->
@@ -3588,7 +3712,7 @@ private fun TaskStateButton(
     val label = taskStateActionLabel(state)
     Box(
         modifier = Modifier
-            .size(34.dp)
+            .size(MapNodeTaskStateButtonSize)
             .clip(shape)
             .background(if (selected) palette.accentSoft else Color.Transparent)
             .border(

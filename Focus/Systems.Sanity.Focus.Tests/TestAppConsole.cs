@@ -1,3 +1,4 @@
+using System.Text;
 using Systems.Sanity.Focus.Application;
 using Systems.Sanity.Focus.Application.Console;
 using Systems.Sanity.Focus.Domain;
@@ -25,6 +26,7 @@ internal sealed class AppConsoleScope : IDisposable
 
 internal sealed class ScriptedConsoleSession : IConsoleAppSession
 {
+    private readonly StringBuilder _output = new();
     private readonly Queue<ConsoleKeyInfo> _readKeys;
     private readonly int _windowWidth;
 
@@ -56,6 +58,8 @@ internal sealed class ScriptedConsoleSession : IConsoleAppSession
 
     public List<string> BackgroundMessages { get; } = new();
 
+    public string Output => _output.ToString();
+
     public void SetTitle(string? title)
     {
     }
@@ -70,10 +74,12 @@ internal sealed class ScriptedConsoleSession : IConsoleAppSession
 
     public void Write(string text)
     {
+        _output.Append(text);
     }
 
     public void WriteLine(string text)
     {
+        _output.AppendLine(text);
     }
 
     public void WriteBackgroundMessage(string text)

@@ -1,6 +1,8 @@
 package com.systemssanity.focus.di
 
 import android.content.Context
+import com.systemssanity.focus.BuildConfig
+import com.systemssanity.focus.data.appupdates.AppUpdateChecker
 import com.systemssanity.focus.data.github.GitHubAccessValidation
 import com.systemssanity.focus.data.github.GitHubContentClient
 import com.systemssanity.focus.data.github.GitHubMindMapProvider
@@ -16,6 +18,8 @@ class AppContainer(context: Context) {
     val preferencesStore = PreferencesStore(context.applicationContext)
     val tokenStore = SecureTokenStore(context.applicationContext)
     val localStore = FileFocusLocalStore(context.applicationContext)
+    val updateManifestUrl: String = BuildConfig.UPDATE_MANIFEST_URL
+    val currentAppVersionCode: Long = BuildConfig.VERSION_CODE.toLong()
 
     fun createMindMapService(settings: RepoSettings, token: String): MindMapService {
         val client = GitHubContentClient(
@@ -40,4 +44,7 @@ class AppContainer(context: Context) {
 
     suspend fun validateGitHubAccess(settings: RepoSettings, token: String): Result<Unit> =
         GitHubAccessValidation.validate(settings, token)
+
+    fun createAppUpdateChecker(): AppUpdateChecker =
+        AppUpdateChecker(updateManifestUrl)
 }

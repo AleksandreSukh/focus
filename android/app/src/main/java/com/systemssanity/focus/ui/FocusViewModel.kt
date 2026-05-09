@@ -17,6 +17,8 @@ import com.systemssanity.focus.data.local.RepoSettings
 import com.systemssanity.focus.data.local.SyncMetadata
 import com.systemssanity.focus.data.local.ThemePreference
 import com.systemssanity.focus.data.local.UiPreferences
+import com.systemssanity.focus.domain.appupdates.AppUpdateManifest
+import com.systemssanity.focus.domain.appupdates.AppUpdates
 import com.systemssanity.focus.domain.maps.AttachmentUploads
 import com.systemssanity.focus.domain.maps.AttachmentViewerKind
 import com.systemssanity.focus.domain.maps.AttachmentViewers
@@ -78,7 +80,47 @@ data class FocusUiState(
     val attachmentViewerState: AttachmentViewerUiState = AttachmentViewerUiState(),
     val localMapRepairState: LocalMapRepairUiState = LocalMapRepairUiState(),
     val conflictResolutionState: ConflictResolutionUiState = ConflictResolutionUiState(),
+    val appUpdateState: AppUpdateUiState = AppUpdateUiState(),
 )
+
+data class AppUpdateUiState(
+    val checking: Boolean = false,
+    val available: Boolean = false,
+    val message: String = "",
+    val versionName: String = "",
+    val updateUrl: String = "",
+    val lastCheckedAtMillis: Long = 0,
+    val errorMessage: String = "",
+)
+
+internal fun appUpdateStateFromManifest(
+    manifest: AppUpdateManifest,
+    currentVersionCode: Long,
+    checkedAtMillis: Long,
+): AppUpdateUiState =
+    if (AppUpdates.actionableUpdateAvailable(manifest, currentVersionCode)) {
+        AppUpdateUiState(
+            available = true,
+            message = AppUpdates.bannerMessage(manifest),
+            versionName = manifest.versionName,
+            updateUrl = manifest.url.trim(),
+            lastCheckedAtMillis = checkedAtMillis,
+        )
+    } else {
+        AppUpdateUiState(lastCheckedAtMillis = checkedAtMillis)
+    }
+
+internal fun appUpdateBannerVisible(state: AppUpdateUiState): Boolean =
+    state.available && state.updateUrl.isNotBlank()
+
+internal fun appUpdateBannerMessage(state: AppUpdateUiState): String =
+    state.message.ifBlank { AppUpdates.DefaultUpdateMessage }
+
+internal fun appUpdateOpenActionLabel(state: AppUpdateUiState): String =
+    AppUpdates.OpenUpdateLabel
+
+internal fun appUpdateOpenFailedMessage(): String =
+    "Could not open update link."
 
 internal fun uiPreferencesWithFabSide(
     preferences: UiPreferences,
@@ -395,6 +437,53 @@ class FocusViewModel(application: Application) : AndroidViewModel(application) {
 
     fun refreshWorkspaceFromGitHub() {
         loadWorkspaceInternal(forceRefresh = true, recordRefreshMetadata = true)
+    }
+
+    fun checkForAppUpdate(force: Boolean = false) {
+        if (!AppUpdates.manifestChecksEnabled(container.updateManifestUrl)) {
+            if (uiState.appUpdateState != AppUpdateUiState()) {
+                uiState = uiState.copy(appUpdateState = AppUpdateUiState())
+            }
+            return
+        }
+        val nowMillis = System.currentTimeMillis()
+        if (
+            !AppUpdates.shouldCheckForUpdate(
+                force = force,
+                checking = uiState.appUpdateState.checking,
+                lastCheckedAtMillis = uiState.appUpdateState.lastCheckedAtMillis,
+                nowMillis = nowMillis,
+            )
+        ) {
+            return
+        }
+
+        viewModelScope.launch {
+            uiState = uiState.copy(
+                appUpdateState = uiState.appUpdateState.copy(checking = true, errorMessage = ""),
+            )
+            val checkedAtMillis = System.currentTimeMillis()
+            container.createAppUpdateChecker()
+                .fetchManifest()
+                .onSuccess { manifest ->
+                    uiState = uiState.copy(
+                        appUpdateState = appUpdateStateFromManifest(
+                            manifest = manifest,
+                            currentVersionCode = container.currentAppVersionCode,
+                            checkedAtMillis = checkedAtMillis,
+                        ),
+                    )
+                }
+                .onFailure { error ->
+                    uiState = uiState.copy(
+                        appUpdateState = uiState.appUpdateState.copy(
+                            checking = false,
+                            lastCheckedAtMillis = checkedAtMillis,
+                            errorMessage = error.message ?: "Could not check for app updates.",
+                        ),
+                    )
+                }
+        }
     }
 
     private suspend fun validateGitHubAccess(settings: RepoSettings, token: String?): Boolean {

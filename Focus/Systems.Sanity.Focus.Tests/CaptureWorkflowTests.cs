@@ -76,9 +76,10 @@ public class CaptureWorkflowTests
         };
         using var workspace = new TestWorkspace(voiceRecorder: voiceRecorder);
         var filePath = workspace.SaveMap("workflow-map", new MindMap("Root"));
-        using var consoleScope = new AppConsoleScope(new ScriptedConsoleSession(
+        var consoleSession = new ScriptedConsoleSession(
             new ScriptedCommandLineEditor(Array.Empty<string>()),
-            readKeys: new[] { new ConsoleKeyInfo('\r', ConsoleKey.Enter, shift: false, alt: false, control: false) }));
+            readKeys: new[] { new ConsoleKeyInfo('\r', ConsoleKey.Enter, shift: false, alt: false, control: false) });
+        using var consoleScope = new AppConsoleScope(consoleSession);
         var workflow = new EditWorkflow(filePath, workspace.AppContext);
 
         var result = workflow.Execute(new ConsoleInput("voice"));
@@ -94,6 +95,8 @@ public class CaptureWorkflowTests
         Assert.True(result.ShouldPersist);
         Assert.Equal("Capture voice note in workflow-map", result.SyncCommitMessage);
         Assert.Equal(TimeSpan.FromMinutes(5), voiceRecorder.LastOptions!.MaxDuration);
+        Assert.Contains("\rRecording voice note [", consoleSession.Output, StringComparison.Ordinal);
+        Assert.Contains("00:00 / 05:00 0%. Press Enter to save or Esc to cancel.", consoleSession.Output, StringComparison.Ordinal);
         Assert.Equal(1, voiceRecorder.StartCallCount);
         Assert.Equal(1, voiceRecorder.StopCallCount);
         Assert.Equal(0, voiceRecorder.CancelCallCount);

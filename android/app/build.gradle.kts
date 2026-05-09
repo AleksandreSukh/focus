@@ -5,6 +5,10 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+val focusUpdateManifestUrl: String = providers.gradleProperty("focus.updateManifestUrl").orElse("").get()
+fun String.asBuildConfigString(): String =
+    "\"" + replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
 android {
     namespace = "com.systemssanity.focus"
     compileSdk = 35
@@ -17,6 +21,7 @@ android {
         versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "UPDATE_MANIFEST_URL", focusUpdateManifestUrl.asBuildConfigString())
     }
 
     buildTypes {
@@ -39,6 +44,7 @@ android {
     }
 
     buildFeatures {
+        buildConfig = true
         compose = true
     }
 }
