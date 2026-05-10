@@ -20,11 +20,12 @@ internal static class EditAttachmentOperations
     public static IEnumerable<string> GetCurrentAttachmentSelectors(EditCommandContext context)
     {
         var attachments = GetCurrentAttachments(context);
+        var shortcutOffset = GetCurrentAttachmentShortcutOffset(context);
         for (var index = 1; index <= attachments.Count; index++)
         {
             yield return index.ToString();
 
-            var shortcut = AccessibleKeyNumbering.GetStringFor(index);
+            var shortcut = AccessibleKeyNumbering.GetStringFor(shortcutOffset + index);
             if (!string.IsNullOrWhiteSpace(shortcut))
                 yield return shortcut;
         }
@@ -36,6 +37,7 @@ internal static class EditAttachmentOperations
         if (attachments.Count == 0)
             return string.Empty;
 
+        var shortcutOffset = GetCurrentAttachmentShortcutOffset(context);
         var builder = new StringBuilder();
         builder.Append(":Attachments> ");
         for (var index = 0; index < attachments.Count; index++)
@@ -43,7 +45,7 @@ internal static class EditAttachmentOperations
             if (index > 0)
                 builder.Append("; ");
 
-            builder.Append(BuildAttachmentAddressMarkup(index + 1));
+            builder.Append(BuildAttachmentAddressMarkup(index + 1, shortcutOffset + index + 1));
             builder.Append(' ');
             builder.Append(NodeDisplayHelper.GetContentPeek(attachments[index].DisplayName));
         }
@@ -63,7 +65,8 @@ internal static class EditAttachmentOperations
         if (attachments.Count == 0 || string.IsNullOrWhiteSpace(command))
             return false;
 
-        if (!TryGetAttachmentIndex(command, out var attachmentIndex))
+        var shortcutOffset = GetCurrentAttachmentShortcutOffset(context);
+        if (!TryGetAttachmentIndex(command, shortcutOffset, allowLocalNumber: true, out var attachmentIndex))
             return false;
 
         if (attachmentIndex > attachments.Count)
@@ -120,9 +123,10 @@ internal static class EditAttachmentOperations
         }
 
         var normalizedParameters = parameters.Trim().ToCommandKey();
-        if (!TryGetAttachmentIndex(normalizedParameters, out var attachmentIndex))
+        var shortcutOffset = GetCurrentAttachmentShortcutOffset(context);
+        if (!TryGetAttachmentIndex(normalizedParameters, shortcutOffset, allowLocalNumber: true, out var attachmentIndex))
         {
-            errorMessage = $"Unknown attachment \"{parameters}\". Use a number or shortcut like \"{BuildAttachmentAddress(1)}\".";
+            errorMessage = $"Unknown attachment \"{parameters}\". Use a number or shortcut like \"{BuildAttachmentAddress(1, shortcutOffset + 1)}\".";
             return false;
         }
 
@@ -137,14 +141,28 @@ internal static class EditAttachmentOperations
         return true;
     }
 
-    private static bool TryGetAttachmentIndex(string value, out int attachmentIndex)
+    private static bool TryGetAttachmentIndex(
+        string value,
+        int shortcutOffset,
+        bool allowLocalNumber,
+        out int attachmentIndex)
     {
-        if (int.TryParse(value, out attachmentIndex) && attachmentIndex > 0)
+        if (allowLocalNumber && int.TryParse(value, out attachmentIndex) && attachmentIndex > 0)
             return true;
 
-        attachmentIndex = AccessibleKeyNumbering.GetNumberFor(value);
+        var shortcutNumber = AccessibleKeyNumbering.GetNumberFor(value);
+        if (shortcutNumber <= shortcutOffset)
+        {
+            attachmentIndex = 0;
+            return false;
+        }
+
+        attachmentIndex = shortcutNumber - shortcutOffset;
         return attachmentIndex > 0;
     }
+
+    private static int GetCurrentAttachmentShortcutOffset(EditCommandContext context) =>
+        context.Map.GetChildren().Count;
 
     private static CommandExecutionResult OpenAttachment(EditCommandContext context, NodeAttachment attachment)
     {
@@ -161,17 +179,17 @@ internal static class EditAttachmentOperations
             : CommandExecutionResult.Error(openErrorMessage ?? "The attachment could not be opened.");
     }
 
-    private static string BuildAttachmentAddress(int index)
+    private static string BuildAttachmentAddress(int index, int shortcutNumber)
     {
-        var shortcut = AccessibleKeyNumbering.GetStringFor(index);
+        var shortcut = AccessibleKeyNumbering.GetStringFor(shortcutNumber);
         return string.IsNullOrWhiteSpace(shortcut)
             ? index.ToString()
             : $"{shortcut}/{index}";
     }
 
-    private static string BuildAttachmentAddressMarkup(int index)
+    private static string BuildAttachmentAddressMarkup(int index, int shortcutNumber)
     {
-        var shortcut = AccessibleKeyNumbering.GetStringFor(index);
+        var shortcut = AccessibleKeyNumbering.GetStringFor(shortcutNumber);
         return string.IsNullOrWhiteSpace(shortcut)
             ? $"[{ConfigurationConstants.CommandColor}]{index}[!]"
             : $"[{ConfigurationConstants.CommandColor}]{shortcut}[!]/[{ConfigurationConstants.CommandColor}]{index}[!]";

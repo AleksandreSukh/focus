@@ -508,6 +508,10 @@ public class EditWorkflowTests
         Assert.Contains("Subbranch", screen);
         Assert.Contains("[ ] Open child", screen);
         Assert.DoesNotContain("Done child", screen);
+        var openChildLine = GetLineContaining(screen, "Open child");
+        Assert.Contains(
+            $"[{ConfigurationConstants.CommandColor}]{AccessibleKeyNumbering.GetStringFor(1)}[!]/[{ConfigurationConstants.CommandColor}]1[!]. [ ] Open child",
+            openChildLine);
     }
 
     [Fact]
@@ -533,6 +537,37 @@ public class EditWorkflowTests
         Assert.True(result.IsSuccess);
         Assert.Null(fileOpener.OpenedFilePath);
         Assert.Contains("Visible child", workflow.BuildScreen());
+    }
+
+    [Fact]
+    public void Execute_AttachmentShortcut_ContinuesAfterVisibleChildShortcuts()
+    {
+        var fileOpener = new RecordingFileOpener();
+        using var workspace = new TestWorkspace(fileOpener: fileOpener);
+        var map = new MindMap("Root");
+        map.RootNode.AddAttachment(new NodeAttachment
+        {
+            Id = Guid.NewGuid(),
+            RelativePath = "capture.png",
+            MediaType = "image/png",
+            DisplayName = "Capture.png",
+            CreatedAtUtc = DateTimeOffset.UtcNow
+        });
+        map.AddAtCurrentNode("First child");
+        map.AddAtCurrentNode("Second child");
+        var filePath = workspace.SaveMap("workflow-map", map);
+        var attachmentPath = workspace.AppContext.MapsStorage.AttachmentStore.ResolveAttachmentPath(
+            filePath,
+            GetRequiredNodeIdentifier(map.RootNode),
+            "capture.png");
+        Directory.CreateDirectory(Path.GetDirectoryName(attachmentPath)!);
+        File.WriteAllText(attachmentPath, "attachment");
+
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+        var result = workflow.Execute(new ConsoleInput(AccessibleKeyNumbering.GetStringFor(3)));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(attachmentPath, fileOpener.OpenedFilePath);
     }
 
     [Fact]
@@ -631,6 +666,32 @@ public class EditWorkflowTests
     }
 
     [Fact]
+    public void GetSuggestions_WithChildren_ContinuesAttachmentShortcutSuggestions()
+    {
+        using var workspace = new TestWorkspace();
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("Child");
+        map.RootNode.AddAttachment(new NodeAttachment
+        {
+            Id = Guid.NewGuid(),
+            RelativePath = "capture.png",
+            MediaType = "image/png",
+            DisplayName = "Capture.png",
+            CreatedAtUtc = DateTimeOffset.UtcNow
+        });
+        var filePath = workspace.SaveMap("workflow-map", map);
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+
+        var suggestions = workflow.GetSuggestions().ToArray();
+
+        Assert.Contains(AccessibleKeyNumbering.GetStringFor(1), suggestions);
+        Assert.Contains(AccessibleKeyNumbering.GetStringFor(2), suggestions);
+        Assert.Contains("attachments 1", suggestions);
+        Assert.Contains($"attachments {AccessibleKeyNumbering.GetStringFor(2)}", suggestions);
+        Assert.DoesNotContain($"attachments {AccessibleKeyNumbering.GetStringFor(1)}", suggestions);
+    }
+
+    [Fact]
     public void BuildScreen_RendersTextBlocksAsQuotedBlocks()
     {
         using var workspace = new TestWorkspace();
@@ -668,6 +729,32 @@ public class EditWorkflowTests
         Assert.Contains("Capture.png", screen);
         Assert.Contains(ColorLabel("Search/Export"), screen);
         Assert.Contains("attachments [attachment]", screen);
+    }
+
+    [Fact]
+    public void BuildScreen_ContinuesCurrentAttachmentShortcutsAfterVisibleChildren()
+    {
+        using var workspace = new TestWorkspace();
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("First child");
+        map.AddAtCurrentNode("Second child");
+        map.RootNode.AddAttachment(new NodeAttachment
+        {
+            Id = Guid.NewGuid(),
+            RelativePath = "capture.png",
+            MediaType = "image/png",
+            DisplayName = "Capture.png",
+            CreatedAtUtc = DateTimeOffset.UtcNow
+        });
+        var filePath = workspace.SaveMap("workflow-map", map);
+
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+        var screen = workflow.BuildScreen();
+        var attachmentLine = GetLineContaining(screen, "Capture.png");
+
+        Assert.Contains(
+            $"[{ConfigurationConstants.CommandColor}]{AccessibleKeyNumbering.GetStringFor(3)}[!]/[{ConfigurationConstants.CommandColor}]1[!]",
+            attachmentLine);
     }
 
     [Fact]

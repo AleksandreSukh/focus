@@ -188,7 +188,12 @@ namespace Systems.Sanity.Focus.Domain
         {
             _currentNode.RenumberChildNodes();
             return GetVisibleSelectableChildren(_currentNode)
-                .ToDictionary(node => node.Number, node => NodeDisplayHelper.GetSingleLinePreview(node.Name));
+                .Select((node, index) => new
+                {
+                    Number = index + 1,
+                    Preview = NodeDisplayHelper.GetSingleLinePreview(node.Name)
+                })
+                .ToDictionary(node => node.Number, node => node.Preview);
         }
 
         public Node GetCurrentNode() => _currentNode;
@@ -533,12 +538,18 @@ namespace Systems.Sanity.Focus.Domain
 
             if (int.TryParse(parameter, out var nodeNumber))
             {
-                return candidateNodes.FirstOrDefault(node => node.Number == nodeNumber);
+                return nodeNumber > 0 && nodeNumber <= candidateNodes.Length
+                    ? candidateNodes[nodeNumber - 1]
+                    : null;
             }
 
             var shortcutNumber = Infrastructure.Input.AccessibleKeyNumbering.GetNumberFor(parameter);
             if (shortcutNumber != 0)
-                return candidateNodes.FirstOrDefault(node => node.Number == shortcutNumber);
+            {
+                return shortcutNumber <= candidateNodes.Length
+                    ? candidateNodes[shortcutNumber - 1]
+                    : null;
+            }
 
             return candidateNodes.FirstOrDefault(node =>
                 NodeDisplayHelper.GetSingleLinePreview(node.Name)

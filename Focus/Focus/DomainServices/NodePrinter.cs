@@ -18,7 +18,8 @@ internal static class NodePrinter
         int level,
         StringBuilder sb,
         int maxWidth,
-        bool ancestorHidesDone = false)
+        bool ancestorHidesDone = false,
+        int? visibleNumber = null)
     {
         if (level > 0 && NodeBranchVisibility.ShouldHideNode(node, ancestorHidesDone))
             return;
@@ -32,8 +33,9 @@ internal static class NodePrinter
         if (node.NodeType == NodeType.IdeaBagItem)
             return;
 
+        var displayNumber = visibleNumber ?? node.Number;
         var numberString = isTopLevel
-            ? $"-> [{ConfigurationConstants.CommandColor}]{AccessibleKeyNumbering.GetStringFor(node.Number)}[!]/[{ConfigurationConstants.CommandColor}]{node.Number}[!]. "
+            ? $"-> [{ConfigurationConstants.CommandColor}]{AccessibleKeyNumbering.GetStringFor(displayNumber)}[!]/[{ConfigurationConstants.CommandColor}]{displayNumber}[!]. "
             : isEvenLevel ? "* " : "\u2022 ";
         var detailIndent = indent + new string(' ', numberString.Length);
 
@@ -68,7 +70,17 @@ internal static class NodePrinter
         var hideDoneStateForChildren = NodeBranchVisibility.HideDoneStateForChildren(node, ancestorHidesDone);
         for (var i = 0; i < visibleChildren.Length; i++)
         {
-            Print(visibleChildren[i], linkIndex, indent, i == visibleChildren.Length - 1, level + 1, sb, maxWidth, hideDoneStateForChildren);
+            var childVisibleNumber = level == 0 ? i + 1 : (int?)null;
+            Print(
+                visibleChildren[i],
+                linkIndex,
+                indent,
+                i == visibleChildren.Length - 1,
+                level + 1,
+                sb,
+                maxWidth,
+                hideDoneStateForChildren,
+                childVisibleNumber);
         }
     }
 

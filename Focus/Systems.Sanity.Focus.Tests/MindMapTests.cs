@@ -61,7 +61,7 @@ public class MindMapTests
     }
 
     [Fact]
-    public void GetChildren_WhenAncestorHidesDoneTasks_SkipsDoneChildrenAndTheirShortcuts()
+    public void GetChildren_WhenAncestorHidesDoneTasks_CompactsVisibleChildShortcuts()
     {
         var map = new MindMap("Root");
         map.AddAtCurrentNode("Branch");
@@ -77,12 +77,38 @@ public class MindMapTests
         var children = map.GetChildren();
 
         Assert.Single(children);
-        Assert.False(children.ContainsKey(1));
-        Assert.Equal("Open child", children[2]);
-        Assert.False(map.HasNode("1"));
-        Assert.False(map.HasNode(AccessibleKeyNumbering.GetStringFor(1)));
-        Assert.True(map.HasNode("2"));
-        Assert.True(map.HasNode(AccessibleKeyNumbering.GetStringFor(2)));
+        Assert.Equal("Open child", children[1]);
+        Assert.True(map.HasNode("1"));
+        Assert.True(map.HasNode(AccessibleKeyNumbering.GetStringFor(1)));
+        Assert.False(map.HasNode("2"));
+        Assert.False(map.HasNode(AccessibleKeyNumbering.GetStringFor(2)));
+        Assert.False(map.HasNode("Done child"));
+    }
+
+    [Fact]
+    public void GetChildren_WhenHideDoneToggles_ReassignsVisibleChildShortcuts()
+    {
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("Done child");
+        map.AddAtCurrentNode("Open child");
+        Assert.True(map.SetTaskState("1", TaskState.Done, out _));
+        Assert.True(map.SetTaskState("2", TaskState.Todo, out _));
+
+        Assert.True(map.SetHideDoneTasks(true, out _));
+        var hiddenChildren = map.GetChildren();
+
+        Assert.Single(hiddenChildren);
+        Assert.Equal("Open child", hiddenChildren[1]);
+        Assert.Equal("Open child", map.GetNode(AccessibleKeyNumbering.GetStringFor(1))!.Name);
+
+        Assert.True(map.SetHideDoneTasks(false, out _));
+        var shownChildren = map.GetChildren();
+
+        Assert.Equal(2, shownChildren.Count);
+        Assert.Equal("Done child", shownChildren[1]);
+        Assert.Equal("Open child", shownChildren[2]);
+        Assert.Equal("Done child", map.GetNode(AccessibleKeyNumbering.GetStringFor(1))!.Name);
+        Assert.Equal("Open child", map.GetNode(AccessibleKeyNumbering.GetStringFor(2))!.Name);
     }
 
     [Fact]
