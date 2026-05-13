@@ -20,11 +20,13 @@ public interface ICommandLineEditor
         Action<string>? beforeEachAutoCompleteSuggestionWrite = null,
         Action<string>? afterEachAutoCompleteSuggestionWrite = null,
         Func<ConsoleKeyInfo, string, bool>? previewKeyHandler = null,
-        ConsoleKeyInfo? initialKeyInfo = null);
+        ConsoleKeyInfo? initialKeyInfo = null,
+        string initialText = "");
 
     string ReadMultiline(
         string prompt,
-        string defaultInput = "");
+        string defaultInput = "",
+        string initialText = "");
 
     IReadOnlyList<string> GetHistory();
 }

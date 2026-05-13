@@ -16,7 +16,7 @@ namespace Systems.Sanity.Focus.Pages.Edit.Dialogs
 		public override void Show()
 		{
 			var currentNodeName = _map.GetCurrentNodeName();
-			var input = GetInput("Enter new text here: ", currentNodeName).InputString;
+			var input = GetInput("Enter new text here: ", currentNodeName, initialText: currentNodeName).InputString;
 
 			if (input != currentNodeName)
 			{

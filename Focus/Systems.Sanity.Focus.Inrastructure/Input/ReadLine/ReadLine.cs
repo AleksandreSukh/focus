@@ -26,7 +26,8 @@ namespace Systems.Sanity.Focus.Infrastructure.Input.ReadLine
             Action<string>? beforeEachSuggestionWordWrite = null,
             Action<string>? afterEachSuggestionWordWrite = null,
             Func<ConsoleKeyInfo, string, bool>? previewKeyHandler = null,
-            ConsoleKeyInfo? initialKeyInfo = null)
+            ConsoleKeyInfo? initialKeyInfo = null,
+            string initialText = "")
         {
             var console = new Console2();
             KeyHandler keyHandler = new KeyHandler(
@@ -37,8 +38,11 @@ namespace Systems.Sanity.Focus.Infrastructure.Input.ReadLine
                 afterEachSuggestionWordWrite,
                 previewKeyHandler);
             BeginRead(console, prompt);
+            SeedInitialText(keyHandler, initialText);
 
             string text = GetText(keyHandler, initialKeyInfo);
+            var unchangedInitialText = !string.IsNullOrEmpty(initialText) &&
+                                       string.Equals(text, initialText, StringComparison.Ordinal);
 
             if (string.IsNullOrWhiteSpace(text) && !string.IsNullOrWhiteSpace(@default))
             {
@@ -46,7 +50,7 @@ namespace Systems.Sanity.Focus.Infrastructure.Input.ReadLine
             }
             else
             {
-                if (HistoryEnabled)
+                if (HistoryEnabled && !unchangedInitialText)
                     _history.Add(text);
             }
 
@@ -106,6 +110,17 @@ namespace Systems.Sanity.Focus.Infrastructure.Input.ReadLine
                 Console.WriteLine();
                 _isReading = false;
                 return keyHandler.Text;
+            }
+        }
+
+        private static void SeedInitialText(KeyHandler keyHandler, string initialText)
+        {
+            if (string.IsNullOrEmpty(initialText))
+                return;
+
+            lock (_renderLock)
+            {
+                keyHandler.SeedInitialText(initialText);
             }
         }
 

@@ -260,6 +260,20 @@ namespace Systems.Sanity.Focus.Infrastructure.Input.ReadLine
             get { return _text.ToString(); }
         }
 
+        public void SeedInitialText(string initialText)
+        {
+            if (string.IsNullOrEmpty(initialText))
+                return;
+
+            foreach (var character in initialText)
+            {
+                if (!CanSeedInitialTextChar(character))
+                    continue;
+
+                WriteChar(character);
+            }
+        }
+
         public KeyHandler(
             IConsole console,
             List<string> history,
@@ -398,5 +412,8 @@ namespace Systems.Sanity.Focus.Infrastructure.Input.ReadLine
             var keyChar = keyInfo.KeyChar;
             return keyChar != default && !char.IsControl(keyChar);
         }
+
+        private static bool CanSeedInitialTextChar(char character) =>
+            character != default && !char.IsControl(character);
     }
 }

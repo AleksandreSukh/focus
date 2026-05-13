@@ -37,7 +37,7 @@ internal sealed class EditNodeCommandHandler : IEditCommandFeatureHandler
             EditCommandId.AddIdea => ProcessAddIdea(context, parameters),
             EditCommandId.ClearIdeas => ProcessClearIdeas(context, parameters),
             EditCommandId.Delete => ProcessCommandDel(context, parameters),
-            EditCommandId.Edit => ProcessEdit(context),
+            EditCommandId.Edit => ProcessEdit(context, parameters),
             EditCommandId.Hide => ProcessHide(context, parameters),
             EditCommandId.Slice => ProcessSlice(context, parameters),
             EditCommandId.Star => ProcessStar(context, parameters),
@@ -122,7 +122,30 @@ internal sealed class EditNodeCommandHandler : IEditCommandFeatureHandler
             : CommandExecutionResult.Error("Can't delete current node (report a bug)");
     }
 
-    private static CommandExecutionResult ProcessEdit(EditCommandContext context)
+    private static CommandExecutionResult ProcessEdit(EditCommandContext context, string parameters)
+    {
+        return string.IsNullOrWhiteSpace(parameters)
+            ? ProcessCurrentNodeEdit(context, renameRootNode: true)
+            : ProcessChildEdit(context, parameters);
+    }
+
+    private static CommandExecutionResult ProcessChildEdit(EditCommandContext context, string parameters)
+    {
+        var originalNodeIdentifier = context.Map.GetCurrentNodeIdentifier();
+        if (!EditNodeIdentifier.InvokeLocalized(context.Map.ChangeCurrentNode, parameters))
+            return CommandExecutionResult.Error($"Can't find \"{parameters}\"");
+
+        try
+        {
+            return ProcessCurrentNodeEdit(context, renameRootNode: false);
+        }
+        finally
+        {
+            RestoreCurrentNode(context, originalNodeIdentifier);
+        }
+    }
+
+    private static CommandExecutionResult ProcessCurrentNodeEdit(EditCommandContext context, bool renameRootNode)
     {
         var didEdit = context.Map.GetCurrentNode().NodeType == NodeType.TextBlockItem
             ? context.AppContext.WorkflowInteractions.EditBlockNode(context.Map)
@@ -131,10 +154,18 @@ internal sealed class EditNodeCommandHandler : IEditCommandFeatureHandler
         if (!didEdit)
             return CommandExecutionResult.Success();
 
-        if (context.Map.IsAtRootNode())
+        if (renameRootNode && context.Map.IsAtRootNode())
             RenameFileToMatchRootNode(context);
 
         return context.PersistMapChange("Edit node");
+    }
+
+    private static void RestoreCurrentNode(EditCommandContext context, Guid? nodeIdentifier)
+    {
+        if (nodeIdentifier.HasValue && context.Map.ChangeCurrentNodeById(nodeIdentifier.Value))
+            return;
+
+        context.Map.ResetCurrentNodeToRoot();
     }
 
     private static void RenameFileToMatchRootNode(EditCommandContext context)

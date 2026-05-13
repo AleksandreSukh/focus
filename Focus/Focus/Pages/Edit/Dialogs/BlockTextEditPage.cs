@@ -9,7 +9,7 @@ internal abstract class BlockTextEditPage : Page
     protected override IEnumerable<string> GetPageSpecificSuggestions(string text, int index) =>
         System.Array.Empty<string>();
 
-    protected string GetMultilineInput(string prompt, string defaultInput = "")
+    protected string GetMultilineInput(string prompt, string defaultInput = "", string initialText = "")
     {
         var editor = AppConsole.Current.CommandLineEditor;
         var previousHistoryEnabled = editor.HistoryEnabled;
@@ -17,7 +17,7 @@ internal abstract class BlockTextEditPage : Page
 
         try
         {
-            return editor.ReadMultiline(prompt, defaultInput);
+            return editor.ReadMultiline(prompt, defaultInput, initialText);
         }
         finally
         {

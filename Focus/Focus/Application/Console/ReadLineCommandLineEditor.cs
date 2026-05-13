@@ -22,7 +22,8 @@ internal sealed class ReadLineCommandLineEditor : ICommandLineEditor
         Action<string>? beforeEachAutoCompleteSuggestionWrite = null,
         Action<string>? afterEachAutoCompleteSuggestionWrite = null,
         Func<ConsoleKeyInfo, string, bool>? previewKeyHandler = null,
-        ConsoleKeyInfo? initialKeyInfo = null)
+        ConsoleKeyInfo? initialKeyInfo = null,
+        string initialText = "")
     {
         return ReadLine.Read(
             prompt,
@@ -30,15 +31,17 @@ internal sealed class ReadLineCommandLineEditor : ICommandLineEditor
             beforeEachAutoCompleteSuggestionWrite,
             afterEachAutoCompleteSuggestionWrite,
             previewKeyHandler,
-            initialKeyInfo);
+            initialKeyInfo,
+            initialText);
     }
 
-    public string ReadMultiline(string prompt, string defaultInput = "")
+    public string ReadMultiline(string prompt, string defaultInput = "", string initialText = "")
     {
         return MultilineInputCollector.Read(
-            linePrompt => ReadLine.Read(linePrompt),
+            (linePrompt, lineInitialText) => ReadLine.Read(linePrompt, initialText: lineInitialText),
             prompt,
-            defaultInput);
+            defaultInput,
+            initialText);
     }
 
     public void WriteInterleavedMessage(string text)

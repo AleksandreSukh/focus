@@ -208,6 +208,175 @@ public class EditWorkflowTests
     }
 
     [Fact]
+    public void Execute_Edit_OnTextNode_PrefillsCurrentText()
+    {
+        using var workspace = new TestWorkspace();
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("Old child");
+        var filePath = workspace.SaveMap("workflow-map", map);
+        var commandLineEditor = new ScriptedCommandLineEditor(new[] { "Updated child" });
+        using var consoleScope = new AppConsoleScope(new ScriptedConsoleSession(commandLineEditor));
+
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+        Assert.True(workflow.Execute(new ConsoleInput("cd 1")).IsSuccess);
+
+        var result = workflow.Execute(new ConsoleInput("edit"));
+        workflow.Save(result.SyncCommitMessage!);
+        var reopened = workspace.MapsStorage.OpenMap(filePath);
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.ShouldPersist);
+        Assert.Equal("Updated child", reopened.GetNode("1")!.Name);
+        Assert.Equal(new[] { "Old child" }, commandLineEditor.ReadInitialTexts);
+    }
+
+    [Fact]
+    public void Execute_Edit_WithUnchangedPrefilledText_DoesNotPersist()
+    {
+        using var workspace = new TestWorkspace();
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("Old child");
+        var filePath = workspace.SaveMap("workflow-map", map);
+        var commandLineEditor = new ScriptedCommandLineEditor(new[] { "Old child" });
+        using var consoleScope = new AppConsoleScope(new ScriptedConsoleSession(commandLineEditor));
+
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+        Assert.True(workflow.Execute(new ConsoleInput("cd 1")).IsSuccess);
+
+        var result = workflow.Execute(new ConsoleInput("edit"));
+
+        Assert.True(result.IsSuccess);
+        Assert.False(result.ShouldPersist);
+        Assert.Equal(new[] { "Old child" }, commandLineEditor.ReadInitialTexts);
+    }
+
+    [Fact]
+    public void Execute_Edit_OnTextBlockNode_PrefillsCurrentBlockText()
+    {
+        using var workspace = new TestWorkspace();
+        var map = new MindMap("Root");
+        map.AddBlockAtCurrentNode("Old line");
+        var filePath = workspace.SaveMap("workflow-map", map);
+        var commandLineEditor = new ScriptedCommandLineEditor(new[] { "Old line", string.Empty, string.Empty });
+        using var consoleScope = new AppConsoleScope(new ScriptedConsoleSession(commandLineEditor));
+
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+        Assert.True(workflow.Execute(new ConsoleInput("cd 1")).IsSuccess);
+
+        var result = workflow.Execute(new ConsoleInput("edit"));
+
+        Assert.True(result.IsSuccess);
+        Assert.False(result.ShouldPersist);
+        Assert.Equal(new[] { "Old line" }, commandLineEditor.ReadMultilineInitialTexts);
+    }
+
+    [Fact]
+    public void Execute_Edit_WithChildNumber_UpdatesTargetChildAndRestoresCurrentNode()
+    {
+        var interactions = new RecordingWorkflowInteractions
+        {
+            EditTextNodeResult = true,
+            EditTextNodeAction = map => map.EditCurrentNode("Second edited")
+        };
+        using var workspace = new TestWorkspace(workflowInteractions: interactions);
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("First");
+        map.AddAtCurrentNode("Second");
+        var filePath = workspace.SaveMap("workflow-map", map);
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("edit 2"));
+        var rootTaskResult = workflow.Execute(new ConsoleInput("todo"));
+        workflow.Save(result.SyncCommitMessage!);
+        var reopened = workspace.MapsStorage.OpenMap(filePath);
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.ShouldPersist);
+        Assert.Equal("Edit node in workflow-map", result.SyncCommitMessage);
+        Assert.Equal(1, interactions.EditTextNodeCallCount);
+        Assert.False(rootTaskResult.IsSuccess);
+        Assert.Equal("Can't change task state for root node", rootTaskResult.ErrorString);
+        Assert.Equal("First", reopened.GetNode("1")!.Name);
+        Assert.Equal("Second edited", reopened.GetNode("2")!.Name);
+    }
+
+    [Fact]
+    public void Execute_Edit_WithAccessibleShortcut_UpdatesTargetChild()
+    {
+        var interactions = new RecordingWorkflowInteractions
+        {
+            EditTextNodeResult = true,
+            EditTextNodeAction = map => map.EditCurrentNode("First edited")
+        };
+        using var workspace = new TestWorkspace(workflowInteractions: interactions);
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("First");
+        map.AddAtCurrentNode("Second");
+        var filePath = workspace.SaveMap("workflow-map", map);
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput($"edit {AccessibleKeyNumbering.GetStringFor(1)}"));
+        workflow.Save(result.SyncCommitMessage!);
+        var reopened = workspace.MapsStorage.OpenMap(filePath);
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.ShouldPersist);
+        Assert.Equal(1, interactions.EditTextNodeCallCount);
+        Assert.Equal("First edited", reopened.GetNode("1")!.Name);
+        Assert.Equal("Second", reopened.GetNode("2")!.Name);
+    }
+
+    [Fact]
+    public void Execute_Edit_WithTextBlockChild_UsesBlockEditor()
+    {
+        var interactions = new RecordingWorkflowInteractions
+        {
+            EditBlockNodeResult = true,
+            EditBlockNodeAction = map => map.EditCurrentNode("Updated block")
+        };
+        using var workspace = new TestWorkspace(workflowInteractions: interactions);
+        var map = new MindMap("Root");
+        map.AddBlockAtCurrentNode("Old block");
+        var filePath = workspace.SaveMap("workflow-map", map);
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("edit 1"));
+        workflow.Save(result.SyncCommitMessage!);
+        var reopened = workspace.MapsStorage.OpenMap(filePath);
+        var blockNode = reopened.GetNode("1")!;
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.ShouldPersist);
+        Assert.Equal(1, interactions.EditBlockNodeCallCount);
+        Assert.Equal(0, interactions.EditTextNodeCallCount);
+        Assert.Equal(NodeType.TextBlockItem, blockNode.NodeType);
+        Assert.Equal("Updated block", blockNode.Name);
+    }
+
+    [Fact]
+    public void Execute_Edit_WithUnknownChild_ReturnsErrorWithoutOpeningEditor()
+    {
+        var interactions = new RecordingWorkflowInteractions
+        {
+            EditTextNodeResult = true,
+            EditBlockNodeResult = true
+        };
+        using var workspace = new TestWorkspace(workflowInteractions: interactions);
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("Child");
+        var filePath = workspace.SaveMap("workflow-map", map);
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("edit 99"));
+
+        Assert.False(result.IsSuccess);
+        Assert.False(result.ShouldPersist);
+        Assert.Equal("Can't find \"99\"", result.ErrorString);
+        Assert.Equal(0, interactions.EditTextNodeCallCount);
+        Assert.Equal(0, interactions.EditBlockNodeCallCount);
+    }
+
+    [Fact]
     public void Execute_LinkFrom_QueuesLinkSource()
     {
         using var workspace = new TestWorkspace();

@@ -37,7 +37,8 @@ namespace Systems.Sanity.Focus.Pages.Shared
             string prompt = "",
             string defaultInput = null,
             ConsoleKeyInfo? initialKeyInfo = null,
-            Func<ConsoleKeyInfo, string, bool>? previewKeyHandler = null)
+            Func<ConsoleKeyInfo, string, bool>? previewKeyHandler = null,
+            string initialText = "")
         {
             ColorfulConsole.WriteLine(prompt);
             prompt = string.Empty;
@@ -50,7 +51,8 @@ namespace Systems.Sanity.Focus.Pages.Shared
                         BeforeEachAutoComplete,
                         AfterEachAutoComplete,
                         previewKeyHandler,
-                        initialKeyInfo: initialKeyInfo)
+                        initialKeyInfo: initialKeyInfo,
+                        initialText: initialText)
                     .Trim());
             }
 
@@ -61,7 +63,8 @@ namespace Systems.Sanity.Focus.Pages.Shared
                     BeforeEachAutoComplete,
                     AfterEachAutoComplete,
                     previewKeyHandler,
-                    initialKeyInfo: initialKeyInfo)
+                    initialKeyInfo: initialKeyInfo,
+                    initialText: initialText)
                 .Trim());
         }
 

@@ -5,7 +5,7 @@ namespace Systems.Sanity.Focus.Pages.Edit.Dialogs;
 internal sealed class EditBlockDialog : BlockTextEditPage
 {
     private const string Prompt =
-        "Enter new block text here. Press Enter twice to finish. Press Enter twice immediately to keep current text:";
+        "Edit block text. Press Enter through prefilled lines, then Enter twice to finish. Clear all text to keep current text:";
 
     private readonly MindMap _map;
 
@@ -19,7 +19,7 @@ internal sealed class EditBlockDialog : BlockTextEditPage
     public override void Show()
     {
         var currentNodeName = _map.GetCurrentNodeName();
-        var input = GetMultilineInput(Prompt, currentNodeName);
+        var input = GetMultilineInput(Prompt, currentNodeName, currentNodeName);
 
         if (input == currentNodeName)
             return;
