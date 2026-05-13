@@ -1,3 +1,5 @@
+const TRANSIENT_OVERLAY_KINDS = new Set(['editNode']);
+
 function stableCopy(value) {
   if (Array.isArray(value)) {
     return value.map(stableCopy);
@@ -24,7 +26,7 @@ function normalizeOverlay(overlay) {
   }
 
   const kind = typeof overlay.kind === 'string' ? overlay.kind.trim() : '';
-  if (!kind) {
+  if (!kind || TRANSIENT_OVERLAY_KINDS.has(kind)) {
     return null;
   }
 
@@ -67,6 +69,40 @@ function normalizeStack(stack) {
   return Array.isArray(stack) ? stack.map(normalizeNavigationEntry) : [];
 }
 
+function compactBackStack(stack, current) {
+  const compacted = [];
+  stack.forEach((entry) => {
+    if (compacted.length > 0 && navigationEntriesEqual(compacted[compacted.length - 1], entry)) {
+      return;
+    }
+
+    compacted.push(entry);
+  });
+
+  while (compacted.length > 0 && navigationEntriesEqual(compacted[compacted.length - 1], current)) {
+    compacted.pop();
+  }
+
+  return compacted;
+}
+
+function compactForwardStack(stack, current) {
+  const compacted = [];
+  stack.forEach((entry) => {
+    if (compacted.length > 0 && navigationEntriesEqual(compacted[compacted.length - 1], entry)) {
+      return;
+    }
+
+    compacted.push(entry);
+  });
+
+  while (compacted.length > 0 && navigationEntriesEqual(compacted[0], current)) {
+    compacted.shift();
+  }
+
+  return compacted;
+}
+
 export function createNavigationHistory(initialEntry = { view: 'maps' }) {
   return {
     current: normalizeNavigationEntry(initialEntry),
@@ -80,10 +116,11 @@ export function normalizeNavigationHistory(history, fallbackEntry = { view: 'map
     return createNavigationHistory(fallbackEntry);
   }
 
+  const current = normalizeNavigationEntry(history.current || fallbackEntry);
   return {
-    current: normalizeNavigationEntry(history.current || fallbackEntry),
-    backStack: normalizeStack(history.backStack),
-    forwardStack: normalizeStack(history.forwardStack),
+    current,
+    backStack: compactBackStack(normalizeStack(history.backStack), current),
+    forwardStack: compactForwardStack(normalizeStack(history.forwardStack), current),
   };
 }
 
@@ -111,9 +148,11 @@ export function pushNavigationEntry(history, entry) {
 
 export function replaceNavigationEntry(history, entry) {
   const normalizedHistory = normalizeNavigationHistory(history);
+  const current = normalizeNavigationEntry(entry);
   return {
-    ...normalizedHistory,
-    current: normalizeNavigationEntry(entry),
+    current,
+    backStack: compactBackStack(normalizedHistory.backStack, current),
+    forwardStack: compactForwardStack(normalizedHistory.forwardStack, current),
   };
 }
 
