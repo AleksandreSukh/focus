@@ -114,14 +114,19 @@ internal sealed class TestHostConsoleSession : IConsoleAppSession
             Action<string>? beforeEachAutoCompleteSuggestionWrite = null,
             Action<string>? afterEachAutoCompleteSuggestionWrite = null,
             Func<ConsoleKeyInfo, string, bool>? previewKeyHandler = null,
-            ConsoleKeyInfo? initialKeyInfo = null)
+            ConsoleKeyInfo? initialKeyInfo = null,
+            string initialText = "")
         {
             if (!string.IsNullOrEmpty(prompt))
                 SysConsole.Write(prompt);
 
-            var currentText = initialKeyInfo.HasValue && IsPrintable(initialKeyInfo.Value.KeyChar)
-                ? initialKeyInfo.Value.KeyChar.ToString()
-                : string.Empty;
+            var currentText = initialText ?? string.Empty;
+            var shouldPrefixTypedText = false;
+            if (initialKeyInfo.HasValue && IsPrintable(initialKeyInfo.Value.KeyChar))
+            {
+                currentText += initialKeyInfo.Value.KeyChar.ToString();
+                shouldPrefixTypedText = true;
+            }
             while (true)
             {
                 var response = _transport.RequestLine(prompt, defaultInput, currentText);
@@ -134,17 +139,21 @@ internal sealed class TestHostConsoleSession : IConsoleAppSession
                     if (keyInfo.Key == ConsoleKey.Backspace && currentText.Length > 0)
                     {
                         currentText = currentText[..^1];
+                        shouldPrefixTypedText = true;
                         continue;
                     }
 
                     if (IsPrintable(keyInfo.KeyChar))
+                    {
                         currentText += keyInfo.KeyChar;
+                        shouldPrefixTypedText = true;
+                    }
 
                     continue;
                 }
 
                 var typedText = response.Text ?? string.Empty;
-                if (!string.IsNullOrEmpty(currentText))
+                if (shouldPrefixTypedText && !string.IsNullOrEmpty(currentText))
                     typedText = $"{currentText}{typedText}";
 
                 EchoTypedInput(typedText, response.EchoDelayMs);
@@ -156,12 +165,13 @@ internal sealed class TestHostConsoleSession : IConsoleAppSession
             }
         }
 
-        public string ReadMultiline(string prompt, string defaultInput = "")
+        public string ReadMultiline(string prompt, string defaultInput = "", string initialText = "")
         {
             return MultilineInputCollector.Read(
-                linePrompt => Read(linePrompt),
+                (linePrompt, lineInitialText) => Read(linePrompt, initialText: lineInitialText),
                 prompt,
-                defaultInput);
+                defaultInput,
+                initialText);
         }
 
         public IReadOnlyList<string> GetHistory() => _history;

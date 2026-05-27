@@ -11,6 +11,7 @@ internal static class EditCommandHandlerRegistry
             new EditNodeCommandHandler(),
             new EditTaskCommandHandler(),
             new EditLinkCommandHandler(),
+            new EditLlmCommandHandler(),
             new EditSearchCommandHandler(),
             new EditAttachmentMetadataCommandHandler(),
             new EditCaptureCommandHandler(),

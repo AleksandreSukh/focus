@@ -7,6 +7,8 @@ internal enum EditCommandId
     Add,
     AddBlock,
     AddIdea,
+    Ai,
+    AiJobs,
     Attachments,
     Backlinks,
     Capture,

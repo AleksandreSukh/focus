@@ -269,6 +269,9 @@ internal sealed class EditCommandCatalog
             new EditCommandDescriptor(EditCommandId.OpenLink, "openlink", "Links", "openlink"),
             new EditCommandDescriptor(EditCommandId.Backlinks, "backlinks", "Links", "backlinks"),
 
+            new EditCommandDescriptor(EditCommandId.Ai, "ai", "AI", "ai [prompt|child]"),
+            new EditCommandDescriptor(EditCommandId.AiJobs, "aijobs", "AI", "aijobs [run [jobId]]"),
+
             new EditCommandDescriptor(
                 EditCommandId.Search,
                 "search",

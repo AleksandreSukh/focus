@@ -2,6 +2,7 @@
 
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.DomainServices;
+using Systems.Sanity.Focus.Application.Llm;
 using Systems.Sanity.Focus.Application.WorkflowInteractions;
 
 namespace Systems.Sanity.Focus.Application;
@@ -21,9 +22,12 @@ internal sealed class FocusAppContext
         IClipboardTextWriter? clipboardTextWriter = null,
         IVoiceRecorder? voiceRecorder = null,
         IWorkflowInteractions? workflowInteractions = null,
-        IApplicationStatusSink? statusSink = null)
+        IApplicationStatusSink? statusSink = null,
+        ILlmAgentClient? llmAgentClient = null,
+        LlmConfig? llmConfiguration = null)
     {
         MapsStorage = mapsStorage;
+        LlmConfiguration = llmConfiguration;
         StartupSyncNotificationState = new StartupSyncNotificationState();
         LinkIndex = new LinkIndex();
         LinkNavigationService = new LinkNavigationService(LinkIndex);
@@ -35,6 +39,7 @@ internal sealed class FocusAppContext
         WorkflowInteractions = workflowInteractions ?? new ConsoleWorkflowInteractions();
         StatusSink = statusSink ?? new ConsoleApplicationStatusSink();
         Navigator = navigator ?? new PageNavigator(this);
+        LlmAgentClient = llmAgentClient ?? new CodexLlmAgentClient(LlmConfiguration);
     }
 
     public MapsStorage MapsStorage { get; }
@@ -60,6 +65,10 @@ internal sealed class FocusAppContext
     public IApplicationStatusSink StatusSink { get; }
 
     public IPageNavigator Navigator { get; }
+
+    public LlmConfig? LlmConfiguration { get; }
+
+    public ILlmAgentClient LlmAgentClient { get; }
 
     public StartupSyncNotificationState StartupSyncNotificationState { get; }
 

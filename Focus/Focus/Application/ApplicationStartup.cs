@@ -30,7 +30,8 @@ internal static class ApplicationStartup
                 mapsStorage,
                 navigator: null,
                 voiceRecorder: VoiceRecorderFactory.CreateDefault(userConfig.VoiceRecorder),
-                statusSink: statusSink);
+                statusSink: statusSink,
+                llmConfiguration: userConfig.Llm);
         return CreateHomePage(appContext);
     }
 

@@ -27,7 +27,13 @@ internal static class TestHostAppOverrides
             : VoiceRecorderFactory.CreateDefault(userConfig.VoiceRecorder);
 
         if (clipboardCaptureService == null && fileOpener == null && voiceRecorder == null)
-            return new FocusAppContext(mapsStorage, navigator: null, statusSink: statusSink);
+        {
+            return new FocusAppContext(
+                mapsStorage,
+                navigator: null,
+                statusSink: statusSink,
+                llmConfiguration: userConfig?.Llm);
+        }
 
         return new FocusAppContext(
             mapsStorage,
@@ -35,7 +41,8 @@ internal static class TestHostAppOverrides
             clipboardCaptureService: clipboardCaptureService,
             fileOpener: fileOpener,
             voiceRecorder: voiceRecorder,
-            statusSink: statusSink);
+            statusSink: statusSink,
+            llmConfiguration: userConfig?.Llm);
     }
 
     private static IClipboardCaptureService? CreateClipboardCaptureService()
