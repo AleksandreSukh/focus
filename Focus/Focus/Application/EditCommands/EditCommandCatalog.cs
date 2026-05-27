@@ -247,6 +247,12 @@ internal sealed class EditCommandCatalog
                 "showdone [child]",
                 EditCommandParameterSuggestionKind.ChildNumberAndPreview),
             new EditCommandDescriptor(
+                EditCommandId.DeleteDoneTasks,
+                "deldone",
+                "To Do",
+                "deldone [child]",
+                EditCommandParameterSuggestionKind.ChildNumberAndPreview),
+            new EditCommandDescriptor(
                 EditCommandId.ListTasks,
                 "tasks",
                 "To Do",

@@ -44,6 +44,88 @@ public class MindMapTests
     }
 
     [Fact]
+    public void DeleteDoneDescendants_RemovesDoneChildrenAndRenumbersSiblings()
+    {
+        var map = new MindMap("Root");
+        var openOne = map.AddAtCurrentNode("Open one");
+        var done = map.AddAtCurrentNode("Done child");
+        var openTwo = map.AddAtCurrentNode("Open two");
+        openOne.TaskState = TaskState.Todo;
+        done.TaskState = TaskState.Done;
+        openTwo.TaskState = TaskState.Todo;
+
+        var deleted = map.DeleteDoneDescendants(out var errorMessage);
+
+        Assert.True(deleted);
+        Assert.Equal(string.Empty, errorMessage);
+        Assert.Collection(
+            map.RootNode.Children,
+            node =>
+            {
+                Assert.Equal("Open one", node.Name);
+                Assert.Equal(1, node.Number);
+            },
+            node =>
+            {
+                Assert.Equal("Open two", node.Name);
+                Assert.Equal(2, node.Number);
+            });
+    }
+
+    [Fact]
+    public void DeleteDoneDescendants_PreservesSelectedDoneContainer()
+    {
+        var map = new MindMap("Root");
+        var branch = map.AddAtCurrentNode("Done branch");
+        branch.TaskState = TaskState.Done;
+        var doneChild = branch.Add("Done child");
+        doneChild.TaskState = TaskState.Done;
+        Assert.True(map.ChangeCurrentNode("1"));
+
+        var deleted = map.DeleteDoneDescendants(out var errorMessage);
+
+        Assert.True(deleted);
+        Assert.Equal(string.Empty, errorMessage);
+        Assert.Equal("Done branch", map.GetCurrentNode().Name);
+        Assert.Equal(TaskState.Done, map.GetCurrentNode().TaskState);
+        Assert.Empty(map.GetCurrentNode().Children);
+    }
+
+    [Fact]
+    public void DeleteDoneDescendants_DeletesHiddenDoneDescendants()
+    {
+        var map = new MindMap("Root");
+        var branch = map.AddAtCurrentNode("Branch");
+        var doneChild = branch.Add("Hidden done child");
+        doneChild.TaskState = TaskState.Done;
+        Assert.True(map.SetHideDoneTasks("1", true, out _));
+        Assert.True(map.ChangeCurrentNode("1"));
+        Assert.Empty(map.GetChildren());
+
+        var deleted = map.DeleteDoneDescendants(out var errorMessage);
+
+        Assert.True(deleted);
+        Assert.Equal(string.Empty, errorMessage);
+        Assert.Empty(map.GetCurrentNode().Children);
+    }
+
+    [Fact]
+    public void DeleteDoneDescendants_DeletesWholeDoneSubtree()
+    {
+        var map = new MindMap("Root");
+        var doneParent = map.AddAtCurrentNode("Done parent");
+        doneParent.TaskState = TaskState.Done;
+        var openGrandchild = doneParent.Add("Open grandchild");
+        openGrandchild.TaskState = TaskState.Todo;
+
+        var deleted = map.DeleteDoneDescendants(out var errorMessage);
+
+        Assert.True(deleted);
+        Assert.Equal(string.Empty, errorMessage);
+        Assert.Empty(map.RootNode.Children);
+    }
+
+    [Fact]
     public void GetChildren_UsesSharedSelectorsForTextAndBlockNodes_AndSkipsIdeaTags()
     {
         var map = new MindMap("Root");

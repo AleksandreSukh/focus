@@ -1,6 +1,7 @@
 using Systems.Sanity.Focus.Application;
 using Systems.Sanity.Focus;
 using Systems.Sanity.Focus.Domain;
+using Systems.Sanity.Focus.DomainServices;
 using Systems.Sanity.Focus.Infrastructure;
 using Systems.Sanity.Focus.Infrastructure.Input;
 
@@ -594,6 +595,118 @@ public class EditWorkflowTests
         Assert.DoesNotContain("Done child", refreshedScreen);
         Assert.False(refreshedMap.GetNode("1")!.HideDoneTasks);
         Assert.Null(refreshedMap.GetNode("1")!.HideDoneTasksExplicit);
+    }
+
+    [Fact]
+    public void Execute_DeleteDone_WithChild_ConfirmsAndDeletesDoneDescendants()
+    {
+        var interactions = new RecordingWorkflowInteractions();
+        using var workspace = new TestWorkspace(workflowInteractions: interactions);
+        var map = new MindMap("Root");
+        var branch = map.AddAtCurrentNode("Branch");
+        const string longDoneName = "Done child with a very very long title";
+        var doneChild = branch.Add(longDoneName);
+        var openChild = branch.Add("Open child");
+        doneChild.TaskState = TaskState.Done;
+        openChild.TaskState = TaskState.Todo;
+        var filePath = workspace.SaveMap("workflow-map", map);
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("deldone 1"));
+        workflow.Save(result.SyncCommitMessage!);
+        var reopened = workspace.MapsStorage.OpenMap(filePath);
+        var reopenedBranch = reopened.GetNode("1")!;
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.ShouldPersist);
+        Assert.Equal("Delete done tasks in workflow-map", result.SyncCommitMessage);
+        var confirmation = Assert.Single(interactions.ConfirmationMessages);
+        Assert.Contains("Delete done items and their descendants?", confirmation);
+        Assert.Contains($"- \"{NodeDisplayHelper.GetContentPeek(longDoneName)}\"", confirmation);
+        Assert.DoesNotContain("Open child", confirmation);
+        Assert.Single(reopenedBranch.Children);
+        Assert.Equal("Open child", reopenedBranch.Children.Single().Name);
+    }
+
+    [Fact]
+    public void Execute_DeleteDone_WhenCancelled_LeavesMapUnchanged()
+    {
+        var interactions = new RecordingWorkflowInteractions
+        {
+            DefaultConfirmationResult = false
+        };
+        using var workspace = new TestWorkspace(workflowInteractions: interactions);
+        var map = new MindMap("Root");
+        var doneChild = map.AddAtCurrentNode("Done child");
+        doneChild.TaskState = TaskState.Done;
+        var filePath = workspace.SaveMap("workflow-map", map);
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("deldone"));
+
+        Assert.False(result.IsSuccess);
+        Assert.False(result.ShouldPersist);
+        Assert.Equal("Cancelled!", result.ErrorString);
+        Assert.Single(interactions.ConfirmationMessages);
+        Assert.Contains("Done child", workflow.BuildScreen());
+    }
+
+    [Fact]
+    public void Execute_DeleteDone_WithNoDoneDescendants_ReturnsNoOpMessage()
+    {
+        var interactions = new RecordingWorkflowInteractions();
+        using var workspace = new TestWorkspace(workflowInteractions: interactions);
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("Open child");
+        var filePath = workspace.SaveMap("workflow-map", map);
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("deldone"));
+
+        Assert.True(result.IsSuccess);
+        Assert.False(result.ShouldPersist);
+        Assert.Equal("No done items to delete", result.Message);
+        Assert.Empty(interactions.ConfirmationMessages);
+    }
+
+    [Fact]
+    public void Execute_DeleteDone_ForIdeaTag_ReturnsValidationError()
+    {
+        var interactions = new RecordingWorkflowInteractions();
+        using var workspace = new TestWorkspace(workflowInteractions: interactions);
+        var map = new MindMap("Root");
+        map.AddIdeaAtCurrentNode("Idea tag");
+        var filePath = workspace.SaveMap("workflow-map", map);
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("deldone 1"));
+
+        Assert.False(result.IsSuccess);
+        Assert.False(result.ShouldPersist);
+        Assert.Equal("Delete done tasks is not supported for idea tags", result.ErrorString);
+        Assert.Empty(interactions.ConfirmationMessages);
+    }
+
+    [Fact]
+    public void Execute_DeleteDone_RemovesNonDoneDescendantsUnderDoneItems()
+    {
+        var interactions = new RecordingWorkflowInteractions();
+        using var workspace = new TestWorkspace(workflowInteractions: interactions);
+        var map = new MindMap("Root");
+        var doneParent = map.AddAtCurrentNode("Done parent");
+        var openGrandchild = doneParent.Add("Open grandchild");
+        doneParent.TaskState = TaskState.Done;
+        openGrandchild.TaskState = TaskState.Todo;
+        var filePath = workspace.SaveMap("workflow-map", map);
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("deldone"));
+        workflow.Save(result.SyncCommitMessage!);
+        var reopened = workspace.MapsStorage.OpenMap(filePath);
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.ShouldPersist);
+        Assert.Empty(reopened.RootNode.Children);
     }
 
     [Fact]

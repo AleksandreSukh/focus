@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using Systems.Sanity.Focus.Application.Display;
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.DomainServices;
@@ -21,6 +22,7 @@ internal sealed class EditTaskCommandHandler : IEditCommandFeatureHandler
         EditCommandId.ToggleTaskState,
         EditCommandId.HideDoneTasks,
         EditCommandId.ShowDoneTasks,
+        EditCommandId.DeleteDoneTasks,
         EditCommandId.ListTasks
     };
 
@@ -34,6 +36,7 @@ internal sealed class EditTaskCommandHandler : IEditCommandFeatureHandler
             EditCommandId.ToggleTaskState => ProcessToggleTaskState(context, parameters),
             EditCommandId.HideDoneTasks => ProcessSetHideDoneTasks(context, parameters, hideDoneTasks: true),
             EditCommandId.ShowDoneTasks => ProcessSetHideDoneTasks(context, parameters, hideDoneTasks: false),
+            EditCommandId.DeleteDoneTasks => ProcessDeleteDoneTasks(context, parameters),
             EditCommandId.ListTasks => ProcessTasks(context, parameters),
             _ => CommandExecutionResult.Error($"Unsupported command \"{commandId}\"")
         };
@@ -85,6 +88,45 @@ internal sealed class EditTaskCommandHandler : IEditCommandFeatureHandler
         return success
             ? context.PersistMapChange(hideDoneTasks ? "Hide done tasks" : "Show done tasks")
             : CommandExecutionResult.Error(errorMessage);
+    }
+
+    private static CommandExecutionResult ProcessDeleteDoneTasks(EditCommandContext context, string parameters)
+    {
+        string errorMessage;
+        var deletionRoots = string.IsNullOrWhiteSpace(parameters)
+            ? context.Map.GetDoneDeletionRoots(out errorMessage)
+            : context.Map.GetDoneDeletionRoots(parameters, out errorMessage);
+
+        if (!string.IsNullOrWhiteSpace(errorMessage))
+            return CommandExecutionResult.Error(errorMessage);
+
+        if (!deletionRoots.Any())
+            return CommandExecutionResult.Success("No done items to delete");
+
+        if (!context.AppContext.WorkflowInteractions.Confirm(BuildDeleteDoneConfirmationMessage(deletionRoots)))
+            return CommandExecutionResult.Error("Cancelled!");
+
+        var success = string.IsNullOrWhiteSpace(parameters)
+            ? context.Map.DeleteDoneDescendants(out errorMessage)
+            : context.Map.DeleteDoneDescendants(parameters, out errorMessage);
+
+        return success
+            ? context.PersistMapChange("Delete done tasks")
+            : CommandExecutionResult.Error(errorMessage);
+    }
+
+    private static string BuildDeleteDoneConfirmationMessage(IReadOnlyList<Node> deletionRoots)
+    {
+        var messageBuilder = new StringBuilder("Delete done items and their descendants?");
+        foreach (var node in deletionRoots)
+        {
+            messageBuilder.AppendLine();
+            messageBuilder.Append("- \"");
+            messageBuilder.Append(NodeDisplayHelper.GetContentPeek(node.Name));
+            messageBuilder.Append('"');
+        }
+
+        return messageBuilder.ToString();
     }
 
     private static CommandExecutionResult ProcessTasks(EditCommandContext context, string parameters)

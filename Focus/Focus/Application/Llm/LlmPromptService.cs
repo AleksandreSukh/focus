@@ -25,6 +25,14 @@ internal static class LlmPromptService
             : string.Empty;
     }
 
+    public static string GetPromptText(Node node)
+    {
+        var promptText = ExtractPromptText(node.Name);
+        return string.IsNullOrWhiteSpace(promptText)
+            ? node.Name.Trim()
+            : promptText;
+    }
+
     public static string BuildPromptNodeName(string prompt)
     {
         var normalizedPrompt = ExtractPromptText(prompt);

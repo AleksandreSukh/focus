@@ -61,6 +61,7 @@ public class EditCommandCatalogTests
         Assert.Contains(groups.Single(group => group.Label == "Edit").Entries, entry => entry == "star [child]");
         Assert.Contains(groups.Single(group => group.Label == "Edit").Entries, entry => entry == "unstar [child]");
         Assert.Contains(groups.Single(group => group.Label == "To Do").Entries, entry => entry == "todo/td [child]");
+        Assert.Contains(groups.Single(group => group.Label == "To Do").Entries, entry => entry == "deldone [child]");
         Assert.Contains(groups.Single(group => group.Label == "AI").Entries, entry => entry == "ai [prompt|child]");
         Assert.Contains(groups.Single(group => group.Label == "AI").Entries, entry => entry == "aijobs [run [jobId]]");
         Assert.Contains(groups.Single(group => group.Label == "Search/Export").Entries, entry => entry == "attachments [attachment]");
@@ -81,6 +82,8 @@ public class EditCommandCatalogTests
         Assert.Contains("td 1", suggestions);
         Assert.Contains("star 1", suggestions);
         Assert.Contains("unstar Child", suggestions);
+        Assert.Contains("deldone 1", suggestions);
+        Assert.Contains("deldone Child", suggestions);
         Assert.Contains("search Child", suggestions);
         Assert.Contains("tasks done", suggestions);
         Assert.Contains("ts all", suggestions);

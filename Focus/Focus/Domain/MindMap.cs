@@ -146,6 +146,42 @@ namespace Systems.Sanity.Focus.Domain
             return result;
         }
 
+        public IReadOnlyList<Node> GetDoneDeletionRoots(out string errorMessage) =>
+            GetDoneDeletionRoots(_currentNode, out errorMessage);
+
+        public IReadOnlyList<Node> GetDoneDeletionRoots(string nodeIdentifier, out string errorMessage)
+        {
+            var node = FindNode(nodeIdentifier, NodeLookupScope.TaskAddressable);
+            if (node == null)
+            {
+                errorMessage = $"Can't find \"{nodeIdentifier}\"";
+                return Array.Empty<Node>();
+            }
+
+            return GetDoneDeletionRoots(node, out errorMessage);
+        }
+
+        public bool DeleteDoneDescendants(out string errorMessage)
+        {
+            var result = DeleteDoneDescendants(_currentNode, out errorMessage);
+            if (result) TouchMapTimestamp();
+            return result;
+        }
+
+        public bool DeleteDoneDescendants(string nodeIdentifier, out string errorMessage)
+        {
+            var node = FindNode(nodeIdentifier, NodeLookupScope.TaskAddressable);
+            if (node == null)
+            {
+                errorMessage = $"Can't find \"{nodeIdentifier}\"";
+                return false;
+            }
+
+            var result = DeleteDoneDescendants(node, out errorMessage);
+            if (result) TouchMapTimestamp();
+            return result;
+        }
+
         public bool DeleteCurrentNodeIdeaTags()
         {
             var result = ClearIdeaTagsOfNode(_currentNode);
@@ -410,6 +446,64 @@ namespace Systems.Sanity.Focus.Domain
             if (removeResult)
                 parentNode.TouchMetadata();
             return removeResult;
+        }
+
+        private static IReadOnlyList<Node> GetDoneDeletionRoots(Node container, out string errorMessage)
+        {
+            if (container.NodeType == NodeType.IdeaBagItem)
+            {
+                errorMessage = "Delete done tasks is not supported for idea tags";
+                return Array.Empty<Node>();
+            }
+
+            var deletionRoots = new List<Node>();
+            CollectDoneDeletionRoots(container, deletionRoots);
+            errorMessage = string.Empty;
+            return deletionRoots;
+        }
+
+        private static bool DeleteDoneDescendants(Node container, out string errorMessage)
+        {
+            var deletionRoots = GetDoneDeletionRoots(container, out errorMessage);
+            if (!string.IsNullOrWhiteSpace(errorMessage))
+                return false;
+
+            if (!deletionRoots.Any())
+            {
+                errorMessage = "No done items to delete";
+                return false;
+            }
+
+            var changedParents = new HashSet<Node>();
+            foreach (var deletionRoot in deletionRoots)
+            {
+                var parentNode = deletionRoot.GetParent();
+                if (parentNode != null && parentNode.Children.Remove(deletionRoot))
+                    changedParents.Add(parentNode);
+            }
+
+            foreach (var parentNode in changedParents)
+            {
+                parentNode.RenumberChildNodes();
+                parentNode.TouchMetadata();
+            }
+
+            errorMessage = string.Empty;
+            return changedParents.Any();
+        }
+
+        private static void CollectDoneDeletionRoots(Node node, ICollection<Node> deletionRoots)
+        {
+            foreach (var childNode in node.Children)
+            {
+                if (childNode.NodeType != NodeType.IdeaBagItem && childNode.TaskState == TaskState.Done)
+                {
+                    deletionRoots.Add(childNode);
+                    continue;
+                }
+
+                CollectDoneDeletionRoots(childNode, deletionRoots);
+            }
         }
 
         private MindMap? DetachNodeAsNewMap(Node nodeToDetach)

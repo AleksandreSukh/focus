@@ -174,6 +174,102 @@ public class LlmInteropTests
     }
 
     [Fact]
+    public void ExecuteAiOnRegularChild_UsesChildTextAsPrompt()
+    {
+        var agent = new RecordingLlmAgentClient(LlmAgentResponse.Success("Answer for existing node"));
+        using var workspace = new TestWorkspace(llmAgentClient: agent);
+        var map = new MindMap("Root");
+        var promptSource = map.AddAtCurrentNode("ja Summarize the existing node");
+        promptSource.TaskState = TaskState.Todo;
+        var filePath = workspace.SaveMap("workflow-map", map);
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("ai ja"));
+        workflow.Save(result.SyncCommitMessage!);
+        var reopened = workspace.MapsStorage.OpenMap(filePath);
+        var sourceNode = reopened.RootNode.Children.Single();
+        var answerNode = sourceNode.Children.Single();
+        var job = new LlmJobStore(workspace.MapsStorage.UserMindMapsDirectory).ListJobs().Single().Job;
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.ShouldPersist);
+        Assert.Equal("Answer AI prompt in workflow-map", result.SyncCommitMessage);
+        Assert.Equal("ja Summarize the existing node", sourceNode.Name);
+        Assert.Equal(TaskState.Done, sourceNode.TaskState);
+        Assert.Equal(NodeType.TextBlockItem, answerNode.NodeType);
+        Assert.Equal("Answer for existing node", answerNode.Name);
+        Assert.Equal("ja Summarize the existing node", job.Prompt);
+        Assert.Equal("ja Summarize the existing node", agent.Requests.Single().Prompt);
+    }
+
+    [Fact]
+    public void ExecuteAiWithUnmatchedText_StillCreatesPromptNode()
+    {
+        var agent = new RecordingLlmAgentClient(LlmAgentResponse.Success("Unmatched answer"));
+        using var workspace = new TestWorkspace(llmAgentClient: agent);
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("Other child");
+        var filePath = workspace.SaveMap("workflow-map", map);
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("ai Summarize unmatched prompt"));
+        workflow.Save(result.SyncCommitMessage!);
+        var reopened = workspace.MapsStorage.OpenMap(filePath);
+        var promptNode = reopened.RootNode.Children.Single(node => node.Name == "@ai Summarize unmatched prompt");
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.ShouldPersist);
+        Assert.Equal("Other child", reopened.RootNode.Children.First().Name);
+        Assert.Equal(TaskState.Done, promptNode.TaskState);
+        Assert.Equal("Unmatched answer", promptNode.Children.Single().Name);
+        Assert.Equal("Summarize unmatched prompt", agent.Requests.Single().Prompt);
+    }
+
+    [Fact]
+    public void ExecuteAiOnChildPrompt_ProcessesExistingPrompt()
+    {
+        var agent = new RecordingLlmAgentClient(LlmAgentResponse.Success("Child prompt answer"));
+        using var workspace = new TestWorkspace(llmAgentClient: agent);
+        var map = new MindMap("Root");
+        var prompt = map.AddAtCurrentNode("@ai Explain child prompt");
+        prompt.TaskState = TaskState.Todo;
+        var filePath = workspace.SaveMap("workflow-map", map);
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("ai 1"));
+        workflow.Save(result.SyncCommitMessage!);
+        var reopened = workspace.MapsStorage.OpenMap(filePath);
+        var promptNode = reopened.RootNode.Children.Single();
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.ShouldPersist);
+        Assert.Equal("@ai Explain child prompt", promptNode.Name);
+        Assert.Equal(TaskState.Done, promptNode.TaskState);
+        Assert.Equal("Child prompt answer", promptNode.Children.Single().Name);
+        Assert.Equal("Explain child prompt", agent.Requests.Single().Prompt);
+    }
+
+    [Fact]
+    public void ExecuteAiOnBlankChild_ReturnsEmptyPromptError()
+    {
+        var agent = new RecordingLlmAgentClient(LlmAgentResponse.Success("Should not run"));
+        using var workspace = new TestWorkspace(llmAgentClient: agent);
+        var map = new MindMap("Root");
+        map.AddAtCurrentNode("   ");
+        var filePath = workspace.SaveMap("workflow-map", map);
+        var workflow = new EditWorkflow(filePath, workspace.AppContext);
+
+        var result = workflow.Execute(new ConsoleInput("ai 1"));
+        var jobs = new LlmJobStore(workspace.MapsStorage.UserMindMapsDirectory).ListJobs();
+
+        Assert.False(result.IsSuccess);
+        Assert.False(result.ShouldPersist);
+        Assert.Equal("AI prompt is empty.", result.ErrorString);
+        Assert.Empty(jobs);
+        Assert.Empty(agent.Requests);
+    }
+
+    [Fact]
     public void ExecuteAiOnCurrentPrompt_ProcessesExistingPrompt()
     {
         var agent = new RecordingLlmAgentClient(LlmAgentResponse.Success("Existing prompt answer"));

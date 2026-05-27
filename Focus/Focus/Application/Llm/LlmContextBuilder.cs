@@ -101,9 +101,7 @@ internal sealed class LlmContextBuilder
 
         var nodeIndex = BuildNodeIndex(snapshots);
         var promptNode = selectedPath[^1].Node;
-        var promptText = LlmPromptService.ExtractPromptText(promptNode.Name);
-        if (string.IsNullOrWhiteSpace(promptText))
-            promptText = NormalizeDisplayText(promptNode);
+        var promptText = LlmPromptService.GetPromptText(promptNode);
 
         var outgoing = BuildOutgoingLinks(promptNode, nodeIndex);
         var backlinks = BuildBacklinks(promptNode, nodeIndex);

@@ -41,13 +41,13 @@ internal sealed class EditLlmCommandHandler : IEditCommandFeatureHandler
                     "Current node is not an open @ai prompt. Use ai <prompt>.");
             }
 
-            return ProcessExistingPromptNode(context, jobStore, processor, currentNode);
+            return ProcessNodePrompt(context, jobStore, processor, currentNode);
         }
 
         var targetNode = context.Map.GetNode(parameters);
-        if (LlmPromptService.IsPromptNode(targetNode))
+        if (targetNode != null)
         {
-            return ProcessExistingPromptNode(context, jobStore, processor, targetNode!);
+            return ProcessNodePrompt(context, jobStore, processor, targetNode);
         }
 
         return ProcessNewPrompt(context, jobStore, processor, parameters);
@@ -78,7 +78,7 @@ internal sealed class EditLlmCommandHandler : IEditCommandFeatureHandler
             : context.PersistMapChange("Create AI prompt", message: result.Message);
     }
 
-    private static CommandExecutionResult ProcessExistingPromptNode(
+    private static CommandExecutionResult ProcessNodePrompt(
         EditCommandContext context,
         LlmJobStore jobStore,
         LlmJobProcessor processor,
@@ -86,6 +86,10 @@ internal sealed class EditLlmCommandHandler : IEditCommandFeatureHandler
     {
         var promptNodeId = promptNode.UniqueIdentifier
             ?? throw new InvalidOperationException("AI prompt node has no identifier.");
+        var promptText = LlmPromptService.GetPromptText(promptNode);
+        if (string.IsNullOrWhiteSpace(promptText))
+            return CommandExecutionResult.Error("AI prompt is empty.");
+
         var existingEntry = jobStore.FindOpenByNode(context.FilePath, promptNodeId);
         if (existingEntry?.Job.Status == LlmJobStatus.Claimed)
         {
@@ -96,7 +100,7 @@ internal sealed class EditLlmCommandHandler : IEditCommandFeatureHandler
         var jobEntry = existingEntry ?? jobStore.CreateJob(
             context.FilePath,
             promptNodeId,
-            LlmPromptService.ExtractPromptText(promptNode.Name));
+            promptText);
         var result = processor.Process(jobEntry, context.Map, context.FilePath, mapAlreadyChanged: false);
         if (result.Succeeded)
             return context.PersistMapChange("Answer AI prompt", message: result.Message);

@@ -15,6 +15,7 @@ internal enum EditCommandId
     ClearIdeas,
     ClearTaskState,
     Delete,
+    DeleteDoneTasks,
     Edit,
     Exit,
     Export,
