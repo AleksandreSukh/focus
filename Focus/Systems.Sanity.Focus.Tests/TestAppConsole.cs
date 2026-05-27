@@ -141,6 +141,10 @@ internal sealed class ScriptedCommandLineEditor : ICommandLineEditor
 
     public bool HistoryEnabled { get; set; }
 
+    public List<string> ReadInitialTexts { get; } = new();
+
+    public List<string> ReadMultilineInitialTexts { get; } = new();
+
     public void SetAutoCompletionHandler(IAutoCompleteHandler handler)
     {
     }
@@ -155,22 +159,35 @@ internal sealed class ScriptedCommandLineEditor : ICommandLineEditor
         Action<string>? beforeEachAutoCompleteSuggestionWrite = null,
         Action<string>? afterEachAutoCompleteSuggestionWrite = null,
         Func<ConsoleKeyInfo, string, bool>? previewKeyHandler = null,
-        ConsoleKeyInfo? initialKeyInfo = null)
+        ConsoleKeyInfo? initialKeyInfo = null,
+        string initialText = "")
+    {
+        if (!string.IsNullOrEmpty(initialText))
+            ReadInitialTexts.Add(initialText);
+
+        return ReadNextInput();
+    }
+
+    public string ReadMultiline(string prompt, string defaultInput = "", string initialText = "")
+    {
+        if (!string.IsNullOrEmpty(initialText))
+            ReadMultilineInitialTexts.Add(initialText);
+
+        return MultilineInputCollector.Read(
+            (_, _) => ReadNextInput(),
+            prompt,
+            defaultInput,
+            initialText);
+    }
+
+    public IReadOnlyList<string> GetHistory() => Array.Empty<string>();
+
+    private string ReadNextInput()
     {
         return _inputs.Count > 0
             ? _inputs.Dequeue()
             : string.Empty;
     }
-
-    public string ReadMultiline(string prompt, string defaultInput = "")
-    {
-        return MultilineInputCollector.Read(
-            linePrompt => Read(linePrompt),
-            prompt,
-            defaultInput);
-    }
-
-    public IReadOnlyList<string> GetHistory() => Array.Empty<string>();
 }
 
 internal sealed class PreviewKeyCommandLineEditor : ICommandLineEditor
@@ -204,19 +221,22 @@ internal sealed class PreviewKeyCommandLineEditor : ICommandLineEditor
         Action<string>? beforeEachAutoCompleteSuggestionWrite = null,
         Action<string>? afterEachAutoCompleteSuggestionWrite = null,
         Func<ConsoleKeyInfo, string, bool>? previewKeyHandler = null,
-        ConsoleKeyInfo? initialKeyInfo = null)
+        ConsoleKeyInfo? initialKeyInfo = null,
+        string initialText = "")
     {
-        PreviewKeyHandled = previewKeyHandler?.Invoke(_previewKeyInfo, _currentText) == true;
+        var currentText = string.IsNullOrEmpty(_currentText) ? initialText : _currentText;
+        PreviewKeyHandled = previewKeyHandler?.Invoke(_previewKeyInfo, currentText) == true;
         return _input;
     }
 
-    public string ReadMultiline(string prompt, string defaultInput = "")
+    public string ReadMultiline(string prompt, string defaultInput = "", string initialText = "")
     {
         PreviewKeyHandled = false;
         return MultilineInputCollector.Read(
-            linePrompt => Read(linePrompt),
+            (linePrompt, lineInitialText) => Read(linePrompt, initialText: lineInitialText),
             prompt,
-            defaultInput);
+            defaultInput,
+            initialText);
     }
 
     public IReadOnlyList<string> GetHistory() => Array.Empty<string>();
@@ -374,7 +394,8 @@ internal sealed class InitialKeyAwareCommandLineEditor : ICommandLineEditor
         Action<string>? beforeEachAutoCompleteSuggestionWrite = null,
         Action<string>? afterEachAutoCompleteSuggestionWrite = null,
         Func<ConsoleKeyInfo, string, bool>? previewKeyHandler = null,
-        ConsoleKeyInfo? initialKeyInfo = null)
+        ConsoleKeyInfo? initialKeyInfo = null,
+        string initialText = "")
     {
         ReceivedInitialKeys.Add(initialKeyInfo);
         var typedSuffix = _typedInputSuffixes.Count > 0
@@ -386,12 +407,13 @@ internal sealed class InitialKeyAwareCommandLineEditor : ICommandLineEditor
             : typedSuffix;
     }
 
-    public string ReadMultiline(string prompt, string defaultInput = "")
+    public string ReadMultiline(string prompt, string defaultInput = "", string initialText = "")
     {
         return MultilineInputCollector.Read(
-            linePrompt => Read(linePrompt),
+            (linePrompt, lineInitialText) => Read(linePrompt, initialText: lineInitialText),
             prompt,
-            defaultInput);
+            defaultInput,
+            initialText);
     }
 
     public IReadOnlyList<string> GetHistory() => Array.Empty<string>();
@@ -422,7 +444,8 @@ internal sealed class ThrowingCommandLineEditor : ICommandLineEditor
         Action<string>? beforeEachAutoCompleteSuggestionWrite = null,
         Action<string>? afterEachAutoCompleteSuggestionWrite = null,
         Func<ConsoleKeyInfo, string, bool>? previewKeyHandler = null,
-        ConsoleKeyInfo? initialKeyInfo = null)
+        ConsoleKeyInfo? initialKeyInfo = null,
+        string initialText = "")
     {
         if (_readSteps.Count == 0)
             return string.Empty;
@@ -434,12 +457,13 @@ internal sealed class ThrowingCommandLineEditor : ICommandLineEditor
         return next as string ?? string.Empty;
     }
 
-    public string ReadMultiline(string prompt, string defaultInput = "")
+    public string ReadMultiline(string prompt, string defaultInput = "", string initialText = "")
     {
         return MultilineInputCollector.Read(
-            linePrompt => Read(linePrompt),
+            (linePrompt, lineInitialText) => Read(linePrompt, initialText: lineInitialText),
             prompt,
-            defaultInput);
+            defaultInput,
+            initialText);
     }
 
     public IReadOnlyList<string> GetHistory() => Array.Empty<string>();

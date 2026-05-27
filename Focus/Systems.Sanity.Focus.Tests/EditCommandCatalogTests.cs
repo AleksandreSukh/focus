@@ -55,12 +55,14 @@ public class EditCommandCatalogTests
         var groups = catalog.BuildHelpGroups();
 
         Assert.Equal(
-            new[] { "Navigate", "Edit", "To Do", "Links", "Search/Export", "System" },
+            new[] { "Navigate", "Edit", "To Do", "Links", "AI", "Search/Export", "System" },
             groups.Select(group => group.Label));
         Assert.Contains(groups.Single(group => group.Label == "Edit").Entries, entry => entry == "addblock");
         Assert.Contains(groups.Single(group => group.Label == "Edit").Entries, entry => entry == "star [child]");
         Assert.Contains(groups.Single(group => group.Label == "Edit").Entries, entry => entry == "unstar [child]");
         Assert.Contains(groups.Single(group => group.Label == "To Do").Entries, entry => entry == "todo/td [child]");
+        Assert.Contains(groups.Single(group => group.Label == "AI").Entries, entry => entry == "ai [prompt|child]");
+        Assert.Contains(groups.Single(group => group.Label == "AI").Entries, entry => entry == "aijobs [run [jobId]]");
         Assert.Contains(groups.Single(group => group.Label == "Search/Export").Entries, entry => entry == "attachments [attachment]");
     }
 

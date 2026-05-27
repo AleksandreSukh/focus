@@ -1,4 +1,5 @@
 using Systems.Sanity.Focus.Application;
+using Systems.Sanity.Focus.Application.Llm;
 using Systems.Sanity.Focus.Application.WorkflowInteractions;
 using Systems.Sanity.Focus.Domain;
 using Systems.Sanity.Focus.Infrastructure.FileSynchronization;
@@ -15,7 +16,9 @@ internal sealed class TestWorkspace : IDisposable
         IVoiceRecorder? voiceRecorder = null,
         IFileSynchronizationHandler? fileSynchronizationHandler = null,
         IWorkflowInteractions? workflowInteractions = null,
-        IApplicationStatusSink? statusSink = null)
+        IApplicationStatusSink? statusSink = null,
+        ILlmAgentClient? llmAgentClient = null,
+        LlmConfig? llmConfig = null)
     {
         RootDirectory = Path.Combine(Path.GetTempPath(), "focus-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(RootDirectory);
@@ -23,7 +26,8 @@ internal sealed class TestWorkspace : IDisposable
         var userConfig = new UserConfig
         {
             DataFolder = RootDirectory,
-            GitRepository = string.Empty
+            GitRepository = string.Empty,
+            Llm = llmConfig
         };
         MapsStorage = fileSynchronizationHandler == null
             ? new MapsStorage(userConfig)
@@ -38,7 +42,9 @@ internal sealed class TestWorkspace : IDisposable
             clipboardTextWriter,
             voiceRecorder,
             workflowInteractions,
-            statusSink);
+            statusSink,
+            llmAgentClient,
+            llmConfig);
     }
 
     public string RootDirectory { get; }
