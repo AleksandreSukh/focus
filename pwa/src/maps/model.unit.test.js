@@ -43,6 +43,30 @@ function createDocument() {
 }
 
 describe('mind map model hide-done support', () => {
+  it('preserves text block nodes during normalization and serialization', () => {
+    const document = normalizeMindMapDocument({
+      rootNode: {
+        name: 'Root',
+        children: [
+          {
+            nodeType: NODE_TYPE.TEXT_BLOCK_ITEM,
+            name: 'Answer\nLine one\nLine two',
+            children: [],
+          },
+        ],
+      },
+    }, {
+      fileTimestampIso: '2026-04-20T08:00:00Z',
+    });
+
+    const child = document.rootNode.children[0];
+    const serialized = serializeMindMapDocument(document);
+
+    assert.equal(child.nodeType, NODE_TYPE.TEXT_BLOCK_ITEM);
+    assert.ok(serialized.includes('"nodeType": 2'));
+    assert.ok(serialized.includes('Answer\\nLine one\\nLine two'));
+  });
+
   it('normalizes legacy HideDoneTasks casing to hideDoneTasks', () => {
     const document = normalizeMindMapDocument({
       RootNode: {

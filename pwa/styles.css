@@ -1233,6 +1233,20 @@ h3 {
   line-height: 1.6;
 }
 
+.node-block-body {
+  margin: 0.1rem 0 0.2rem 0.32rem;
+  padding: 0.1rem 0 0.1rem 0.8rem;
+  border-left: 2px solid var(--border);
+  color: var(--muted);
+  font-size: 0.94rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.node-block-inline {
+  white-space: pre-wrap;
+}
+
 .node-star-button {
   flex: 0 0 auto;
   display: inline-flex;
@@ -1446,6 +1460,7 @@ h3 {
 }
 
 .add-note-fab,
+.ask-ai-fab,
 .create-map-fab {
   --floating-fab-size: 3.8rem;
   --floating-fab-icon-size: 2rem;
@@ -1456,6 +1471,7 @@ h3 {
 }
 
 .add-note-fab:hover,
+.ask-ai-fab:hover,
 .create-map-fab:hover {
   background: var(--accent);
   color: #fff;

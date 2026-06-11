@@ -45,3 +45,9 @@ export const buildAttachmentAddCommitMessage = (mapName: string, fileName: strin
 
 export const buildAttachmentRemoveCommitMessage = (mapName: string, fileName: string): string =>
   `map:detach ${normalizeMapName(mapName)} ${truncate(normalizeValue(fileName), 48)}`.trimEnd();
+
+export const buildLlmJobCreateCommitMessage = (prompt: string): string =>
+  `llm:request ${truncate(normalizeValue(prompt), 64)}`.trimEnd();
+
+export const buildLlmJobUpdateCommitMessage = (jobId: string, status: string): string =>
+  `llm:job ${normalizeValue(jobId)} -> ${normalizeValue(status) || 'updated'}`.trimEnd();

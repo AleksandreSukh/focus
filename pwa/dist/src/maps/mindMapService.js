@@ -74,6 +74,18 @@ export class MindMapService {
     return Array.from(this.snapshotsByPath.values());
   }
 
+  async listLlmJobs() {
+    return this.repository.listLlmJobs();
+  }
+
+  async saveLlmJob(job, expectedRevision, commitMessage) {
+    return this.repository.saveLlmJob(job, expectedRevision, commitMessage);
+  }
+
+  async createLlmJob(job, commitMessage) {
+    return this.saveLlmJob(job, null, commitMessage);
+  }
+
   replaceCachedSnapshot(snapshot) {
     if (!snapshot?.filePath) {
       return;

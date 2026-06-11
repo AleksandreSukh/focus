@@ -566,3 +566,113 @@ describe('GitHubMindMapProvider.deleteAttachment', () => {
     assert.deepEqual(result, { ok: true });
   });
 });
+
+describe('GitHubMindMapProvider LLM job sidecars', () => {
+  it('lists normalized job sidecars from the _llm jobs directory', async () => {
+    const provider = new GitHubMindMapProvider({
+      owner: 'octocat',
+      repo: 'focus',
+      branch: 'main',
+      token: 'test-token',
+      directoryPath: 'FocusMaps',
+    });
+
+    const calls = [];
+    provider.gitProvider = {
+      async listDirectory(path) {
+        calls.push(['listDirectory', path]);
+        return [
+          { type: 'file', name: 'job-1.json', path: 'FocusMaps/_llm/jobs/job-1.json' },
+          { type: 'file', name: 'note.txt', path: 'FocusMaps/_llm/jobs/note.txt' },
+        ];
+      },
+      async getFile(path) {
+        calls.push(['getFile', path]);
+        return {
+          content: JSON.stringify({
+            id: 'job-1',
+            status: 'pending',
+            mapFilePath: 'FocusMaps/Alpha.json',
+            nodeId: '53ba90f9-f653-4771-bc08-3c8a531b9b85',
+            prompt: 'Summarize',
+            createdAt: '2026-05-18T08:00:00Z',
+            updatedAt: '2026-05-18T08:00:00Z',
+          }),
+          versionToken: 'job-rev',
+        };
+      },
+    };
+
+    const jobs = await provider.listLlmJobs();
+
+    assert.equal(jobs.length, 1);
+    assert.equal(jobs[0].id, 'job-1');
+    assert.equal(jobs[0].revision, 'job-rev');
+    assert.deepEqual(calls, [
+      ['listDirectory', 'FocusMaps/_llm/jobs'],
+      ['getFile', 'FocusMaps/_llm/jobs/job-1.json'],
+    ]);
+  });
+
+  it('treats a missing _llm jobs directory as an empty queue', async () => {
+    const provider = new GitHubMindMapProvider({
+      owner: 'octocat',
+      repo: 'focus',
+      branch: 'main',
+      token: 'test-token',
+      directoryPath: 'FocusMaps',
+    });
+
+    provider.gitProvider = {
+      async listDirectory() {
+        throw new GitHubApiError({
+          code: 'NOT_FOUND',
+          status: 404,
+          statusText: 'Not Found',
+          operation: 'listDirectory',
+          contextLabel: 'listing LLM jobs',
+          message: 'Not found',
+        });
+      },
+    };
+
+    assert.deepEqual(await provider.listLlmJobs(), []);
+  });
+
+  it('saves job sidecars under the _llm jobs directory', async () => {
+    const provider = new GitHubMindMapProvider({
+      owner: 'octocat',
+      repo: 'focus',
+      branch: 'main',
+      token: 'test-token',
+      directoryPath: 'FocusMaps',
+    });
+
+    const calls = [];
+    provider.gitProvider = {
+      async putFile(path, content, revision, message) {
+        calls.push(['putFile', path, JSON.parse(content), revision, message]);
+        return { versionToken: 'saved-job-rev' };
+      },
+    };
+
+    const result = await provider.saveLlmJob({
+      job: {
+        id: 'job-1',
+        status: 'pending',
+        mapFilePath: 'FocusMaps/Alpha.json',
+        nodeId: '53ba90f9-f653-4771-bc08-3c8a531b9b85',
+        prompt: 'Summarize',
+        createdAt: '2026-05-18T08:00:00Z',
+        updatedAt: '2026-05-18T08:00:00Z',
+      },
+      expectedRevision: null,
+      commitMessage: 'llm:request Summarize',
+    });
+
+    assert.deepEqual(result, { ok: true, revision: 'saved-job-rev' });
+    assert.equal(calls[0][1], 'FocusMaps/_llm/jobs/job-1.json');
+    assert.equal(calls[0][2].prompt, 'Summarize');
+    assert.equal(calls[0][4], 'llm:request Summarize');
+  });
+});

@@ -11,6 +11,7 @@ import {
   buildNodeHideDoneTasksCommitMessage,
   buildNodeStarCommitMessage,
   buildNodeTaskStateCommitMessage,
+  buildLlmJobCreateCommitMessage,
   getSyncMetadata,
   recordSyncState,
 } from './gitProvider/index.js';
@@ -74,6 +75,12 @@ import {
   collectOutgoingRelatedNodeEntries,
 } from './maps/relatedNodes.js';
 import {
+  LLM_PROMPT_PREFIX,
+  collectLlmPromptEntries,
+  createLlmJob,
+  extractLlmPromptText,
+} from './llm/interop.js';
+import {
   HASH_ROUTE,
   buildHashRoute,
   parseHashRoute,
@@ -130,6 +137,7 @@ const state = {
   selectedNodeId: '',
   navigationHistory: createNavigationHistory({ view: 'maps' }),
   mapsByPath: {},
+  llmJobs: [],
   unreadableMaps: [],
   blockedPendingMaps: [],
   pendingOperations: [],
@@ -917,6 +925,10 @@ async function handleDocumentSubmit(event) {
       event.preventDefault();
       await handleAddChildSubmit(form, 'addChildTask');
       return;
+    case 'ask-ai-form':
+      event.preventDefault();
+      await handleAskAiSubmit(form);
+      return;
     case 'create-map-form':
       event.preventDefault();
       await handleCreateMapSubmit(form);
@@ -1291,7 +1303,7 @@ function handleDocumentInput(event) {
 
   if (
     state.activeModal &&
-    ['edit-node-form', 'add-note-form', 'add-note-composer-form', 'add-task-form', 'create-map-form', 'repair-map-form'].includes(form.id)
+    ['edit-node-form', 'add-note-form', 'add-note-composer-form', 'add-task-form', 'ask-ai-form', 'create-map-form', 'repair-map-form'].includes(form.id)
   ) {
     state.activeModal = {
       ...state.activeModal,
@@ -1489,6 +1501,7 @@ function switchRepoContext(repoSettings) {
   state.unreadableMaps = [];
   state.blockedPendingMaps = [];
   state.pendingOperations = loadPendingMapOperations(state.repoScope);
+  state.llmJobs = [];
   state.service = null;
   state.currentView = 'maps';
   state.selectedMapPath = '';
@@ -1626,6 +1639,8 @@ async function loadWorkspace(forceRefresh) {
 
   if (state.pendingOperations.length > 0) {
     void processPendingOperations();
+  } else {
+    void syncLlmPromptJobs();
   }
 }
 
@@ -1796,6 +1811,7 @@ async function processPendingOperations() {
       return;
     }
 
+    await saveLlmJobForSyncedOperation(currentOperation);
     getOperationFilePaths(currentOperation).forEach((filePath) => clearBlockedPendingMap(filePath));
     state.pendingOperations = state.pendingOperations.slice(1);
     syncBlockedPendingMaps();
@@ -1814,6 +1830,68 @@ async function processPendingOperations() {
   state.syncState = buildIdleWorkspaceSyncState();
   persistRepoScopedState();
   render();
+  void syncLlmPromptJobs();
+}
+
+async function saveLlmJobForSyncedOperation(operation) {
+  if (!operation?.llmJob || !state.service) {
+    return;
+  }
+
+  const job = {
+    ...operation.llmJob,
+    mapFilePath: operation.filePath,
+    nodeId: operation.newNodeId || operation.llmJob.nodeId,
+    prompt: operation.llmJob.prompt || extractLlmPromptText(operation.text),
+  };
+  const saved = await state.service.createLlmJob(
+    job,
+    buildLlmJobCreateCommitMessage(job.prompt),
+  );
+
+  if (saved.ok) {
+    state.llmJobs = [
+      ...state.llmJobs.filter((item) => item.id !== job.id),
+      {
+        ...job,
+        revision: saved.revision,
+      },
+    ];
+  }
+}
+
+async function syncLlmPromptJobs() {
+  if (!state.service || state.authState !== 'authenticated' || state.pendingOperations.length > 0) {
+    return;
+  }
+
+  const listed = await state.service.listLlmJobs();
+  if (!listed.ok) {
+    return;
+  }
+
+  state.llmJobs = listed.value;
+  const entries = collectLlmPromptEntries(getSnapshots(), state.llmJobs);
+  for (const entry of entries) {
+    const job = createLlmJob({
+      mapFilePath: entry.mapFilePath,
+      nodeId: entry.nodeId,
+      prompt: entry.prompt,
+    });
+    const saved = await state.service.createLlmJob(
+      job,
+      buildLlmJobCreateCommitMessage(entry.prompt),
+    );
+    if (saved.ok) {
+      state.llmJobs = [
+        ...state.llmJobs,
+        {
+          ...job,
+          revision: saved.revision,
+        },
+      ];
+    }
+  }
 }
 
 function handleSyncFailure(error, fallbackMessage) {
@@ -2134,6 +2212,56 @@ async function handleAddChildNoteSubmit(form) {
     type: 'modalAutofocus',
   };
   focusPendingElement();
+}
+
+async function handleAskAiSubmit(form) {
+  const modalContext = getActiveModalContext('askAi');
+  if (!modalContext) {
+    return;
+  }
+
+  const prompt = String(new FormData(form).get('prompt') ?? '').trim();
+  state.activeModal = {
+    ...state.activeModal,
+    draftText: prompt,
+    errorMessage: '',
+  };
+
+  if (!prompt) {
+    setActiveModalError('Prompt text cannot be empty.');
+    return;
+  }
+
+  const nodeId = createClientNodeId();
+  const text = `${LLM_PROMPT_PREFIX}${prompt}`;
+  const operation = {
+    type: 'addChildTask',
+    filePath: modalContext.snapshot.filePath,
+    parentNodeId: modalContext.nodeUiState.node.uniqueIdentifier,
+    newNodeId: nodeId,
+    text,
+    timestamp: nowIso(),
+    commitMessage: buildNodeAddCommitMessage(
+      modalContext.snapshot.mapName,
+      prompt,
+      'task',
+    ),
+    llmJob: createLlmJob({
+      mapFilePath: modalContext.snapshot.filePath,
+      nodeId,
+      prompt,
+    }),
+  };
+
+  const result = enqueueOperation(operation);
+  if (!result.ok) {
+    setActiveModalError(result.error.message);
+    return;
+  }
+
+  closeActiveModal({
+    focusKey: buildNodeFocusKey(operation.filePath, state.selectedNodeId || operation.parentNodeId),
+  });
 }
 
 async function handleSetTaskState(taskStateValue, explicitMapPath, explicitNodeId) {
@@ -4965,6 +5093,23 @@ function renderMapFloatingActions(snapshot, nodeUiState) {
           <line x1="5" y1="12" x2="19" y2="12"/>
         </svg>
       </button>
+      <button
+        type="button"
+        class="floating-fab ask-ai-fab"
+        data-action="open-modal"
+        data-modal-kind="askAi"
+        data-map-path="${escapeHtml(snapshot.filePath)}"
+        data-node-id="${escapeHtml(nodeUiState.node.uniqueIdentifier)}"
+        data-focus-key="ask-ai-fab"
+        aria-label="Ask AI"
+        title="Ask AI"
+        ${nodeUiState.canEditNode ? '' : 'disabled'}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 3l1.7 5.2L19 10l-5.3 1.8L12 17l-1.7-5.2L5 10l5.3-1.8L12 3Z"/>
+          <path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15Z"/>
+        </svg>
+      </button>
       ${doneVisibilityButton}
     </div>
   `;
@@ -5537,6 +5682,7 @@ function renderSettingsPanel() {
       savePendingMapOperations(state.repoScope, []);
       saveCachedMapSnapshots(state.repoScope, []);
       state.pendingOperations = [];
+      state.llmJobs = [];
       state.blockedPendingMaps = [];
       state.unreadableMaps = [];
       state.service?.hydrateSnapshots([]);
@@ -5782,8 +5928,9 @@ function renderMapView() {
                 data-node-id="${escapeHtml(viewportRootNode.uniqueIdentifier)}"
                 data-focus-key="${escapeHtml(buildNodeFocusKey(snapshot.filePath, viewportRootNode.uniqueIdentifier))}"
               >
-                ${renderNodeTextMarkup(viewportRootNode.name, 'formatted-inline map-title-inline')}
+                ${renderNodeTitleMarkup(viewportRootNode, 'formatted-inline map-title-inline')}
               </div>
+              ${renderTextBlockBodyMarkup(viewportRootNode)}
               ${renderSelectedNodeActions(snapshot, selectedNodeState)}
             </div>
           </div>
@@ -5806,7 +5953,7 @@ function renderTreeNode(snapshot, node, depth, selectedNodeState, ancestorHidesD
   const visibleChildren = getVisibleTreeChildren(node, ancestorHidesDone);
   const hasChildren = visibleChildren.length > 0;
   const isCollapsed = getLocalCollapsedState(snapshot.filePath, node);
-  const nodeTextMarkup = renderNodeTextMarkup(node.name, 'formatted-inline tree-inline');
+  const nodeTextMarkup = renderNodeTitleMarkup(node, 'formatted-inline tree-inline');
 
   return `
     <li class="reader-node ${isSelected ? 'selected' : ''}" style="--depth:${depth}">
@@ -5837,6 +5984,7 @@ function renderTreeNode(snapshot, node, depth, selectedNodeState, ancestorHidesD
             </div>
             ${renderNodeStarButton(snapshot, node)}
           </div>
+          ${renderTextBlockBodyMarkup(node)}
           ${isSelected ? renderSelectedNodeActions(snapshot, selectedNodeState) : ''}
         </div>
       </div>
@@ -6165,18 +6313,27 @@ function renderActiveModal() {
   const { nodeUiState } = modalContext;
 
   const isEditModal = state.activeModal.kind === 'editNode';
+  const isAskAiModal = state.activeModal.kind === 'askAi';
   const title = isEditModal
     ? 'Edit node text'
-    : 'Add child task';
+    : isAskAiModal
+      ? 'Ask AI'
+      : 'Add child task';
   const description = isEditModal
     ? 'Unsupported mind-map data stays preserved when you save supported edits.'
-    : 'Create a new child task under the selected node. New tasks start in Todo.';
+    : isAskAiModal
+      ? 'Create a prompt task under the selected node. An agent can claim it from the LLM job queue.'
+      : 'Create a new child task under the selected node. New tasks start in Todo.';
   const formId = isEditModal
     ? 'edit-node-form'
-    : 'add-task-form';
+    : isAskAiModal
+      ? 'ask-ai-form'
+      : 'add-task-form';
   const actionLabel = isEditModal
     ? 'Save'
-    : 'Add task';
+    : isAskAiModal
+      ? 'Create prompt'
+      : 'Add task';
   const inputMarkup = isEditModal
     ? `
       <label>
@@ -6196,6 +6353,19 @@ function renderActiveModal() {
         </div>
       </div>
       ${renderAttachmentsSection(state.activeModal.mapPath, nodeUiState.node)}
+    `
+    : isAskAiModal
+      ? `
+      <label>
+        <span>Prompt</span>
+        <textarea
+          name="prompt"
+          rows="5"
+          maxlength="5000"
+          placeholder="Ask for a summary, plan, checklist, or next draft"
+          data-modal-autofocus="true"
+        >${escapeHtml(state.activeModal.draftText)}</textarea>
+      </label>
     `
     : `
       <label>
@@ -6735,6 +6905,46 @@ function renderNodeTextMarkup(rawText, wrapperClass) {
     theme: state.theme,
     wrapperClass,
   });
+}
+
+function renderNodeTitleMarkup(node, wrapperClass) {
+  if (node?.nodeType !== NODE_TYPE.TEXT_BLOCK_ITEM) {
+    return renderNodeTextMarkup(node?.name, wrapperClass);
+  }
+
+  const { title } = splitTextBlock(node.name);
+  return renderNodeTextMarkup(title, wrapperClass);
+}
+
+function renderTextBlockBodyMarkup(node) {
+  if (node?.nodeType !== NODE_TYPE.TEXT_BLOCK_ITEM) {
+    return '';
+  }
+
+  const { body } = splitTextBlock(node.name);
+  if (!body.trim()) {
+    return '';
+  }
+
+  return `
+    <blockquote class="node-block-body">
+      ${body.split(/\r\n|\r|\n/).map((line) => `
+        <div>${renderInlineHtml(line || ' ', {
+          theme: state.theme,
+          wrapperClass: 'formatted-inline node-block-inline',
+        })}</div>
+      `).join('')}
+    </blockquote>
+  `;
+}
+
+function splitTextBlock(value) {
+  const lines = String(value ?? '').replace(/\r\n|\r/g, '\n').split('\n');
+  const title = lines[0]?.trim() || normalizeNodeDisplayText('');
+  return {
+    title,
+    body: lines.slice(1).join('\n'),
+  };
 }
 
 function renderAttachmentsSection(mapPath, node) {

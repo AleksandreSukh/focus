@@ -6,6 +6,10 @@ import {
   parseMindMapDocument,
   serializeMindMapDocument,
 } from './model.js';
+import {
+  normalizeLlmJob,
+  serializeLlmJob,
+} from '../llm/interop.js';
 import { hasConflictMarkers, tryResolveMapConflict } from './mapConflictResolver.js';
 
 export const UNREADABLE_MAP_REASON = Object.freeze({
@@ -40,6 +44,74 @@ export class GitHubMindMapProvider {
         filePath: entry.path,
       }))
       .sort((left, right) => left.fileName.localeCompare(right.fileName));
+  }
+
+  async listLlmJobs() {
+    const jobsDirectoryPath = buildLlmJobsDirectoryPath(this.directoryPath);
+    let entries;
+    try {
+      entries = await this.gitProvider.listDirectory(jobsDirectoryPath);
+    } catch (error) {
+      if (error instanceof GitHubApiError && error.code === 'NOT_FOUND') {
+        return [];
+      }
+
+      throw error;
+    }
+
+    const jobs = [];
+    for (const entry of entries) {
+      if (
+        !entry ||
+        entry.type !== 'file' ||
+        typeof entry.name !== 'string' ||
+        !entry.name.toLowerCase().endsWith('.json')
+      ) {
+        continue;
+      }
+
+      try {
+        const snapshot = await this.gitProvider.getFile(entry.path);
+        jobs.push({
+          ...normalizeLlmJob(JSON.parse(snapshot.content), { jobId: entry.name.replace(/\.json$/i, '') }),
+          filePath: entry.path,
+          revision: snapshot.versionToken,
+        });
+      } catch {
+        // Invalid job sidecars should not block normal map loading. Agents can
+        // repair or delete bad job files out-of-band.
+      }
+    }
+
+    return jobs.sort((left, right) =>
+      String(left.createdAt || '').localeCompare(String(right.createdAt || '')) ||
+      String(left.id || '').localeCompare(String(right.id || '')));
+  }
+
+  async saveLlmJob({ job, expectedRevision, commitMessage }) {
+    const normalized = normalizeLlmJob(job);
+    try {
+      const result = await this.gitProvider.putFile(
+        buildLlmJobPath(this.directoryPath, normalized.id),
+        serializeLlmJob(normalized),
+        expectedRevision,
+        commitMessage,
+      );
+
+      return {
+        ok: true,
+        revision: result.versionToken,
+      };
+    } catch (error) {
+      if (error instanceof GitHubApiError && error.code === 'CONFLICT') {
+        return {
+          ok: false,
+          reason: 'conflict',
+        };
+      }
+
+      throw error;
+    }
   }
 
   async loadMap(filePath) {
@@ -322,6 +394,27 @@ function buildAttachmentPath(directoryPath, nodeId, relativePath) {
 
   parts.push('_attachments', normalizeAttachmentNodeId(nodeId), normalizeAttachmentRelativePath(relativePath));
   return parts.join('/');
+}
+
+function buildLlmJobsDirectoryPath(directoryPath) {
+  const parts = [];
+  if (directoryPath) {
+    parts.push(directoryPath);
+  }
+
+  parts.push('_llm', 'jobs');
+  return parts.join('/');
+}
+
+function buildLlmJobPath(directoryPath, jobId) {
+  return `${buildLlmJobsDirectoryPath(directoryPath)}/${normalizeLlmJobId(jobId)}.json`;
+}
+
+function normalizeLlmJobId(jobId) {
+  return String(jobId ?? '')
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]/g, '-')
+    .replace(/^-+|-+$/g, '') || 'job';
 }
 
 function normalizeAttachmentNodeId(nodeId) {

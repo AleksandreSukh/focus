@@ -8,6 +8,7 @@ Focus is a .NET 8 console application for building and maintaining text-first mi
 - Stores user data in JSON files under a configurable data folder.
 - Uses a page-based terminal interface with command history and autocomplete.
 - Supports idea tags, cross-node links, collapsing branches, and slicing parts of a map into a new file.
+- Supports a file-backed LLM interoperability layer for `@ai` prompt tasks and agent-written answer nodes.
 - Can synchronize saved maps through Git when a repository is configured on Windows.
 - Can check for and apply packaged app updates through Velopack when the app is installed.
 
@@ -151,6 +152,8 @@ The user config currently supports:
 A ready-to-copy sample config lives at [docs/focus-config.sample.json](docs/focus-config.sample.json).
 
 `voiceRecorder` is optional. The console `voice` command uses bundled ffmpeg by default; custom recorder setup and Windows DirectShow examples are documented in [docs/voice-recording.md](docs/voice-recording.md).
+
+LLM chatbot interoperability is documented in [docs/llm-interop.md](docs/llm-interop.md).
 
 `translations` lets Focus convert localized keyboard input back into the built-in command alphabet. The sample file includes a full Georgian `ka-GE` character dictionary for command entry.
 

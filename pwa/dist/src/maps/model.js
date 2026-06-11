@@ -8,6 +8,7 @@ export const TASK_STATE = Object.freeze({
 export const NODE_TYPE = Object.freeze({
   TEXT_ITEM: 0,
   IDEA_BAG_ITEM: 1,
+  TEXT_BLOCK_ITEM: 2,
 });
 
 export const MAP_ERROR = Object.freeze({
@@ -1023,7 +1024,11 @@ function isValidTaskState(value) {
 }
 
 function isValidNodeType(value) {
-  return value === NODE_TYPE.TEXT_ITEM || value === NODE_TYPE.IDEA_BAG_ITEM;
+  return (
+    value === NODE_TYPE.TEXT_ITEM ||
+    value === NODE_TYPE.IDEA_BAG_ITEM ||
+    value === NODE_TYPE.TEXT_BLOCK_ITEM
+  );
 }
 
 function isPlainObject(value) {

@@ -59,6 +59,90 @@ export class MindMapRepository {
     }
   }
 
+  async listLlmJobs() {
+    if (typeof this.provider.listLlmJobs !== 'function') {
+      return {
+        ok: true,
+        value: [],
+      };
+    }
+
+    try {
+      return {
+        ok: true,
+        value: await this.provider.listLlmJobs(),
+      };
+    } catch (cause) {
+      return {
+        ok: false,
+        error: {
+          code: 'PERSISTENCE_ERROR',
+          message: cause?.message || 'Unable to list LLM job files from provider.',
+          retriable: cause?.code === 'NETWORK' || cause?.code === 'RATE_LIMIT',
+          cause,
+        },
+      };
+    }
+  }
+
+  async saveLlmJob(job, expectedRevision, commitMessage) {
+    if (typeof this.provider.saveLlmJob !== 'function') {
+      return {
+        ok: false,
+        error: {
+          code: 'UNSUPPORTED_OPERATION',
+          message: 'This provider does not support LLM job files.',
+          retriable: false,
+        },
+      };
+    }
+
+    try {
+      const outcome = await this.provider.saveLlmJob({
+        job,
+        expectedRevision,
+        commitMessage,
+      });
+
+      if (outcome.ok) {
+        return {
+          ok: true,
+          revision: outcome.revision,
+        };
+      }
+
+      if (outcome.reason === 'conflict') {
+        return {
+          ok: false,
+          error: {
+            code: 'STALE_STATE',
+            message: `Remote LLM job "${job?.id || ''}" changed and must be refreshed.`,
+            retriable: true,
+          },
+        };
+      }
+
+      return {
+        ok: false,
+        error: {
+          code: 'PERSISTENCE_ERROR',
+          message: outcome.message || `Unable to save LLM job "${job?.id || ''}".`,
+          retriable: true,
+        },
+      };
+    } catch (cause) {
+      return {
+        ok: false,
+        error: {
+          code: 'PERSISTENCE_ERROR',
+          message: cause?.message || `Unable to save LLM job "${job?.id || ''}".`,
+          retriable: cause?.code === 'NETWORK' || cause?.code === 'RATE_LIMIT',
+          cause,
+        },
+      };
+    }
+  }
+
   async createMap(filePath, document, commitMessage) {
     try {
       const outcome = await this.provider.saveMap({

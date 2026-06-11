@@ -1,4 +1,4 @@
-const CACHE_NAME = 'focus-pwa-shell-v17';
+const CACHE_NAME = 'focus-pwa-shell-v18';
 const APP_SHELL_ASSETS = [
   './',
   './index.html',
@@ -32,6 +32,8 @@ const APP_SHELL_ASSETS = [
   './src/maps/mindMapRepository.js',
   './src/maps/mindMapService.js',
   './src/maps/model.js',
+  './src/maps/relatedNodes.js',
+  './src/llm/interop.js',
 ];
 
 self.addEventListener('install', (event) => {

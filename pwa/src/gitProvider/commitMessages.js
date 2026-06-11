@@ -84,3 +84,12 @@ export function buildAttachmentRemoveCommitMessage(mapName, fileName) {
   const normalizedFileName = truncate(normalizeValue(fileName), 48);
   return `map:detach ${normalizeMapName(mapName)} ${normalizedFileName}`.trimEnd();
 }
+
+export function buildLlmJobCreateCommitMessage(prompt) {
+  const normalizedPrompt = truncate(normalizeValue(prompt), 64);
+  return `llm:request ${normalizedPrompt}`.trimEnd();
+}
+
+export function buildLlmJobUpdateCommitMessage(jobId, status) {
+  return `llm:job ${normalizeValue(jobId)} -> ${normalizeValue(status) || 'updated'}`.trimEnd();
+}
