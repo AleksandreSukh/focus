@@ -135,6 +135,14 @@ describe('offline map operation queue', () => {
       false,
     );
     assert.equal(
+      canUseCachedWorkspace({ code: 'NETWORK' }, [], [], true),
+      true,
+    );
+    assert.equal(
+      canUseCachedWorkspace({ code: 'FORBIDDEN' }, [], [], true),
+      false,
+    );
+    assert.equal(
       canUseCachedWorkspace({ code: 'NETWORK' }, [], [
         buildCreateMapOperation({
           filePath: 'FocusMaps/Queued.json',

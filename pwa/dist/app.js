@@ -61,26 +61,19 @@
     callback();
   }
 
-  function isLocalDevelopmentHost() {
-    return ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname);
-  }
-
-  async function disableLocalServiceWorkerCaching() {
+  async function registerPwaShell() {
     if (!('serviceWorker' in navigator)) {
       return;
     }
 
     try {
-      const registrations = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(registrations.map((registration) => registration.unregister()));
-
-      if ('caches' in window) {
-        const cacheKeys = await caches.keys();
-        const focusCacheKeys = cacheKeys.filter((cacheKey) => cacheKey.startsWith('focus-pwa-shell-'));
-        await Promise.all(focusCacheKeys.map((cacheKey) => caches.delete(cacheKey)));
-      }
+      await navigator.serviceWorker.register('./sw.js');
+      await Promise.race([
+        navigator.serviceWorker.ready,
+        new Promise((resolve) => setTimeout(resolve, 2000)),
+      ]);
     } catch (error) {
-      console.warn('Failed to clear local service worker caches', error);
+      console.warn('Service worker registration failed', error);
     }
   }
 
@@ -131,13 +124,7 @@
 
   whenDomReady(() => {
     Promise.resolve()
-      .then(() => {
-        if (isLocalDevelopmentHost()) {
-          return disableLocalServiceWorkerCaching();
-        }
-
-        return undefined;
-      })
+      .then(() => registerPwaShell())
       .then(() => import('./src/main.js'))
       .then(({ bootstrapApp }) => bootstrapApp())
       .catch((error) => {

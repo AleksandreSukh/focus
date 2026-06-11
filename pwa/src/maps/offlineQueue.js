@@ -156,9 +156,10 @@ export function isTransientRemoteError(error) {
   );
 }
 
-export function canUseCachedWorkspace(error, snapshots, pendingOperations) {
+export function canUseCachedWorkspace(error, snapshots, pendingOperations, workspaceInitialized = false) {
   const hasCachedState =
     (Array.isArray(snapshots) && snapshots.length > 0) ||
-    (Array.isArray(pendingOperations) && pendingOperations.length > 0);
+    (Array.isArray(pendingOperations) && pendingOperations.length > 0) ||
+    Boolean(workspaceInitialized);
   return hasCachedState && isTransientRemoteError(error);
 }

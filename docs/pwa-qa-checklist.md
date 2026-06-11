@@ -36,14 +36,17 @@ Use this checklist to validate the PWA end-to-end behavior in realistic device/n
 **Repro steps**
 1. Load the app with an active network connection.
 2. Disable network (browser devtools offline mode or device airplane mode).
-3. Perform read and write actions (list load, add/edit/toggle/delete).
-4. Re-enable network and retry failed write actions.
+3. Refresh the page while offline.
+4. Create a new map, edit it, and navigate back to the maps list.
+5. Refresh the page again while still offline.
+6. Re-enable network and retry sync.
 
 **Expected outcomes**
-- App shell still opens if previously cached by the service worker.
-- Read/write failures show actionable error feedback.
-- Failed writes are not silently dropped.
-- After reconnect, retry succeeds and state becomes consistent.
+- App shell still opens locally if previously cached by the service worker.
+- Cached maps are shown without requiring GitHub.
+- A repo that previously loaded with zero maps still opens offline and allows creating the first local map.
+- New map creation and map edits are persisted locally and listed as pending sync.
+- After reconnect, queued changes sync to GitHub and state becomes consistent.
 
 ## 4) Token invalidation handling
 

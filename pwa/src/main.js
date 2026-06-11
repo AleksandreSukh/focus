@@ -43,8 +43,10 @@ import {
 import { GitHubMindMapProvider } from './maps/githubMindMapProvider.js';
 import {
   loadCachedMapSnapshots,
+  loadCachedWorkspaceInitialized,
   loadPendingMapOperations,
   saveCachedMapSnapshots,
+  saveCachedWorkspaceInitialized,
   savePendingMapOperations,
 } from './maps/localCache.js';
 import { MindMapRepository } from './maps/mindMapRepository.js';
@@ -151,6 +153,8 @@ const state = {
   blockedPendingMaps: [],
   pendingOperations: [],
   remoteBaselineReady: false,
+  cachedWorkspaceInitialized: false,
+  cachedWorkspaceActive: false,
   localCollapsedByMap: {},
   activeModal: null,
   pendingFocusRequest: null,
@@ -180,7 +184,6 @@ let activeVoiceRecording = null;
 
 export async function bootstrapApp() {
   wireUi();
-  registerPwaShell();
 
   state.theme = loadThemePreference();
   state.fabSide = loadFabSidePreference();
@@ -1438,44 +1441,6 @@ function resolveRuntimeConfig() {
   };
 }
 
-function registerPwaShell() {
-  window.addEventListener('load', async () => {
-    if (!('serviceWorker' in navigator)) {
-      return;
-    }
-
-    if (isLocalDevelopmentHost()) {
-      await disableLocalServiceWorkerCaching();
-      return;
-    }
-
-    try {
-      await navigator.serviceWorker.register('./sw.js');
-    } catch (error) {
-      console.error('Service worker registration failed', error);
-    }
-  });
-}
-
-function isLocalDevelopmentHost() {
-  return ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname);
-}
-
-async function disableLocalServiceWorkerCaching() {
-  try {
-    const registrations = await navigator.serviceWorker.getRegistrations();
-    await Promise.all(registrations.map((registration) => registration.unregister()));
-
-    if ('caches' in window) {
-      const cacheKeys = await caches.keys();
-      const focusCacheKeys = cacheKeys.filter((cacheKey) => cacheKey.startsWith('focus-pwa-shell-'));
-      await Promise.all(focusCacheKeys.map((cacheKey) => caches.delete(cacheKey)));
-    }
-  } catch (error) {
-    console.warn('Failed to clear local service worker caches', error);
-  }
-}
-
 function updateInstallState() {
   if (ui.installButton) {
     ui.installButton.hidden = !state.installEvent;
@@ -1520,6 +1485,8 @@ function switchRepoContext(repoSettings) {
   state.blockedPendingMaps = [];
   state.pendingOperations = loadPendingMapOperations(state.repoScope);
   state.remoteBaselineReady = false;
+  state.cachedWorkspaceInitialized = loadCachedWorkspaceInitialized(state.repoScope);
+  state.cachedWorkspaceActive = false;
   state.llmJobs = [];
   state.service = null;
   state.currentView = 'maps';
@@ -1567,7 +1534,12 @@ async function authenticateAndLoad() {
 
   const validation = await validateToken(token, state.repoSettings);
   if (!validation.ok) {
-    if (canUseCachedWorkspace(validation.error, getSnapshots(), state.pendingOperations)) {
+    if (canUseCachedWorkspace(
+      validation.error,
+      getSnapshots(),
+      state.pendingOperations,
+      state.cachedWorkspaceInitialized,
+    )) {
       activateCachedWorkspace(validation.error);
       return;
     }
@@ -1638,7 +1610,12 @@ async function loadWorkspace(forceRefresh) {
     // Since authentication already confirmed the repo and branch are valid, treat
     // this as an empty workspace rather than a misconfiguration.
     if (loaded.error?.cause?.code !== 'NOT_FOUND') {
-      if (canUseCachedWorkspace(loaded.error, getSnapshots(), state.pendingOperations)) {
+      if (canUseCachedWorkspace(
+        loaded.error,
+        getSnapshots(),
+        state.pendingOperations,
+        state.cachedWorkspaceInitialized,
+      )) {
         activateCachedWorkspace(loaded.error);
         return;
       }
@@ -1659,6 +1636,9 @@ async function loadWorkspace(forceRefresh) {
 
   state.authState = 'authenticated';
   state.remoteBaselineReady = true;
+  state.cachedWorkspaceInitialized = true;
+  state.cachedWorkspaceActive = false;
+  saveCachedWorkspaceInitialized(state.repoScope, true);
   state.syncState = buildWorkspaceLoadSyncState();
 
   if (state.pendingRepairFocusPath && hasRepairEntryForFilePath(state.pendingRepairFocusPath)) {
@@ -1680,10 +1660,20 @@ async function loadWorkspace(forceRefresh) {
 }
 
 function activateCachedWorkspace(error) {
+  if (getSnapshots().length === 0 && state.pendingOperations.length > 0) {
+    setSnapshots(applyPendingOperationsLocally([], state.pendingOperations));
+  }
+
+  if (state.service) {
+    state.service.hydrateSnapshots(getSnapshots());
+  }
+
   state.authState = 'authenticated';
   state.processingQueue = false;
   state.remoteBaselineReady = false;
+  state.cachedWorkspaceActive = true;
   state.syncState = buildCachedOfflineSyncState(error);
+  persistRepoScopedState();
   replaceCurrentNavigationEntry(state.navigationHistory.current);
   render();
 }
@@ -1712,11 +1702,13 @@ async function handleConnectivityRestored() {
   }
 
   if (state.pendingOperations.length > 0) {
+    state.cachedWorkspaceActive = false;
     await processPendingOperations();
     return;
   }
 
   if (!state.remoteBaselineReady || state.syncState.kind === 'offline') {
+    state.cachedWorkspaceActive = false;
     await loadWorkspace(true);
   }
 }
@@ -1897,6 +1889,14 @@ async function processPendingOperations() {
   }
 
   if (!state.remoteBaselineReady) {
+    if (state.cachedWorkspaceActive) {
+      state.syncState = buildCachedOfflineSyncState({
+        message: 'Local changes will sync when GitHub is reachable.',
+      });
+      render();
+      return;
+    }
+
     await loadWorkspace(true);
     return;
   }
@@ -2120,6 +2120,8 @@ async function handleRetry() {
     await authenticateAndLoad();
     return;
   }
+
+  state.cachedWorkspaceActive = false;
 
   if (state.unreadableMaps.length > 0 || state.blockedPendingMaps.length > 0) {
     await loadWorkspace(true);
@@ -5796,10 +5798,14 @@ function renderSettingsPanel() {
     onHardReset: () => {
       savePendingMapOperations(state.repoScope, []);
       saveCachedMapSnapshots(state.repoScope, []);
+      saveCachedWorkspaceInitialized(state.repoScope, false);
       state.pendingOperations = [];
       state.llmJobs = [];
       state.blockedPendingMaps = [];
       state.unreadableMaps = [];
+      state.cachedWorkspaceInitialized = false;
+      state.cachedWorkspaceActive = false;
+      state.remoteBaselineReady = false;
       state.service?.hydrateSnapshots([]);
       setSnapshots([]);
       state.showSettings = false;

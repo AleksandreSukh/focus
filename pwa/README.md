@@ -69,6 +69,7 @@ pwsh -File pwa/serve-local.ps1
 Open `http://localhost:4173`.
 
 Opening `index.html` directly as `file://...` is not supported. The app must be served over HTTP locally.
+The local server path is service-worker enabled, so after the app has loaded once it can refresh and queue map edits while offline.
 
 At first launch, the app will ask for:
 

@@ -1,5 +1,6 @@
 const MAP_CACHE_PREFIX = 'focus.pwa.maps.cache.';
 const MAP_QUEUE_PREFIX = 'focus.pwa.maps.queue.';
+const MAP_WORKSPACE_STATE_PREFIX = 'focus.pwa.maps.workspace.';
 
 function hasLocalStorage() {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
@@ -72,6 +73,39 @@ export function savePendingMapOperations(scope, operations) {
   window.localStorage.setItem(
     resolveScopedKey(MAP_QUEUE_PREFIX, scope),
     JSON.stringify(Array.isArray(operations) ? operations : []),
+  );
+}
+
+export function loadCachedWorkspaceInitialized(scope) {
+  if (!hasLocalStorage()) {
+    return false;
+  }
+
+  const parsed = safeParse(
+    window.localStorage.getItem(resolveScopedKey(MAP_WORKSPACE_STATE_PREFIX, scope)),
+    null,
+  );
+
+  return Boolean(parsed?.initialized);
+}
+
+export function saveCachedWorkspaceInitialized(scope, initialized) {
+  if (!hasLocalStorage()) {
+    return;
+  }
+
+  const key = resolveScopedKey(MAP_WORKSPACE_STATE_PREFIX, scope);
+  if (!initialized) {
+    window.localStorage.removeItem(key);
+    return;
+  }
+
+  window.localStorage.setItem(
+    key,
+    JSON.stringify({
+      initialized: true,
+      initializedAt: new Date().toISOString(),
+    }),
   );
 }
 

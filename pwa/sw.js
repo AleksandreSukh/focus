@@ -1,4 +1,4 @@
-const CACHE_NAME = 'focus-pwa-shell-v19';
+const CACHE_NAME = 'focus-pwa-shell-v20';
 const APP_SHELL_ASSETS = [
   './',
   './index.html',
@@ -38,7 +38,10 @@ const APP_SHELL_ASSETS = [
 ];
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL_ASSETS)));
+  event.waitUntil(
+    caches.open(CACHE_NAME)
+      .then((cache) => cache.addAll(APP_SHELL_ASSETS.map((asset) => new Request(asset, { cache: 'reload' })))),
+  );
   self.skipWaiting();
 });
 
@@ -64,7 +67,31 @@ self.addEventListener('fetch', (event) => {
   // version.json must never be served from cache so the update checker
   // always sees the latest value from the server.
   if (requestUrl.pathname.endsWith('/version.json')) {
-    event.respondWith(fetch(event.request));
+    event.respondWith(
+      fetch(event.request).catch(() => new Response('{}', {
+        status: 503,
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      })),
+    );
+    return;
+  }
+
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response && response.ok) {
+            return response;
+          }
+
+          return caches.match('./index.html').then((cached) => cached || response);
+        })
+        .catch(() => caches.match('./index.html'))
+        .then((response) => response || new Response('Offline', {
+          status: 503,
+          headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+        })),
+    );
     return;
   }
 
@@ -76,6 +103,10 @@ self.addEventListener('fetch', (event) => {
 
       return fetch(event.request)
         .then((response) => {
+          if (!response || !response.ok) {
+            return response;
+          }
+
           const copy = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
           return response;
