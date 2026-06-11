@@ -6,6 +6,7 @@ import {
   collectDocumentAttachmentRefs,
   collectTaskEntries,
   createMapDocument,
+  normalizeMindMapDocument,
 } from './model.js';
 
 export class MindMapService {
@@ -122,18 +123,26 @@ export class MindMapService {
   }
 
   async createMap(filePath, mapName, commitMessage) {
-    const document = createMapDocument(mapName);
-    const saved = await this.repository.createMap(filePath, document, commitMessage);
+    return this.createMapFromDocument(filePath, createMapDocument(mapName), commitMessage, mapName);
+  }
+
+  async createMapFromDocument(filePath, document, commitMessage, mapNameOverride = '') {
+    const fileName = filePath.split('/').pop() || filePath;
+    const mapName = mapNameOverride || fileName.replace(/\.json$/i, '');
+    const sourceDocument = document && typeof document === 'object'
+      ? document
+      : createMapDocument(mapName);
+    const normalizedDocument = normalizeMindMapDocument(cloneMapDocument(sourceDocument));
+    const saved = await this.repository.createMap(filePath, normalizedDocument, commitMessage);
     if (!saved.ok) {
       return saved;
     }
 
-    const fileName = filePath.split('/').pop() || filePath;
     const snapshot = {
       filePath,
       fileName,
       mapName,
-      document,
+      document: normalizedDocument,
       revision: saved.revision,
       loadedAt: Date.now(),
     };

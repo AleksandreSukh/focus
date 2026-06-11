@@ -50,6 +50,15 @@ import {
 import { MindMapRepository } from './maps/mindMapRepository.js';
 import { MindMapService } from './maps/mindMapService.js';
 import {
+  applyPendingOperationsLocally,
+  buildCreateMapOperation,
+  buildDeleteMapOperation,
+  buildRenamedSnapshot,
+  buildSnapshotFromCreateMapOperation,
+  canUseCachedWorkspace,
+  isTransientRemoteError,
+} from './maps/offlineQueue.js';
+import {
   applyMapMutation,
   buildMapSummary,
   cloneMapDocument,
@@ -141,6 +150,7 @@ const state = {
   unreadableMaps: [],
   blockedPendingMaps: [],
   pendingOperations: [],
+  remoteBaselineReady: false,
   localCollapsedByMap: {},
   activeModal: null,
   pendingFocusRequest: null,
@@ -894,6 +904,14 @@ function bindGlobalUiListeners() {
   document.addEventListener('keydown', handleDocumentKeydown, true);
   document.addEventListener('change', handleDocumentChange, true);
   document.addEventListener('input', handleDocumentInput, true);
+  window.addEventListener('online', () => {
+    void handleConnectivityRestored();
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      void handleConnectivityRestored();
+    }
+  });
   globalUiListenersBound = true;
 }
 
@@ -1501,6 +1519,7 @@ function switchRepoContext(repoSettings) {
   state.unreadableMaps = [];
   state.blockedPendingMaps = [];
   state.pendingOperations = loadPendingMapOperations(state.repoScope);
+  state.remoteBaselineReady = false;
   state.llmJobs = [];
   state.service = null;
   state.currentView = 'maps';
@@ -1544,8 +1563,15 @@ async function authenticateAndLoad() {
   };
   render();
 
+  state.service = createMindMapService(state.repoSettings, token);
+
   const validation = await validateToken(token, state.repoSettings);
   if (!validation.ok) {
+    if (canUseCachedWorkspace(validation.error, getSnapshots(), state.pendingOperations)) {
+      activateCachedWorkspace(validation.error);
+      return;
+    }
+
     state.service = null;
     state.syncState = {
       kind: 'error',
@@ -1571,7 +1597,6 @@ async function authenticateAndLoad() {
   }
 
   state.authState = 'authenticated';
-  state.service = createMindMapService(state.repoSettings, token);
   await loadWorkspace(true);
 }
 
@@ -1592,6 +1617,10 @@ async function loadWorkspace(forceRefresh) {
     return;
   }
 
+  if (forceRefresh) {
+    state.remoteBaselineReady = false;
+  }
+
   recordSyncState('loadingRemote', 'Loading maps from GitHub.');
   state.syncState = {
     kind: 'loadingRemote',
@@ -1609,6 +1638,11 @@ async function loadWorkspace(forceRefresh) {
     // Since authentication already confirmed the repo and branch are valid, treat
     // this as an empty workspace rather than a misconfiguration.
     if (loaded.error?.cause?.code !== 'NOT_FOUND') {
+      if (canUseCachedWorkspace(loaded.error, getSnapshots(), state.pendingOperations)) {
+        activateCachedWorkspace(loaded.error);
+        return;
+      }
+
       handleSyncFailure(loaded.error, 'Could not load mind maps from GitHub.');
       render();
       return;
@@ -1624,6 +1658,7 @@ async function loadWorkspace(forceRefresh) {
   persistRepoScopedState();
 
   state.authState = 'authenticated';
+  state.remoteBaselineReady = true;
   state.syncState = buildWorkspaceLoadSyncState();
 
   if (state.pendingRepairFocusPath && hasRepairEntryForFilePath(state.pendingRepairFocusPath)) {
@@ -1644,14 +1679,121 @@ async function loadWorkspace(forceRefresh) {
   }
 }
 
+function activateCachedWorkspace(error) {
+  state.authState = 'authenticated';
+  state.processingQueue = false;
+  state.remoteBaselineReady = false;
+  state.syncState = buildCachedOfflineSyncState(error);
+  replaceCurrentNavigationEntry(state.navigationHistory.current);
+  render();
+}
+
+function buildCachedOfflineSyncState(error) {
+  const pendingCount = state.pendingOperations.length;
+  const reason = error?.message || 'GitHub is unreachable right now.';
+  return {
+    kind: 'offline',
+    tone: 'warning',
+    message: pendingCount > 0
+      ? `${pendingCount} local change${pendingCount === 1 ? '' : 's'} waiting for network.`
+      : 'Offline. Showing cached maps.',
+    detail: `${reason} ${buildStatusDetail()}`.trim(),
+    canRetry: true,
+  };
+}
+
+function browserIsOffline() {
+  return typeof navigator !== 'undefined' && navigator.onLine === false;
+}
+
+async function handleConnectivityRestored() {
+  if (browserIsOffline() || state.authState !== 'authenticated' || !state.service) {
+    return;
+  }
+
+  if (state.pendingOperations.length > 0) {
+    await processPendingOperations();
+    return;
+  }
+
+  if (!state.remoteBaselineReady || state.syncState.kind === 'offline') {
+    await loadWorkspace(true);
+  }
+}
+
 function enqueueOperation(operation, options = {}) {
   const { selectedNodeIdOverride = '' } = options;
+  if (operation.type === 'createMap') {
+    if (state.mapsByPath[operation.filePath]) {
+      return {
+        ok: false,
+        error: {
+          message: `A map named "${operation.mapName || operation.filePath}" already exists.`,
+        },
+      };
+    }
+
+    const snapshot = buildSnapshotFromCreateMapOperation(operation);
+    state.pendingOperations = [...state.pendingOperations, operation];
+    replaceSnapshot(snapshot);
+    state.currentView = 'map';
+    state.selectedMapPath = snapshot.filePath;
+    state.selectedNodeId = selectedNodeIdOverride || snapshot.document.rootNode?.uniqueIdentifier || '';
+    state.activeModal = null;
+    persistRepoScopedState();
+    state.syncState = {
+      kind: 'syncing',
+      tone: 'pending',
+      message: `${state.pendingOperations.length} local change${state.pendingOperations.length === 1 ? '' : 's'} waiting to sync.`,
+      detail: buildStatusDetail(),
+      canRetry: false,
+    };
+    recordCurrentNavigationEntry({ replace: true });
+    render();
+    void processPendingOperations();
+    return {
+      ok: true,
+      value: {
+        snapshot,
+        selectedNodeId: state.selectedNodeId,
+      },
+    };
+  }
+
   const currentSnapshot = state.mapsByPath[operation.filePath];
   if (!currentSnapshot) {
     return {
       ok: false,
       error: {
         message: 'The selected map is no longer available.',
+      },
+    };
+  }
+
+  if (operation.type === 'deleteMap') {
+    state.pendingOperations = [...state.pendingOperations, operation];
+    setSnapshots(getSnapshots().filter((item) => item.filePath !== operation.filePath));
+    clearUnreadableMap(operation.filePath);
+    clearBlockedPendingMap(operation.filePath);
+    state.currentView = 'maps';
+    state.selectedMapPath = '';
+    state.selectedNodeId = '';
+    state.activeModal = null;
+    persistRepoScopedState();
+    state.syncState = {
+      kind: 'syncing',
+      tone: 'pending',
+      message: `${state.pendingOperations.length} local change${state.pendingOperations.length === 1 ? '' : 's'} waiting to sync.`,
+      detail: buildStatusDetail(),
+      canRetry: false,
+    };
+    recordCurrentNavigationEntry({ replace: true });
+    render();
+    void processPendingOperations();
+    return {
+      ok: true,
+      value: {
+        filePath: operation.filePath,
       },
     };
   }
@@ -1746,6 +1888,19 @@ async function processPendingOperations() {
     return;
   }
 
+  if (browserIsOffline()) {
+    state.syncState = buildCachedOfflineSyncState({
+      message: 'The browser is offline. Local changes will sync when the network returns.',
+    });
+    render();
+    return;
+  }
+
+  if (!state.remoteBaselineReady) {
+    await loadWorkspace(true);
+    return;
+  }
+
   syncBlockedPendingMaps();
 
   if (state.pendingOperations.length === 0) {
@@ -1778,13 +1933,7 @@ async function processPendingOperations() {
     };
     render();
 
-    const result = currentOperation.type === 'renameMap'
-      ? await state.service.renameMap(currentOperation)
-      : await state.service.applyMutation(
-        currentOperation.filePath,
-        currentOperation,
-        currentOperation.commitMessage,
-      );
+    const result = await syncPendingOperation(currentOperation);
 
     if (!result.ok) {
       state.processingQueue = false;
@@ -1831,6 +1980,28 @@ async function processPendingOperations() {
   persistRepoScopedState();
   render();
   void syncLlmPromptJobs();
+}
+
+async function syncPendingOperation(operation) {
+  switch (operation?.type) {
+    case 'createMap':
+      return state.service.createMapFromDocument(
+        operation.filePath,
+        operation.document,
+        operation.commitMessage,
+        operation.mapName,
+      );
+    case 'deleteMap':
+      return state.service.deleteMap(operation.filePath, operation.commitMessage);
+    case 'renameMap':
+      return state.service.renameMap(operation);
+    default:
+      return state.service.applyMutation(
+        operation.filePath,
+        operation,
+        operation.commitMessage,
+      );
+  }
 }
 
 async function saveLlmJobForSyncedOperation(operation) {
@@ -1914,6 +2085,10 @@ function handleSyncFailure(error, fallbackMessage) {
     state.authState = 'missingConfig';
     state.connectionError = message;
     state.service = null;
+  }
+
+  if (isTransientRemoteError(error)) {
+    state.remoteBaselineReady = false;
   }
 
   state.syncState = {
@@ -2372,22 +2547,19 @@ async function handleCreateMapSubmit(form) {
     : '';
   const filePath = repoPath ? `${repoPath}/${name}.json` : `${name}.json`;
 
-  const result = await state.service.createMap(filePath, name, buildMapCreateCommitMessage(name));
+  const operation = buildCreateMapOperation({
+    filePath,
+    mapName: name,
+    commitMessage: buildMapCreateCommitMessage(name),
+  });
+  const result = enqueueOperation(operation, {
+    selectedNodeIdOverride: operation.document.rootNode?.uniqueIdentifier || '',
+  });
   if (!result.ok) {
     setActiveModalError(result.error.message || 'Failed to create map. Try again.');
     return;
   }
 
-  replaceSnapshot(result.value);
-  state.service.hydrateSnapshots(getSnapshots());
-  persistRepoScopedState();
-  state.syncState = {
-    kind: 'success',
-    tone: 'success',
-    message: `Map "${name}" created.`,
-    detail: buildStatusDetail(),
-    canRetry: false,
-  };
   state.activeModal = null;
   navigateToMapRoute(filePath);
 }
@@ -2465,25 +2637,16 @@ async function handleDeleteMapConfirm() {
     return;
   }
 
-  const commitMessage = buildMapDeleteCommitMessage(snapshot.mapName);
-  state.service.hydrateSnapshots(getSnapshots());
-  const result = await state.service.deleteMap(filePath, commitMessage);
+  const operation = buildDeleteMapOperation({
+    snapshot,
+    commitMessage: buildMapDeleteCommitMessage(snapshot.mapName),
+  });
+  const result = enqueueOperation(operation);
   if (!result.ok) {
     setActiveModalError(result.error.message || 'Failed to delete map. Try again.');
     return;
   }
 
-  state.pendingOperations = state.pendingOperations.filter((operation) => !operationTouchesFilePath(operation, filePath));
-  setSnapshots(getSnapshots().filter((item) => item.filePath !== filePath));
-  state.service.hydrateSnapshots(getSnapshots());
-  persistRepoScopedState();
-  state.syncState = {
-    kind: 'success',
-    tone: 'success',
-    message: `Map "${snapshot.mapName}" deleted.`,
-    detail: buildStatusDetail(),
-    canRetry: false,
-  };
   state.activeModal = null;
   navigateToMapsRoute({ replace: true });
 }
@@ -2869,6 +3032,16 @@ async function uploadAttachmentForActiveEditNode(file, displayName = file.name) 
     return false;
   }
 
+  if (browserIsOffline()) {
+    state.activeModal = {
+      ...state.activeModal,
+      attachmentUploading: false,
+      attachmentError: 'Attachment uploads need a network connection. Other map edits can still be queued offline.',
+    };
+    render();
+    return false;
+  }
+
   if (file.size > MAX_ATTACHMENT_BYTES) {
     state.activeModal = {
       ...state.activeModal,
@@ -3168,6 +3341,11 @@ async function handleDeleteAttachmentConfirm() {
     return;
   }
 
+  if (browserIsOffline()) {
+    setActiveModalError('Attachment deletion needs a network connection. Other map edits can still be queued offline.');
+    return;
+  }
+
   const { mapPath, nodeId, attachmentId } = modal;
   const snapshot = state.mapsByPath[mapPath];
   if (!snapshot) {
@@ -3244,6 +3422,16 @@ async function handleRemoveAttachment(nodeId, attachmentId, displayName) {
 
   const attachment = getNodeAttachments(record.node).find((a) => a.id === attachmentId);
   if (!attachment) {
+    return;
+  }
+
+  if (browserIsOffline()) {
+    state.activeModal = {
+      ...state.activeModal,
+      attachmentUploading: false,
+      attachmentError: 'Attachment deletion needs a network connection. Other map edits can still be queued offline.',
+    };
+    render();
     return;
   }
 
@@ -4305,79 +4493,6 @@ function getActiveModalContext(expectedKind = '') {
   }
 
   return getNodeUiStateForLocation(state.activeModal.mapPath, state.activeModal.nodeId);
-}
-
-function buildRenamedSnapshot(snapshot, operation) {
-  const nextDocument = cloneMapDocument(snapshot.document);
-  const applied = applyMapMutation(nextDocument, {
-    type: 'editNodeText',
-    nodeId: operation.nodeId,
-    text: operation.text,
-    timestamp: operation.timestamp,
-  });
-  if (!applied.ok) {
-    return applied;
-  }
-
-  const nextFilePath = operation.newFilePath || snapshot.filePath;
-  const nextFileName = nextFilePath.split('/').pop() || nextFilePath;
-  return {
-    ok: true,
-    value: {
-      snapshot: {
-        ...snapshot,
-        filePath: nextFilePath,
-        fileName: nextFileName,
-        mapName: nextFileName.replace(/\.json$/i, ''),
-        document: nextDocument,
-        loadedAt: Date.now(),
-      },
-      mutation: applied.value,
-    },
-  };
-}
-
-function applyPendingOperationsLocally(snapshots, pendingOperations) {
-  const snapshotsByPath = new Map(
-    snapshots.map((snapshot) => [
-      snapshot.filePath,
-      {
-        ...snapshot,
-        document: cloneMapDocument(snapshot.document),
-      },
-    ]),
-  );
-
-  pendingOperations.forEach((operation) => {
-    if (operation.type === 'renameMap') {
-      const snapshot = snapshotsByPath.get(operation.filePath) ?? snapshotsByPath.get(operation.newFilePath);
-      if (!snapshot) {
-        return;
-      }
-
-      const renamed = buildRenamedSnapshot(snapshot, operation);
-      if (!renamed.ok) {
-        return;
-      }
-
-      snapshotsByPath.delete(operation.filePath);
-      snapshotsByPath.delete(operation.newFilePath);
-      snapshotsByPath.set(renamed.value.snapshot.filePath, renamed.value.snapshot);
-      return;
-    }
-
-    const snapshot = snapshotsByPath.get(operation.filePath);
-    if (!snapshot) {
-      return;
-    }
-
-    const applied = applyMapMutation(snapshot.document, operation);
-    if (applied.ok) {
-      snapshot.loadedAt = Date.now();
-    }
-  });
-
-  return Array.from(snapshotsByPath.values());
 }
 
 function persistRepoScopedState() {
@@ -7188,6 +7303,10 @@ function describeOperation(operation) {
   const mapLabel = getMapLabel(getOperationDisplayFilePath(operation));
 
   switch (operation.type) {
+    case 'createMap':
+      return `map creation for ${operation.mapName || mapLabel}`;
+    case 'deleteMap':
+      return `map deletion for ${operation.mapName || mapLabel}`;
     case 'renameMap':
       return `map rename in ${mapLabel}`;
     case 'editNodeText':

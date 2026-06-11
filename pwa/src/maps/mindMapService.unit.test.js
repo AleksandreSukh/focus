@@ -212,6 +212,17 @@ function createRepository(overrides = {}) {
             },
           };
     },
+    async createMap(filePath, document, commitMessage) {
+      return overrides.createMap
+        ? overrides.createMap(filePath, document, commitMessage)
+        : {
+            ok: false,
+            error: {
+              code: 'NOT_IMPLEMENTED',
+              message: `No mock createMap result for "${filePath}".`,
+            },
+          };
+    },
     async deleteAttachment(mapFilePath, nodeId, relativePath, versionToken, commitMessage) {
       return overrides.deleteAttachment
         ? overrides.deleteAttachment(mapFilePath, nodeId, relativePath, versionToken, commitMessage)
@@ -545,6 +556,75 @@ describe('MindMapService cached snapshots', () => {
     service.removeCachedSnapshot(repairedSnapshot.filePath);
 
     assert.deepEqual(service.getCachedSnapshots(), []);
+  });
+});
+
+describe('MindMapService.createMapFromDocument', () => {
+  it('persists the supplied local document and caches the saved snapshot', async () => {
+    const document = createMapDocument('Offline Map');
+    const rootId = document.rootNode.uniqueIdentifier;
+    document.rootNode.children.push(createNode({
+      id: '11111111-1111-4111-8111-111111111111',
+      name: 'Queued child',
+    }));
+
+    const calls = [];
+    const service = new MindMapService(createRepository({
+      createMap: async (filePath, savedDocument, commitMessage) => {
+        calls.push({
+          filePath,
+          commitMessage,
+          rootId: savedDocument.rootNode.uniqueIdentifier,
+          childName: savedDocument.rootNode.children[0].name,
+        });
+        return {
+          ok: true,
+          revision: 'rev-created',
+        };
+      },
+    }));
+
+    const result = await service.createMapFromDocument(
+      'FocusMaps/Offline Map.json',
+      document,
+      'map:create Offline Map',
+      'Offline Map',
+    );
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(calls, [{
+      filePath: 'FocusMaps/Offline Map.json',
+      commitMessage: 'map:create Offline Map',
+      rootId,
+      childName: 'Queued child',
+    }]);
+    assert.equal(result.value.document.rootNode.uniqueIdentifier, rootId);
+    assert.equal(result.value.revision, 'rev-created');
+    assert.equal(service.getCachedSnapshot('FocusMaps/Offline Map.json').document.rootNode.uniqueIdentifier, rootId);
+  });
+
+  it('does not cache the map when repository create fails', async () => {
+    const service = new MindMapService(createRepository({
+      createMap: async () => ({
+        ok: false,
+        error: {
+          code: 'PERSISTENCE_ERROR',
+          message: 'Create failed.',
+          retriable: true,
+        },
+      }),
+    }));
+
+    const result = await service.createMapFromDocument(
+      'FocusMaps/Offline Map.json',
+      createMapDocument('Offline Map'),
+      'map:create Offline Map',
+      'Offline Map',
+    );
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error.message, 'Create failed.');
+    assert.equal(service.getCachedSnapshot('FocusMaps/Offline Map.json'), null);
   });
 });
 
