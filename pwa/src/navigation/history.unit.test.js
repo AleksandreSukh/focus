@@ -13,6 +13,24 @@ import {
   replaceNavigationEntry,
 } from './history.js';
 
+const DIALOG_OVERLAY_KINDS = [
+  'addChildNote',
+  'addChildTask',
+  'askAi',
+  'audioViewer',
+  'createMap',
+  'deleteAttachment',
+  'deleteMap',
+  'deleteNode',
+  'editNode',
+  'imageViewer',
+  'repairMap',
+  'resolveConflict',
+  'settings',
+  'status',
+  'textViewer',
+];
+
 describe('navigation history', () => {
   it('pushes, goes back, and goes forward', () => {
     let history = createNavigationHistory({ view: 'maps' });
@@ -64,42 +82,55 @@ describe('navigation history', () => {
     assert.equal(history.backStack.length, 0);
   });
 
-  it('includes overlays in entry equality', () => {
+  it('includes non-dialog overlays in entry equality', () => {
     const base = { view: 'map', mapPath: 'FocusMaps/A.json', nodeId: 'node' };
-    const status = { ...base, overlay: { kind: 'status' } };
-    const settings = { ...base, overlay: { kind: 'settings' } };
+    const inspector = { ...base, overlay: { kind: 'inspector' } };
+    const outline = { ...base, overlay: { kind: 'outline' } };
 
-    assert.equal(navigationEntriesEqual(base, status), false);
-    assert.equal(navigationEntriesEqual(status, { ...status }), true);
+    assert.equal(navigationEntriesEqual(base, inspector), false);
+    assert.equal(navigationEntriesEqual(inspector, { ...inspector }), true);
 
     let history = createNavigationHistory(base);
-    history = pushNavigationEntry(history, status);
-    history = pushNavigationEntry(history, settings);
+    history = pushNavigationEntry(history, inspector);
+    history = pushNavigationEntry(history, outline);
 
     assert.equal(history.backStack.length, 2);
-    assert.deepEqual(history.current.overlay, { kind: 'settings' });
+    assert.deepEqual(history.current.overlay, { kind: 'outline' });
   });
 
-  it('skips edit node overlays when normalizing entries', () => {
+  it('skips dialog overlays when normalizing entries', () => {
     const base = { view: 'map', mapPath: 'FocusMaps/A.json', nodeId: 'node' };
-    const entry = normalizeNavigationEntry({
-      ...base,
-      overlay: { kind: 'editNode', mapPath: 'FocusMaps/A.json', nodeId: 'node' },
-    });
 
-    assert.deepEqual(entry, {
-      ...base,
-      overlay: null,
+    DIALOG_OVERLAY_KINDS.forEach((kind) => {
+      const entry = normalizeNavigationEntry({
+        ...base,
+        overlay: {
+          kind,
+          mapPath: 'FocusMaps/A.json',
+          nodeId: 'node',
+          attachmentId: 'attachment',
+          attachmentRelativePath: 'note.txt',
+          filePath: 'FocusMaps/A.json',
+          previousOverlay: { kind: 'imageViewer', mapPath: 'FocusMaps/A.json', nodeId: 'node' },
+        },
+      });
+
+      assert.deepEqual(entry, {
+        ...base,
+        overlay: null,
+      });
     });
   });
 
-  it('does not push edit node modal state into navigation history', () => {
+  it('does not push dialog state into navigation history', () => {
     const base = { view: 'map', mapPath: 'FocusMaps/A.json', nodeId: 'node' };
     let history = createNavigationHistory(base);
 
-    history = pushNavigationEntry(history, {
-      ...base,
-      overlay: { kind: 'editNode', mapPath: 'FocusMaps/A.json', nodeId: 'node' },
+    DIALOG_OVERLAY_KINDS.forEach((kind) => {
+      history = pushNavigationEntry(history, {
+        ...base,
+        overlay: { kind, mapPath: 'FocusMaps/A.json', nodeId: 'node' },
+      });
     });
 
     assert.equal(canGoBack(history), false);
@@ -110,48 +141,56 @@ describe('navigation history', () => {
     });
   });
 
-  it('prunes old edit node modal entries from normalized stacks', () => {
+  it('prunes old dialog entries from normalized stacks', () => {
     const base = { view: 'map', mapPath: 'FocusMaps/A.json', nodeId: 'node', overlay: null };
     const other = { view: 'map', mapPath: 'FocusMaps/B.json', nodeId: 'root', overlay: null };
-    const edit = {
+    const editNode = {
       ...base,
       overlay: { kind: 'editNode', mapPath: 'FocusMaps/A.json', nodeId: 'node' },
     };
     const status = { ...base, overlay: { kind: 'status' } };
+    const createMap = { view: 'maps', mapPath: '', nodeId: '', overlay: { kind: 'createMap' } };
+    const tasks = { view: 'tasks', mapPath: '', nodeId: '', overlay: null };
 
     const history = normalizeNavigationHistory({
       current: base,
-      backStack: [other, edit],
-      forwardStack: [edit, status],
+      backStack: [other, editNode, status],
+      forwardStack: [status, editNode, tasks, createMap],
     });
 
     assert.deepEqual(history.current, base);
     assert.deepEqual(history.backStack, [other]);
-    assert.deepEqual(history.forwardStack, [status]);
+    assert.deepEqual(history.forwardStack, [tasks, { ...createMap, overlay: null }]);
 
     let navigated = goBack(history);
     assert.deepEqual(navigated.current, other);
     navigated = goForward(navigated);
 
     assert.deepEqual(navigated.current, base);
-    assert.deepEqual(navigated.forwardStack, [status]);
+    assert.deepEqual(navigated.forwardStack, [tasks, { ...createMap, overlay: null }]);
   });
 
-  it('keeps redo clearing behavior after pruning edit node entries', () => {
+  it('preserves redo history when opening a dialog after going back', () => {
     const base = { view: 'map', mapPath: 'FocusMaps/A.json', nodeId: 'node' };
-    const status = { ...base, overlay: { kind: 'status' } };
     let history = createNavigationHistory(base);
 
     history = pushNavigationEntry(history, { view: 'tasks' });
     history = goBack(history);
+
+    assert.equal(canGoForward(history), true);
+
     history = pushNavigationEntry(history, {
       ...base,
-      overlay: { kind: 'editNode', mapPath: 'FocusMaps/A.json', nodeId: 'node' },
+      overlay: { kind: 'createMap' },
     });
-    history = pushNavigationEntry(history, status);
 
-    assert.equal(canGoForward(history), false);
-    assert.equal(history.backStack.length, 1);
-    assert.deepEqual(history.current.overlay, { kind: 'status' });
+    assert.equal(canGoForward(history), true);
+    assert.equal(history.backStack.length, 0);
+    assert.deepEqual(history.forwardStack, [{
+      view: 'tasks',
+      mapPath: '',
+      nodeId: '',
+      overlay: null,
+    }]);
   });
 });

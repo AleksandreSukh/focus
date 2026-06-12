@@ -240,27 +240,11 @@ function wireUi() {
   bindGlobalUiListeners();
 
   ui.statusToggle?.addEventListener('click', () => {
-    const openingStatus = !state.showStatus;
-    if (openingStatus) {
-      navigateTo({
-        ...getCurrentBaseNavigationEntry(),
-        overlay: { kind: 'status' },
-      });
-    } else {
-      navigateTo(getCurrentBaseNavigationEntry());
-    }
+    toggleStatusPanel();
   });
 
   ui.settingsToggle?.addEventListener('click', () => {
-    const openingSettings = !state.showSettings;
-    if (openingSettings) {
-      navigateTo({
-        ...getCurrentBaseNavigationEntry(),
-        overlay: { kind: 'settings' },
-      });
-    } else {
-      navigateTo(getCurrentBaseNavigationEntry());
-    }
+    toggleSettingsPanel();
   });
 
   ui.installButton?.addEventListener('click', async () => {
@@ -503,6 +487,79 @@ function navigateForward() {
   }
 
   window.history.forward();
+}
+
+function clearActiveModalForTransientDialog() {
+  if (activeVoiceRecording) {
+    discardActiveVoiceRecording();
+  }
+
+  if (state.activeModal) {
+    revokeModalObjectUrls(state.activeModal);
+  }
+
+  state.activeModal = null;
+  state.openCardMenu = '';
+}
+
+function toggleStatusPanel() {
+  if (state.showStatus) {
+    closeStatusPanel();
+    return;
+  }
+
+  openStatusPanel();
+}
+
+function openStatusPanel() {
+  if (state.authState !== 'authenticated') {
+    return;
+  }
+
+  clearActiveModalForTransientDialog();
+  state.showSettings = false;
+  state.showStatus = true;
+  state.pendingFocusRequest = { type: 'modalAutofocus' };
+  render();
+}
+
+function closeStatusPanel() {
+  if (!state.showStatus) {
+    return;
+  }
+
+  state.showStatus = false;
+  render();
+}
+
+function toggleSettingsPanel() {
+  if (state.showSettings) {
+    closeSettingsPanel();
+    return;
+  }
+
+  openSettingsPanel();
+}
+
+function openSettingsPanel() {
+  if (state.authState !== 'authenticated') {
+    return;
+  }
+
+  clearActiveModalForTransientDialog();
+  state.showStatus = false;
+  state.showSettings = true;
+  state.pendingFocusRequest = { type: 'modalAutofocus' };
+  render();
+}
+
+function closeSettingsPanel() {
+  if (!state.showSettings) {
+    return;
+  }
+
+  state.showSettings = false;
+  render();
 }
 
 function handleBrowserPopState(event) {
@@ -1389,13 +1446,13 @@ function handleDocumentKeydown(event) {
 
   if (event.key === 'Escape' && state.showSettings) {
     event.preventDefault();
-    navigateTo(getCurrentBaseNavigationEntry());
+    closeSettingsPanel();
     return;
   }
 
   if (event.key === 'Escape' && state.showStatus) {
     event.preventDefault();
-    navigateTo(getCurrentBaseNavigationEntry());
+    closeStatusPanel();
     return;
   }
 
@@ -4819,7 +4876,7 @@ function renderStatusPanel() {
   `;
 
   const closeStatus = () => {
-    navigateTo(getCurrentBaseNavigationEntry());
+    closeStatusPanel();
   };
 
   ui.statusRoot.querySelector('#status-backdrop')?.addEventListener('click', closeStatus);
@@ -5812,7 +5869,7 @@ function renderSettingsPanel() {
       void authenticateAndLoad();
     },
     onClose: () => {
-      navigateTo(getCurrentBaseNavigationEntry());
+      closeSettingsPanel();
     },
   });
   renderCache.settingsKey = nextKey;

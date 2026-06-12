@@ -1,4 +1,20 @@
-const TRANSIENT_OVERLAY_KINDS = new Set(['editNode']);
+const TRANSIENT_OVERLAY_KINDS = new Set([
+  'addChildNote',
+  'addChildTask',
+  'askAi',
+  'audioViewer',
+  'createMap',
+  'deleteAttachment',
+  'deleteMap',
+  'deleteNode',
+  'editNode',
+  'imageViewer',
+  'repairMap',
+  'resolveConflict',
+  'settings',
+  'status',
+  'textViewer',
+]);
 
 function stableCopy(value) {
   if (Array.isArray(value)) {
