@@ -1,21 +1,3 @@
-const TRANSIENT_OVERLAY_KINDS = new Set([
-  'addChildNote',
-  'addChildTask',
-  'askAi',
-  'audioViewer',
-  'createMap',
-  'deleteAttachment',
-  'deleteMap',
-  'deleteNode',
-  'editNode',
-  'imageViewer',
-  'repairMap',
-  'resolveConflict',
-  'settings',
-  'status',
-  'textViewer',
-]);
-
 function stableCopy(value) {
   if (Array.isArray(value)) {
     return value.map(stableCopy);
@@ -36,29 +18,16 @@ function stableCopy(value) {
     }, {});
 }
 
-function normalizeOverlay(overlay) {
-  if (!overlay || typeof overlay !== 'object' || Array.isArray(overlay)) {
-    return null;
-  }
-
-  const kind = typeof overlay.kind === 'string' ? overlay.kind.trim() : '';
-  if (!kind || TRANSIENT_OVERLAY_KINDS.has(kind)) {
-    return null;
-  }
-
-  return stableCopy({
-    ...overlay,
-    kind,
-  });
-}
-
+// Navigation entries deliberately carry only the base route. Dialog/modal/panel
+// state (overlays) must never enter the back/forward path, so any overlay data
+// on an incoming entry — including from history.state persisted by older app
+// versions — is dropped here.
 export function normalizeNavigationEntry(entry = {}) {
   const view = entry.view === 'tasks' || entry.view === 'map' ? entry.view : 'maps';
   const normalized = {
     view,
     mapPath: '',
     nodeId: '',
-    overlay: normalizeOverlay(entry.overlay),
   };
 
   if (view === 'map') {

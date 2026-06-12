@@ -370,10 +370,7 @@ function getCurrentBaseNavigationEntry() {
 }
 
 function getCurrentNavigationEntry() {
-  return normalizeNavigationEntry({
-    ...getCurrentBaseNavigationEntry(),
-    overlay: navigationOverlayFromCurrentUi(),
-  });
+  return normalizeNavigationEntry(getCurrentBaseNavigationEntry());
 }
 
 function recordCurrentNavigationEntry(options = {}) {
@@ -404,7 +401,7 @@ function resolveNavigationEntry(entry) {
           value: buildRepairFocusKey(normalized.mapPath),
         };
       }
-      resolved = { view: 'maps', mapPath: '', nodeId: '', overlay: null };
+      resolved = { view: 'maps', mapPath: '', nodeId: '' };
     } else {
       const rootNodeId = snapshot.document.rootNode?.uniqueIdentifier || '';
       const nodeId = resolveViewportNodeId(snapshot.document, normalized.nodeId || rootNodeId) || rootNodeId;
@@ -414,13 +411,6 @@ function resolveNavigationEntry(entry) {
         nodeId,
       };
     }
-  }
-
-  if (resolved.overlay && !canApplyNavigationOverlay(resolved.overlay, resolved)) {
-    resolved = {
-      ...resolved,
-      overlay: null,
-    };
   }
 
   return normalizeNavigationEntry(resolved);
@@ -591,130 +581,6 @@ function handleBrowserPopState(event) {
   render();
 }
 
-function navigationOverlayFromCurrentUi() {
-  if (state.showStatus) {
-    return { kind: 'status' };
-  }
-
-  if (state.showSettings) {
-    return { kind: 'settings' };
-  }
-
-  return navigationOverlayFromActiveModal(state.activeModal);
-}
-
-function navigationOverlayFromActiveModal(modal) {
-  if (!modal?.kind) {
-    return null;
-  }
-
-  if (modal.kind === 'textViewer' && modal.attachmentRelativePath === '__raw-map__') {
-    return {
-      kind: 'textViewer',
-      source: 'unreadableMap',
-      mapPath: modal.mapPath || '',
-    };
-  }
-
-  if (modal.kind === 'imageViewer' || modal.kind === 'textViewer' || modal.kind === 'audioViewer') {
-    return {
-      kind: modal.kind,
-      mapPath: modal.mapPath || '',
-      nodeId: modal.nodeId || '',
-      attachmentId: modal.attachmentId || '',
-      attachmentRelativePath: modal.attachmentRelativePath || '',
-    };
-  }
-
-  if (modal.kind === 'deleteAttachment') {
-    return {
-      kind: 'deleteAttachment',
-      mapPath: modal.mapPath || '',
-      nodeId: modal.nodeId || '',
-      attachmentId: modal.attachmentId || '',
-      attachmentRelativePath: modal.attachmentRelativePath || '',
-      displayName: modal.displayName || '',
-      returnNodeId: modal.returnNodeId || '',
-      previousOverlay: navigationOverlayFromActiveModal(modal.previousModal),
-    };
-  }
-
-  if (modal.kind === 'resolveConflict') {
-    return {
-      kind: 'resolveConflict',
-      filePath: modal.filePath || '',
-    };
-  }
-
-  if (modal.kind === 'createMap') {
-    return { kind: 'createMap' };
-  }
-
-  return {
-    kind: modal.kind,
-    mapPath: modal.mapPath || '',
-    nodeId: modal.fixedParentNodeId || modal.nodeId || '',
-  };
-}
-
-function findAttachmentForNavigationOverlay(overlay) {
-  const snapshot = state.mapsByPath[overlay?.mapPath || ''];
-  if (!snapshot) {
-    return null;
-  }
-
-  const record = findNodeRecord(snapshot.document, overlay.nodeId || '');
-  if (!record) {
-    return null;
-  }
-
-  const attachmentId = overlay.attachmentId || '';
-  const relativePath = overlay.attachmentRelativePath || '';
-  return getNodeAttachments(record.node).find((attachment) =>
-    (attachmentId && attachment.id === attachmentId) ||
-    (relativePath && attachment.relativePath === relativePath)
-  ) || null;
-}
-
-function canApplyNavigationOverlay(overlay, baseEntry) {
-  if (!overlay?.kind) {
-    return false;
-  }
-
-  switch (overlay.kind) {
-    case 'status':
-    case 'settings':
-    case 'createMap':
-      return true;
-    case 'resolveConflict':
-      return state.pendingOperations.length > 0 && state.syncState.kind === 'conflict';
-    case 'deleteMap':
-      return Boolean(state.mapsByPath[overlay.mapPath || '']);
-    case 'repairMap':
-      return Boolean(buildLocalRepairDraft(overlay.mapPath || ''));
-    case 'textViewer':
-      if (overlay.source === 'unreadableMap') {
-        return Boolean(getUnreadableMapByPath(overlay.mapPath || ''));
-      }
-      return Boolean(findAttachmentForNavigationOverlay(overlay));
-    case 'imageViewer':
-    case 'audioViewer':
-      return Boolean(findAttachmentForNavigationOverlay(overlay));
-    case 'deleteAttachment':
-      return Boolean(findAttachmentForNavigationOverlay(overlay));
-    case 'editNode':
-    case 'addChildNote':
-    case 'deleteNode': {
-      const mapPath = overlay.mapPath || baseEntry.mapPath || '';
-      const nodeId = overlay.nodeId || baseEntry.nodeId || '';
-      const snapshot = state.mapsByPath[mapPath];
-      return Boolean(snapshot && getNodeUiState(snapshot.document, nodeId));
-    }
-    default:
-      return false;
-  }
-}
-
 function applyNavigationEntry(entry) {
   const normalized = normalizeNavigationEntry(entry);
   const previousBase = getCurrentBaseNavigationEntry();
@@ -759,198 +625,9 @@ function applyNavigationEntry(entry) {
     ) {
       state.expandedRelatedNodeKey = '';
     }
-
-    applyNavigationOverlay(normalized.overlay, normalized);
   } finally {
     applyingNavigationEntry = false;
   }
-}
-
-function modalStateFromNavigationOverlay(overlay) {
-  if (!overlay?.kind) {
-    return null;
-  }
-
-  if (overlay.kind === 'imageViewer' || overlay.kind === 'textViewer' || overlay.kind === 'audioViewer') {
-    const attachment = findAttachmentForNavigationOverlay(overlay);
-    if (!attachment) {
-      return null;
-    }
-
-    return {
-      kind: overlay.kind,
-      mapPath: overlay.mapPath || '',
-      nodeId: overlay.nodeId || '',
-      attachmentId: attachment.id,
-      draftText: '',
-      errorMessage: '',
-      returnFocusKey: buildNodeFocusKey(overlay.mapPath || '', overlay.nodeId || ''),
-      attachmentRelativePath: attachment.relativePath,
-      displayName: attachment.displayName || attachment.relativePath,
-      imageUrl: null,
-      audioUrl: null,
-      downloadUrl: null,
-      textContent: '',
-      loading: true,
-      zoom: 1,
-      panX: 0,
-      panY: 0,
-    };
-  }
-
-  return null;
-}
-
-function applyNavigationOverlay(overlay, baseEntry) {
-  if (!overlay?.kind) {
-    return;
-  }
-
-  if (overlay.kind === 'status') {
-    state.showStatus = true;
-    state.pendingFocusRequest = { type: 'modalAutofocus' };
-    return;
-  }
-
-  if (overlay.kind === 'settings') {
-    state.showSettings = true;
-    state.pendingFocusRequest = { type: 'modalAutofocus' };
-    return;
-  }
-
-  if (overlay.kind === 'createMap') {
-    state.activeModal = {
-      kind: 'createMap',
-      mapPath: '',
-      nodeId: '',
-      draftText: '',
-      errorMessage: '',
-      returnFocusKey: 'create-map-trigger',
-    };
-    state.pendingFocusRequest = { type: 'modalAutofocus' };
-    return;
-  }
-
-  if (overlay.kind === 'deleteMap') {
-    const snapshot = state.mapsByPath[overlay.mapPath || ''];
-    if (!snapshot) {
-      return;
-    }
-    state.activeModal = {
-      kind: 'deleteMap',
-      mapPath: snapshot.filePath,
-      nodeId: '',
-      draftText: '',
-      errorMessage: '',
-      returnFocusKey: 'maps-list',
-    };
-    state.pendingFocusRequest = { type: 'modalAutofocus' };
-    return;
-  }
-
-  if (overlay.kind === 'repairMap') {
-    const draftText = buildLocalRepairDraft(overlay.mapPath || '');
-    if (!draftText) {
-      return;
-    }
-    state.activeModal = {
-      kind: 'repairMap',
-      mapPath: overlay.mapPath || '',
-      nodeId: '',
-      draftText,
-      errorMessage: '',
-      returnFocusKey: buildRepairFocusKey(overlay.mapPath || ''),
-      displayName: getRepairFileName(overlay.mapPath || ''),
-    };
-    state.pendingFocusRequest = { type: 'modalAutofocus' };
-    return;
-  }
-
-  if (overlay.kind === 'textViewer' && overlay.source === 'unreadableMap') {
-    const unreadableMap = getUnreadableMapByPath(overlay.mapPath || '');
-    if (!unreadableMap) {
-      return;
-    }
-    const downloadUrl = createTextDownloadUrl(unreadableMap.rawText, 'application/json');
-    state.activeModal = {
-      kind: 'textViewer',
-      mapPath: unreadableMap.filePath,
-      nodeId: '',
-      draftText: '',
-      errorMessage: '',
-      returnFocusKey: buildRepairFocusKey(unreadableMap.filePath),
-      attachmentRelativePath: '__raw-map__',
-      displayName: unreadableMap.fileName,
-      textContent: unreadableMap.rawText,
-      downloadUrl,
-      loading: false,
-    };
-    state.pendingFocusRequest = { type: 'modalAutofocus' };
-    return;
-  }
-
-  if (overlay.kind === 'imageViewer' || overlay.kind === 'textViewer' || overlay.kind === 'audioViewer') {
-    const attachment = findAttachmentForNavigationOverlay(overlay);
-    if (!attachment) {
-      return;
-    }
-    void openAttachmentViewerForAttachment(
-      overlay.mapPath || '',
-      overlay.nodeId || '',
-      attachment,
-      buildNodeFocusKey(overlay.mapPath || '', overlay.nodeId || ''),
-    );
-    return;
-  }
-
-  if (overlay.kind === 'deleteAttachment') {
-    const attachment = findAttachmentForNavigationOverlay(overlay);
-    if (!attachment) {
-      return;
-    }
-    state.activeModal = {
-      kind: 'deleteAttachment',
-      mapPath: overlay.mapPath || '',
-      nodeId: overlay.nodeId || '',
-      attachmentId: attachment.id,
-      attachmentRelativePath: attachment.relativePath,
-      displayName: overlay.displayName || attachment.displayName || attachment.relativePath,
-      returnNodeId: overlay.returnNodeId || getDeleteAttachmentReturnNodeId(overlay.mapPath || '', overlay.nodeId || ''),
-      errorMessage: '',
-      returnFocusKey: buildNodeFocusKey(overlay.mapPath || '', overlay.nodeId || ''),
-      previousModal: modalStateFromNavigationOverlay(overlay.previousOverlay),
-    };
-    state.pendingFocusRequest = { type: 'modalAutofocus' };
-    return;
-  }
-
-  if (overlay.kind === 'resolveConflict') {
-    void openConflictModal();
-    return;
-  }
-
-  const mapPath = overlay.mapPath || baseEntry.mapPath || '';
-  const nodeId = overlay.nodeId || baseEntry.nodeId || '';
-  const snapshot = state.mapsByPath[mapPath];
-  const nodeUiState = snapshot ? getNodeUiState(snapshot.document, nodeId) : null;
-  if (!nodeUiState) {
-    return;
-  }
-
-  state.currentView = 'map';
-  state.selectedMapPath = mapPath;
-  state.selectedNodeId = nodeUiState.node.uniqueIdentifier;
-  state.activeModal = {
-    kind: overlay.kind,
-    mapPath,
-    nodeId: nodeUiState.node.uniqueIdentifier,
-    draftText: overlay.kind === 'editNode' ? nodeUiState.node.name || '' : '',
-    hideDoneTasks: overlay.kind === 'editNode' ? Boolean(nodeUiState.effectiveHideDoneTasks) : false,
-    errorMessage: '',
-    returnFocusKey: buildNodeFocusKey(mapPath, nodeUiState.node.uniqueIdentifier),
-    fixedParentNodeId: overlay.kind === 'addChildNote' ? nodeUiState.node.uniqueIdentifier : '',
-  };
-  state.pendingFocusRequest = { type: 'modalAutofocus' };
 }
 
 function bindGlobalUiListeners() {

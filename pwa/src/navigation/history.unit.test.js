@@ -29,6 +29,7 @@ const DIALOG_OVERLAY_KINDS = [
   'settings',
   'status',
   'textViewer',
+  'someFutureDialogKind',
 ];
 
 describe('navigation history', () => {
@@ -45,7 +46,6 @@ describe('navigation history', () => {
       view: 'map',
       mapPath: 'FocusMaps/A.json',
       nodeId: 'root',
-      overlay: null,
     });
     assert.equal(canGoForward(history), true);
 
@@ -82,23 +82,16 @@ describe('navigation history', () => {
     assert.equal(history.backStack.length, 0);
   });
 
-  it('includes non-dialog overlays in entry equality', () => {
+  it('ignores overlays in entry equality', () => {
     const base = { view: 'map', mapPath: 'FocusMaps/A.json', nodeId: 'node' };
-    const inspector = { ...base, overlay: { kind: 'inspector' } };
-    const outline = { ...base, overlay: { kind: 'outline' } };
+    const withOverlay = { ...base, overlay: { kind: 'editNode' } };
+    const withOtherOverlay = { ...base, overlay: { kind: 'someFutureDialogKind' } };
 
-    assert.equal(navigationEntriesEqual(base, inspector), false);
-    assert.equal(navigationEntriesEqual(inspector, { ...inspector }), true);
-
-    let history = createNavigationHistory(base);
-    history = pushNavigationEntry(history, inspector);
-    history = pushNavigationEntry(history, outline);
-
-    assert.equal(history.backStack.length, 2);
-    assert.deepEqual(history.current.overlay, { kind: 'outline' });
+    assert.equal(navigationEntriesEqual(base, withOverlay), true);
+    assert.equal(navigationEntriesEqual(withOverlay, withOtherOverlay), true);
   });
 
-  it('skips dialog overlays when normalizing entries', () => {
+  it('drops every overlay when normalizing entries', () => {
     const base = { view: 'map', mapPath: 'FocusMaps/A.json', nodeId: 'node' };
 
     DIALOG_OVERLAY_KINDS.forEach((kind) => {
@@ -115,10 +108,7 @@ describe('navigation history', () => {
         },
       });
 
-      assert.deepEqual(entry, {
-        ...base,
-        overlay: null,
-      });
+      assert.deepEqual(entry, base);
     });
   });
 
@@ -135,22 +125,19 @@ describe('navigation history', () => {
 
     assert.equal(canGoBack(history), false);
     assert.equal(history.backStack.length, 0);
-    assert.deepEqual(history.current, {
-      ...base,
-      overlay: null,
-    });
+    assert.deepEqual(history.current, base);
   });
 
-  it('prunes old dialog entries from normalized stacks', () => {
-    const base = { view: 'map', mapPath: 'FocusMaps/A.json', nodeId: 'node', overlay: null };
-    const other = { view: 'map', mapPath: 'FocusMaps/B.json', nodeId: 'root', overlay: null };
+  it('prunes old dialog entries from persisted stacks', () => {
+    const base = { view: 'map', mapPath: 'FocusMaps/A.json', nodeId: 'node' };
+    const other = { view: 'map', mapPath: 'FocusMaps/B.json', nodeId: 'root' };
     const editNode = {
       ...base,
       overlay: { kind: 'editNode', mapPath: 'FocusMaps/A.json', nodeId: 'node' },
     };
     const status = { ...base, overlay: { kind: 'status' } };
     const createMap = { view: 'maps', mapPath: '', nodeId: '', overlay: { kind: 'createMap' } };
-    const tasks = { view: 'tasks', mapPath: '', nodeId: '', overlay: null };
+    const tasks = { view: 'tasks', mapPath: '', nodeId: '' };
 
     const history = normalizeNavigationHistory({
       current: base,
@@ -160,14 +147,14 @@ describe('navigation history', () => {
 
     assert.deepEqual(history.current, base);
     assert.deepEqual(history.backStack, [other]);
-    assert.deepEqual(history.forwardStack, [tasks, { ...createMap, overlay: null }]);
+    assert.deepEqual(history.forwardStack, [tasks, { view: 'maps', mapPath: '', nodeId: '' }]);
 
     let navigated = goBack(history);
     assert.deepEqual(navigated.current, other);
     navigated = goForward(navigated);
 
     assert.deepEqual(navigated.current, base);
-    assert.deepEqual(navigated.forwardStack, [tasks, { ...createMap, overlay: null }]);
+    assert.deepEqual(navigated.forwardStack, [tasks, { view: 'maps', mapPath: '', nodeId: '' }]);
   });
 
   it('preserves redo history when opening a dialog after going back', () => {
@@ -190,7 +177,6 @@ describe('navigation history', () => {
       view: 'tasks',
       mapPath: '',
       nodeId: '',
-      overlay: null,
     }]);
   });
 });
