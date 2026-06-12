@@ -354,7 +354,6 @@ MigrationBackup/
 .build-output/
 .dotnet/
 .chrome-profile/
-.claude
 
 # Android
 android/.gradle/
